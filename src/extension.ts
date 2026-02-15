@@ -47,31 +47,64 @@ function commandExists(command: string): Promise<boolean> {
 
 /**
  * Detect whether Deno and Glubean CLI are installed.
- * Uses resolveGlubeanPath() which checks well-known install locations
- * as fallback, so we don't depend on ~/.deno/bin being on PATH.
+ *
+ * Uses a two-tier strategy:
+ * 1. Fast path: check if the binary files exist at well-known locations
+ *    (~/.deno/bin/). This is instant and avoids the slow first-run package
+ *    download that `glubean --version` triggers via JSR.
+ * 2. Fallback: try spawning the command on PATH (for non-standard installs).
  */
 async function checkDependencies(): Promise<DepStatus> {
   if (cachedDepStatus) {
     return cachedDepStatus;
   }
 
-  const glubeanPath = resolveGlubeanPath();
-  const [deno, glubean] = await Promise.all([
-    commandExists(denoPath()),
-    commandExists(glubeanPath),
-  ]);
+  // Fast path: check well-known binary locations (instant, no network)
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  const denoWellKnown =
+    process.platform === "win32"
+      ? `${home}\\.deno\\bin\\deno.exe`
+      : `${home}/.deno/bin/deno`;
+  const glubeanWellKnown =
+    process.platform === "win32"
+      ? `${home}\\.deno\\bin\\glubean.exe`
+      : `${home}/.deno/bin/glubean`;
+
+  let deno = fs.existsSync(denoWellKnown);
+  let glubean = fs.existsSync(glubeanWellKnown);
+
+  // Fallback: check PATH for non-standard installs (e.g. brew, scoop)
+  if (!deno) {
+    deno = await commandExists("deno");
+  }
+
+  // Fallback: check user-configured path or system PATH
+  if (!glubean) {
+    const config = vscode.workspace.getConfiguration("glubean");
+    const configured = config.get<string>("glubeanPath", "glubean");
+    if (configured !== "glubean") {
+      // User set a custom path — check that specific path
+      glubean = fs.existsSync(configured) || (await commandExists(configured));
+    } else {
+      // Default "glubean" — check if it's available on system PATH
+      // (e.g. installed via brew, npm global, or manual symlink)
+      glubean = await commandExists("glubean");
+    }
+  }
+
   cachedDepStatus = { deno, glubean };
   return cachedDepStatus;
 }
 
 /**
  * Run a shell command and return stdout. Rejects on non-zero exit.
- * Uses login shell so ~/.deno/bin is on PATH after Deno install.
+ * Uses /bin/sh on Unix (non-login, non-interactive). PATH-dependent
+ * commands should use denoPath()/resolveGlubeanPath() for reliability.
  */
 function exec(command: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const shell = process.platform === "win32" ? undefined : "/bin/sh";
-    cp.exec(command, { shell, timeout: 120_000 }, (err, stdout, stderr) => {
+    cp.exec(command, { shell, timeout: 240_000 }, (err, stdout, stderr) => {
       if (err) {
         reject(new Error(stderr || err.message));
       } else {
@@ -254,7 +287,12 @@ async function ensureDenoOnPath(): Promise<void> {
       `\n# Added by Glubean extension\n${pathLine}\n`,
     );
   } catch {
-    // Non-critical — extension itself works via resolveGlubeanPath()
+    // Extension itself works via resolveGlubeanPath(), but terminal won't.
+    // Show a one-time tip so the user knows how to fix it manually.
+    vscode.window.showInformationMessage(
+      `Glubean works in the editor, but could not update ${targetRc} for terminal access. ` +
+        'Add `export PATH="$HOME/.deno/bin:$PATH"` to your shell config manually.',
+    );
   }
 }
 
@@ -326,7 +364,8 @@ async function runSetup(): Promise<boolean> {
           progress.report({ message: "Ready!" });
           await new Promise((r) => setTimeout(r, 600));
           vscode.window.showInformationMessage(
-            "Glubean is ready — you can now run tests with the ▶ play button.",
+            "Glubean is ready — run tests with the ▶ play button. " +
+              "Open a new terminal for `glubean` CLI access.",
           );
           // Hide the setup status bar hint if it's showing
           setupStatusBarItem?.hide();
@@ -343,10 +382,17 @@ async function runSetup(): Promise<boolean> {
         const message = err instanceof Error ? err.message : String(err);
         const shortcut =
           process.platform === "darwin" ? "Cmd+Shift+P" : "Ctrl+Shift+P";
-        vscode.window.showErrorMessage(
-          `Glubean setup failed: ${message}. ` +
-            `You can retry with ${shortcut} → "Glubean: Setup".`,
+        const choice = await vscode.window.showErrorMessage(
+          `Glubean setup failed: ${message}`,
+          "Open Install Guide",
+          "Retry",
         );
+        if (choice === "Open Install Guide") {
+          await showSetupDoc();
+        } else if (choice === "Retry") {
+          cachedDepStatus = undefined;
+          return await runSetup();
+        }
         return false;
       }
     },
@@ -628,9 +674,10 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      const glubeanBin = resolveGlubeanPath();
       const terminal = getOrCreateTerminal();
       terminal.show();
-      terminal.sendText(`glubean run "${editor.document.fileName}"`);
+      terminal.sendText(`"${glubeanBin}" run "${editor.document.fileName}"`);
     }),
   );
 
@@ -642,9 +689,12 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      const glubeanBin = resolveGlubeanPath();
       const terminal = getOrCreateTerminal();
       terminal.show();
-      terminal.sendText(`glubean run "${workspaceFolder.uri.fsPath}"`);
+      terminal.sendText(
+        `"${glubeanBin}" run "${workspaceFolder.uri.fsPath}"`,
+      );
     }),
   );
 
@@ -670,6 +720,9 @@ export function activate(context: vscode.ExtensionContext): void {
       cachedDepStatus = undefined; // clear cache
       const status = await checkDependencies();
       if (status.deno && status.glubean) {
+        // Deps found — also ensure PATH is configured (self-healing)
+        await ensureDenoOnPath();
+        setupStatusBarItem?.hide();
         vscode.window.showInformationMessage(
           "Glubean: All dependencies are installed.",
         );
