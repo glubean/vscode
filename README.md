@@ -10,9 +10,31 @@
 
 **VS Code Marketplace** — search for **Glubean** in the Extensions panel, or install from the [Marketplace page](https://marketplace.visualstudio.com/items?itemName=glubean.glubean).
 
-**Manual install (VSCodium or editors without marketplace access)** — download the latest `glubean-x.y.z.vsix` from [GitHub Releases](https://github.com/glubean/vscode/releases), then:
+**Manual VSIX (VSCodium or editors without marketplace access)** — download the latest `glubean-x.y.z.vsix` from [GitHub Releases](https://github.com/glubean/vscode/releases), then:
 
 > `Cmd+Shift+P` (or `Ctrl+Shift+P`) → **Extensions: Install from VSIX...** → select the downloaded file
+
+### Manual CLI install
+
+The extension auto-installs Deno and the CLI on first run (~30s). If that fails (network restrictions, permissions, etc.), install manually:
+
+```bash
+# 1. Install Deno (macOS / Linux)
+curl -fsSL https://deno.land/install.sh | sh
+# 1. Install Deno (Windows PowerShell)
+irm https://deno.land/install.ps1 | iex
+
+# 2. Install Glubean CLI (use absolute path to avoid PATH issues)
+~/.deno/bin/deno install -Agf -n glubean jsr:@glubean/cli
+# Windows: %USERPROFILE%\.deno\bin\deno.exe install -Agf -n glubean jsr:@glubean/cli
+
+# 3. Verify
+deno --version && glubean --version
+```
+
+The extension detects binaries at `~/.deno/bin/` automatically — no reload needed.
+
+**Recommended**: also install the [Deno extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno) for better TypeScript intellisense in test files.
 
 ## Features
 
@@ -102,17 +124,7 @@ export const createUser = test.pick(examples)(
 
 ## Getting Started
 
-Just install the extension and open a Glubean project. If Deno or the CLI aren't installed yet, the extension offers **one-click setup** — it installs everything silently in the background (~30 seconds).
-
-You can also install the CLI manually:
-
-```bash
-# macOS / Linux
-curl -fsSL https://glubean.com/install.sh | sh
-
-# Or with Deno
-deno install -Agf jsr:@glubean/cli
-```
+Just install the extension and open a Glubean project. If Deno or the CLI aren't installed yet, the extension offers **one-click setup** — it installs everything silently in the background (~30 seconds). If automatic setup fails, see [Manual CLI install](#manual-cli-install) above.
 
 Then scaffold a project with `glubean init`.
 
