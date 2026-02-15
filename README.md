@@ -6,6 +6,14 @@
 <p align="center">API collections, as real code — right inside your editor.</p>
 <p align="center">Built on top of the <a href="https://github.com/glubean/glubean">Glubean</a> open-source SDK and CLI.<br/>This extension brings the full runtime into VS Code — inline play buttons, auto-traced HTTP output, environment switching, and native diff. No browser tabs, no context switching.</p>
 
+## Install
+
+**VS Code Marketplace** — search for **Glubean** in the Extensions panel, or install from the [Marketplace page](https://marketplace.visualstudio.com/items?itemName=glubean.glubean).
+
+**Manual install (Cursor, VSCodium, other VS Code forks)** — download the latest `glubean-x.y.z.vsix` from [GitHub Releases](https://github.com/glubean/vscode/releases), then:
+
+> `Cmd+Shift+P` (or `Ctrl+Shift+P`) → **Extensions: Install from VSIX...** → select the downloaded file
+
 ## Features
 
 ### Run tests with one click
