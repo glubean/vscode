@@ -27,6 +27,9 @@ let cachedDepStatus: DepStatus | undefined;
 /** Prevent multiple setup prompts from stacking. */
 let setupInProgress = false;
 
+/** Status bar item shown when setup is needed (non-intrusive alternative to popup). */
+let setupStatusBarItem: vscode.StatusBarItem | undefined;
+
 /**
  * Check whether a command is available on the system PATH.
  * Returns true if the command exits with code 0.
@@ -44,17 +47,17 @@ function commandExists(command: string): Promise<boolean> {
 
 /**
  * Detect whether Deno and Glubean CLI are installed.
- * Uses the configured glubeanPath from settings.
+ * Uses resolveGlubeanPath() which checks well-known install locations
+ * as fallback, so we don't depend on ~/.deno/bin being on PATH.
  */
 async function checkDependencies(): Promise<DepStatus> {
   if (cachedDepStatus) {
     return cachedDepStatus;
   }
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
 
+  const glubeanPath = resolveGlubeanPath();
   const [deno, glubean] = await Promise.all([
-    commandExists("deno"),
+    commandExists(denoPath()),
     commandExists(glubeanPath),
   ]);
   cachedDepStatus = { deno, glubean };
@@ -94,6 +97,165 @@ function denoPath(): string {
     return wellKnown;
   }
   return "deno"; // fall back to PATH
+}
+
+/**
+ * Resolve the path to the Glubean CLI binary.
+ *
+ * Priority:
+ * 1. User-configured `glubean.glubeanPath` setting (if non-default)
+ * 2. `~/.deno/bin/glubean` well-known location (where `deno install` puts it)
+ * 3. Bare `glubean` on PATH
+ *
+ * This prevents the "not found" loop after installation because VS Code's
+ * shell environment often doesn't include ~/.deno/bin in PATH.
+ */
+function resolveGlubeanPath(): string {
+  const config = vscode.workspace.getConfiguration("glubean");
+  const configured = config.get<string>("glubeanPath", "glubean");
+
+  // If user explicitly configured a custom path, respect it
+  if (configured !== "glubean") {
+    return configured;
+  }
+
+  // Check well-known Deno install location
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  const wellKnown =
+    process.platform === "win32"
+      ? `${home}\\.deno\\bin\\glubean.exe`
+      : `${home}/.deno/bin/glubean`;
+
+  if (fs.existsSync(wellKnown)) {
+    return wellKnown;
+  }
+
+  return "glubean"; // fall back to PATH
+}
+
+/**
+ * Ensure ~/.deno/bin is on the user's shell PATH so `glubean` and `deno`
+ * commands work in new terminal sessions.
+ *
+ * Supports:
+ * - macOS: zsh (~/.zshrc), bash (~/.bash_profile)
+ * - Linux: bash (~/.bashrc), zsh (~/.zshrc), fish (~/.config/fish/config.fish)
+ * - Windows: adds to user-level PATH via registry
+ * - Fallback: ~/.profile for unknown POSIX shells
+ *
+ * This mirrors what the Deno install script does, but is more reliable since
+ * it runs regardless of how Deno was installed.
+ */
+async function ensureDenoOnPath(): Promise<void> {
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (!home) return;
+
+  // ── Windows ──────────────────────────────────────────────────────────
+  if (process.platform === "win32") {
+    const denoBinDir = `${home}\\.deno\\bin`;
+    if (!fs.existsSync(denoBinDir)) return;
+
+    // Check if already on PATH
+    if ((process.env.PATH || "").includes(".deno\\bin")) return;
+
+    // Add to user-level PATH via PowerShell (persists across sessions)
+    try {
+      await exec(
+        `powershell -NoProfile -Command "` +
+          `$current = [Environment]::GetEnvironmentVariable('Path', 'User'); ` +
+          `if ($current -notlike '*\\.deno\\bin*') { ` +
+          `[Environment]::SetEnvironmentVariable('Path', \\"$env:USERPROFILE\\.deno\\bin;$current\\", 'User') ` +
+          `}"`,
+      );
+    } catch {
+      // Non-critical — extension itself works via resolveGlubeanPath()
+    }
+    return;
+  }
+
+  // ── macOS / Linux ────────────────────────────────────────────────────
+  const denoBinDir = `${home}/.deno/bin`;
+  if (!fs.existsSync(denoBinDir)) return;
+
+  // Detect the user's shell. SHELL env var is the login shell; if unavailable
+  // (e.g. in some CI environments), check common rc files.
+  const shell = process.env.SHELL || "";
+
+  // Fish uses a different config syntax
+  if (shell.endsWith("/fish")) {
+    const fishConfigDir = `${home}/.config/fish`;
+    const fishConfig = `${fishConfigDir}/config.fish`;
+
+    try {
+      const content = fs.existsSync(fishConfig)
+        ? fs.readFileSync(fishConfig, "utf-8")
+        : "";
+      if (content.includes(".deno/bin")) return;
+
+      // Ensure config directory exists
+      if (!fs.existsSync(fishConfigDir)) {
+        fs.mkdirSync(fishConfigDir, { recursive: true });
+      }
+      fs.appendFileSync(
+        fishConfig,
+        `\n# Added by Glubean extension\nfish_add_path $HOME/.deno/bin\n`,
+      );
+    } catch {
+      // Non-critical
+    }
+    return;
+  }
+
+  // POSIX shells (zsh, bash, sh, etc.)
+  const pathLine = 'export PATH="$HOME/.deno/bin:$PATH"';
+
+  // Build a list of rc files to check/update, ordered by priority.
+  // We update only the first one that exists (or create the most appropriate one).
+  const rcCandidates: string[] = [];
+
+  if (shell.endsWith("/zsh") || (!shell && process.platform === "darwin")) {
+    // macOS defaults to zsh since Catalina; Linux zsh users have SHELL set
+    rcCandidates.push(`${home}/.zshrc`);
+  } else if (shell.endsWith("/bash")) {
+    if (process.platform === "darwin") {
+      // macOS bash reads .bash_profile for login shells (Terminal.app)
+      rcCandidates.push(`${home}/.bash_profile`);
+    }
+    rcCandidates.push(`${home}/.bashrc`);
+  }
+
+  // Always include .profile as a fallback (read by most POSIX login shells)
+  rcCandidates.push(`${home}/.profile`);
+
+  // Also check common rc files that might already have it, even if not the
+  // user's current shell — avoids duplicating the entry on shell switches
+  const allRcFiles = [
+    `${home}/.zshrc`,
+    `${home}/.bashrc`,
+    `${home}/.bash_profile`,
+    `${home}/.profile`,
+  ];
+
+  // If any rc file already has .deno/bin, we're done
+  for (const rc of allRcFiles) {
+    try {
+      const content = fs.readFileSync(rc, "utf-8");
+      if (content.includes(".deno/bin")) return;
+    } catch {
+      // File doesn't exist — continue
+    }
+  }
+
+  // Append to the first candidate (create if needed)
+  const targetRc = rcCandidates[0];
+  try {
+    fs.appendFileSync(
+      targetRc,
+      `\n# Added by Glubean extension\n${pathLine}\n`,
+    );
+  } catch {
+    // Non-critical — extension itself works via resolveGlubeanPath()
+  }
 }
 
 /**
@@ -149,17 +311,34 @@ async function runSetup(): Promise<boolean> {
           await exec(`"${deno}" install -Agf -n glubean jsr:@glubean/cli`);
         }
 
-        // Clear cache so next check picks up the new state
+        // Step 3: Ensure ~/.deno/bin is on the user's shell PATH so
+        // `glubean` and `deno` work in terminal sessions too
+        progress.report({ message: "Configuring PATH..." });
+        await ensureDenoOnPath();
+
+        // Clear cache and verify installation in-place (no window reload needed
+        // because resolveGlubeanPath() checks ~/.deno/bin directly)
         cachedDepStatus = undefined;
+        progress.report({ message: "Verifying installation..." });
 
-        progress.report({ message: "Done! Reloading..." });
+        const verified = await checkDependencies();
+        if (verified.deno && verified.glubean) {
+          progress.report({ message: "Ready!" });
+          await new Promise((r) => setTimeout(r, 600));
+          vscode.window.showInformationMessage(
+            "Glubean is ready — you can now run tests with the ▶ play button.",
+          );
+          // Hide the setup status bar hint if it's showing
+          setupStatusBarItem?.hide();
+          return true;
+        }
 
-        // Brief pause so the user sees "Done!" before reload
-        await new Promise((r) => setTimeout(r, 800));
-
-        // Reload the window so all PATH changes take effect
-        vscode.commands.executeCommand("workbench.action.reloadWindow");
-        return true;
+        // Installation completed but verification failed — suggest restart as last resort
+        vscode.window.showWarningMessage(
+          "Glubean was installed but could not be verified. " +
+            "Try reloading VS Code (Cmd+Shift+P → Reload Window).",
+        );
+        return false;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const shortcut =
@@ -369,6 +548,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Wire up pre-run dependency check — blocks test execution if deps are missing
   testController.setPreRunCheck(promptInstallIfNeeded);
 
+  // Wire up glubean path provider — so testController uses the resolved path
+  // (with ~/.deno/bin fallback) instead of just the bare "glubean" command
+  testController.setGlubeanPathProvider(resolveGlubeanPath);
+
   // ── Environment switcher ───────────────────────────────────────────────
   activateEnvSwitcher(context);
   testController.setEnvFileProvider(getSelectedEnvFile);
@@ -397,8 +580,37 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // ── Dependency check on activation (non-blocking) ──────────────────────
-  promptInstallIfNeeded();
+  // ── Dependency check on activation (non-intrusive) ─────────────────────
+  // Instead of popping up a dialog immediately, show a subtle status bar
+  // hint. The full install prompt only appears when the user actually tries
+  // to run a test (via preRunCheck).
+  setupStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    99,
+  );
+  setupStatusBarItem.command = "glubean.checkDependencies";
+  context.subscriptions.push(setupStatusBarItem);
+
+  checkDependencies().then((status) => {
+    if (!status.deno || !status.glubean) {
+      setupStatusBarItem!.text = "$(warning) Glubean: Setup needed";
+      setupStatusBarItem!.tooltip =
+        "Click to install Glubean CLI and its dependencies";
+      setupStatusBarItem!.backgroundColor = new vscode.ThemeColor(
+        "statusBarItem.warningBackground",
+      );
+      setupStatusBarItem!.show();
+    }
+
+    // If deps are installed but PATH may not be configured yet (e.g. user
+    // installed Deno/Glubean outside of the extension, or the extension
+    // found them via the ~/.deno/bin fallback), ensure the shell rc files
+    // have the PATH entry so `glubean` works in terminal sessions too.
+    // This is idempotent — it checks before writing.
+    if (status.deno || status.glubean) {
+      ensureDenoOnPath();
+    }
+  });
 
   // ── Commands ────────────────────────────────────────────────────────────
 

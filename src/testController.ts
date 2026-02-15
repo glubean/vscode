@@ -99,6 +99,27 @@ export function setEnvFileProvider(fn: () => string | undefined): void {
 }
 
 /**
+ * Optional glubean path provider. When set, returns the resolved path to the
+ * glubean CLI binary (checking well-known install locations as fallback).
+ * Falls back to the config setting if no provider is registered.
+ */
+let glubeanPathProvider: (() => string) | undefined;
+
+/** Register a glubean path provider (called by extension.ts). */
+export function setGlubeanPathProvider(fn: () => string): void {
+  glubeanPathProvider = fn;
+}
+
+/** Resolve the glubean CLI path using the provider or config fallback. */
+function getGlubeanPath(): string {
+  if (glubeanPathProvider) {
+    return glubeanPathProvider();
+  }
+  const config = vscode.workspace.getConfiguration("glubean");
+  return config.get<string>("glubeanPath", "glubean");
+}
+
+/**
  * Run a test.pick example via CodeLens.
  *
  * Uses the Test Controller's TestRun panel (same as gutter play button)
@@ -124,8 +145,7 @@ export async function runWithPick(
     }
   }
 
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
   const cwd =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
     path.dirname(filePath);
@@ -829,8 +849,7 @@ async function debugHandler(
   const { item, meta, filePath } = filtered[0];
   run.started(item);
 
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
   const cwd =
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
     path.dirname(filePath);
@@ -1022,8 +1041,7 @@ async function runFile(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
 
   const args = buildArgs(filePath, undefined, undefined, envFileProvider?.());
   const cwd =
@@ -1091,8 +1109,7 @@ async function runSingleTest(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
 
   // For data-driven tests (each: / pick:), the parser ID is a synthetic
   // template like "pick:search-products-$_pick" or "each:user-crud-$name".
