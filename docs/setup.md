@@ -45,19 +45,42 @@ rm -rf ~/.deno
 If Deno is already on your system, the setup will skip it and only
 install the Glubean CLI. Your existing Deno version is not modified.
 
+## Recommended: Install the Deno Extension
+
+For the best editing experience (import completions, type checking, go-to-definition
+inside SDK types), install the official **Deno extension** for VS Code:
+
+- Search `denoland.vscode-deno` in the Extensions panel, or
+  [view in Marketplace](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno).
+
+This is optional — Glubean works without it — but strongly recommended if you
+write tests frequently.
+
 ## Troubleshooting
 
-If setup fails, you can install manually:
+If automatic setup fails, you can install manually:
 
 ```bash
-# macOS / Linux
+# Step 1 — Install Deno (macOS / Linux)
 curl -fsSL https://deno.land/install.sh | sh
 # or: wget -qO- https://deno.land/install.sh | sh
-deno install -Agf -n glubean jsr:@glubean/cli
 
-# Windows (PowerShell)
+# Step 1 — Install Deno (Windows PowerShell)
 irm https://deno.land/install.ps1 | iex
-deno install -Agf -n glubean jsr:@glubean/cli
+
+# Step 2 — Install Glubean CLI (all platforms)
+# Use the absolute path to avoid PATH issues after a fresh Deno install
+~/.deno/bin/deno install -Agf -n glubean jsr:@glubean/cli
+
+# Step 3 — Verify
+deno --version
+glubean --version
 ```
 
-Or retry from VS Code: `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux) → **Glubean: Setup**
+> **Note**: On Windows, replace `~/.deno/bin/deno` with
+> `%USERPROFILE%\.deno\bin\deno.exe`.
+
+After manual install, the extension will detect the binaries at `~/.deno/bin/`
+automatically — no VS Code reload needed.
+
+Or retry automatic setup: `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux) → **Glubean: Setup**

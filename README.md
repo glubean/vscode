@@ -10,7 +10,7 @@
 
 **VS Code Marketplace** — search for **Glubean** in the Extensions panel, or install from the [Marketplace page](https://marketplace.visualstudio.com/items?itemName=glubean.glubean).
 
-**Manual install (Cursor, VSCodium, other VS Code forks)** — download the latest `glubean-x.y.z.vsix` from [GitHub Releases](https://github.com/glubean/vscode/releases), then:
+**Manual install (VSCodium or editors without marketplace access)** — download the latest `glubean-x.y.z.vsix` from [GitHub Releases](https://github.com/glubean/vscode/releases), then:
 
 > `Cmd+Shift+P` (or `Ctrl+Shift+P`) → **Extensions: Install from VSIX...** → select the downloaded file
 
