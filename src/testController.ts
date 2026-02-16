@@ -1297,6 +1297,21 @@ function readResultJson(filePath: string): GlubeanResult | null {
 // are imported from ./testController.utils
 
 /**
+ * Create a TestMessage with an optional source location attached.
+ * Reduces boilerplate when building failure messages with navigation.
+ */
+function messageWithLocation(
+  content: string | vscode.MarkdownString,
+  location?: vscode.Location,
+): vscode.TestMessage {
+  const msg = new vscode.TestMessage(content);
+  if (location) {
+    msg.location = location;
+  }
+  return msg;
+}
+
+/**
  * Apply structured test results to TestRun items, including rich event details.
  */
 function applyResults(
@@ -1329,9 +1344,9 @@ function applyResults(
         );
       }
     } else {
-      // Collect failure messages — every message gets a location so clicking
-      // any entry in the Test Results panel navigates to the test source.
-      const testLocation =
+      // Every failure message gets a location so clicking any entry in the
+      // Test Results panel navigates to the test source.
+      const loc =
         item.uri && item.range
           ? new vscode.Location(item.uri, item.range)
           : undefined;
@@ -1339,8 +1354,9 @@ function applyResults(
 
       for (const event of testResult.events) {
         if (event.type === "assertion" && event.passed === false) {
-          const msg = new vscode.TestMessage(
+          const msg = messageWithLocation(
             event.message ?? "Assertion failed",
+            loc,
           );
           if (event.expected !== undefined) {
             msg.expectedOutput = JSON.stringify(event.expected);
@@ -1348,40 +1364,28 @@ function applyResults(
           if (event.actual !== undefined) {
             msg.actualOutput = JSON.stringify(event.actual);
           }
-          if (testLocation) {
-            msg.location = testLocation;
-          }
           messages.push(msg);
         }
 
         if (event.type === "error" || event.type === "status") {
           if (event.error) {
-            const msg = new vscode.TestMessage(event.error);
-            if (testLocation) {
-              msg.location = testLocation;
-            }
-            messages.push(msg);
+            messages.push(messageWithLocation(event.error, loc));
           }
         }
       }
 
       if (messages.length === 0) {
-        const msg = new vscode.TestMessage("Test failed");
-        if (testLocation) {
-          msg.location = testLocation;
-        }
-        messages.push(msg);
+        messages.push(messageWithLocation("Test failed", loc));
       }
 
       // Append the full event summary (with HTTP traces) as an additional message
       if (eventsSummary) {
-        const msg = new vscode.TestMessage(
-          new vscode.MarkdownString("```\n" + eventsSummary + "\n```"),
+        messages.push(
+          messageWithLocation(
+            new vscode.MarkdownString("```\n" + eventsSummary + "\n```"),
+            loc,
+          ),
         );
-        if (testLocation) {
-          msg.location = testLocation;
-        }
-        messages.push(msg);
       }
 
       run.failed(item, messages, testResult.durationMs);
@@ -1438,9 +1442,8 @@ function applyResults(
         if (status === "passed") {
           run.passed(stepItem, duration);
         } else if (status === "failed") {
-          // Use the parent test item's location for step messages
-          // so clicking navigates to the test function in source
-          const stepLocation =
+          // Use the parent test item's location so clicking navigates to source
+          const loc =
             item.uri && item.range
               ? new vscode.Location(item.uri, item.range)
               : undefined;
@@ -1448,42 +1451,35 @@ function applyResults(
 
           // Include the step_end error message (e.g. "Request failed with status 429")
           if (ev.error && typeof ev.error === "string") {
-            const msg = new vscode.TestMessage(ev.error);
-            if (stepLocation) msg.location = stepLocation;
-            failMessages.push(msg);
+            failMessages.push(messageWithLocation(ev.error, loc));
           }
 
           // Include assertion failures from this step
           for (const se of stepEvents) {
             if (se.type === "assertion" && se.passed === false) {
-              const msg = new vscode.TestMessage(
-                se.message ?? "Assertion failed",
+              failMessages.push(
+                messageWithLocation(se.message ?? "Assertion failed", loc),
               );
-              if (stepLocation) msg.location = stepLocation;
-              failMessages.push(msg);
             }
             if (se.type === "error") {
-              const msg = new vscode.TestMessage(se.message ?? "Error");
-              if (stepLocation) msg.location = stepLocation;
-              failMessages.push(msg);
+              failMessages.push(
+                messageWithLocation(se.message ?? "Error", loc),
+              );
             }
           }
 
           if (failMessages.length === 0) {
-            const msg = new vscode.TestMessage("Step failed");
-            if (stepLocation) msg.location = stepLocation;
-            failMessages.push(msg);
+            failMessages.push(messageWithLocation("Step failed", loc));
           }
 
           // Append the full event summary (HTTP traces, logs) for this step
           if (stepSummary) {
-            const msg = new vscode.TestMessage(
-              new vscode.MarkdownString(
-                "```\n" + stepSummary + "\n```",
+            failMessages.push(
+              messageWithLocation(
+                new vscode.MarkdownString("```\n" + stepSummary + "\n```"),
+                loc,
               ),
             );
-            if (stepLocation) msg.location = stepLocation;
-            failMessages.push(msg);
           }
 
           run.failed(stepItem, failMessages, duration);
