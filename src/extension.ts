@@ -23,8 +23,9 @@ import { createPickCodeLensProvider } from "./codeLensProvider";
  * single quotes is the single quote itself: ' → '\''). On Windows (cmd.exe),
  * wraps in double quotes and escapes internal double-quotes with backslash.
  *
- * This MUST be used whenever a user-controlled or filesystem-derived path is
- * interpolated into a string passed to `cp.exec()` or `terminal.sendText()`.
+ * Used only for `terminal.sendText()` — the one place we intentionally target
+ * the user's interactive shell. All extension-host execution uses non-shell
+ * `cp.spawn()`/`cp.execFile()` with args arrays instead.
  */
 function shellQuote(arg: string): string {
   if (process.platform === "win32") {
@@ -65,10 +66,7 @@ let setupStatusBarItem: vscode.StatusBarItem | undefined;
  */
 function commandExists(command: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const proc = cp.spawn(command, ["--version"], {
-      shell: true,
-      stdio: "ignore",
-    });
+    const proc = cp.spawn(command, ["--version"], { stdio: "ignore" });
     proc.on("error", () => resolve(false));
     proc.on("close", (code) => resolve(code === 0));
   });
@@ -80,19 +78,15 @@ function commandExists(command: string): Promise<boolean> {
  */
 function getCommandVersion(command: string): Promise<string> {
   return new Promise((resolve) => {
-    cp.exec(
-      `${shellQuote(command)} --version`,
-      { shell: process.platform === "win32" ? undefined : "/bin/sh", timeout: 10_000 },
-      (err, stdout) => {
-        if (err) {
-          resolve("");
-          return;
-        }
-        // deno --version output: "deno 2.6.9 (stable, ...)"
-        const match = stdout.match(/deno\s+(\d+\.\d+\.\d+)/);
-        resolve(match ? match[1] : "");
-      },
-    );
+    cp.execFile(command, ["--version"], { timeout: 10_000 }, (err, stdout) => {
+      if (err) {
+        resolve("");
+        return;
+      }
+      // deno --version output: "deno 2.6.9 (stable, ...)"
+      const match = stdout.match(/deno\s+(\d+\.\d+\.\d+)/);
+      resolve(match ? match[1] : "");
+    });
   });
 }
 
@@ -173,14 +167,30 @@ async function checkDependencies(): Promise<DepStatus> {
 }
 
 /**
- * Run a shell command and return stdout. Rejects on non-zero exit.
- * Uses /bin/sh on Unix (non-login, non-interactive). PATH-dependent
- * commands should use denoPath()/resolveGlubeanPath() for reliability.
+ * Run a shell command string and return stdout. Rejects on non-zero exit.
+ * Only use for commands that genuinely need a shell (e.g. `curl ... | sh`).
+ * For calling binaries with arguments, use {@link execBin} instead.
  */
 function exec(command: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const shell = process.platform === "win32" ? undefined : "/bin/sh";
     cp.exec(command, { shell, timeout: 240_000 }, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr || err.message));
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+/**
+ * Run a binary with an args array — no shell involved.
+ * Safe for paths containing spaces, $, backticks, etc.
+ */
+function execBin(bin: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    cp.execFile(bin, args, { timeout: 240_000 }, (err, stdout, stderr) => {
       if (err) {
         reject(new Error(stderr || err.message));
       } else {
@@ -412,7 +422,7 @@ async function runSetup(): Promise<boolean> {
           // Verify Deno is now available
           const deno = denoPath();
           try {
-            await exec(`${shellQuote(deno)} --version`);
+            await execBin(deno, ["--version"]);
           } catch {
             vscode.window.showErrorMessage(
               "Deno installation succeeded but the binary was not found. " +
@@ -427,7 +437,7 @@ async function runSetup(): Promise<boolean> {
           progress.report({ message: "Installing Glubean CLI..." });
 
           const deno = denoPath();
-          await exec(`${shellQuote(deno)} install -Agf -n glubean jsr:@glubean/cli`);
+          await execBin(deno, ["install", "-Agf", "-n", "glubean", "jsr:@glubean/cli"]);
         }
 
         // Step 3: Ensure ~/.deno/bin is on the user's shell PATH so

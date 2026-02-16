@@ -85,42 +85,6 @@ export function buildArgs(
 }
 
 // ---------------------------------------------------------------------------
-// Shell quoting
-// ---------------------------------------------------------------------------
-
-/**
- * Escape a string for safe interpolation inside a shell command.
- *
- * On Unix, wraps in single quotes (the only char that needs escaping inside
- * single quotes is the single quote itself: ' → '\''). On Windows (cmd.exe),
- * wraps in double quotes and escapes internal double-quotes with backslash.
- *
- * This MUST be used when passing user-controlled or filesystem-derived paths
- * to `cp.spawn()` with `shell: true`, because Node concatenates `command`
- * and `args` into a single shell string in that mode.
- */
-export function shellQuote(arg: string): string {
-  if (process.platform === "win32") {
-    return `"${arg.replace(/"/g, '\\"')}"`;
-  }
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
-/**
- * Shell-quote the command and all args for use with `cp.spawn(cmd, args, { shell: true })`.
- * Returns a new args array where each element is safely quoted, plus the quoted command.
- */
-export function shellQuoteSpawnArgs(
-  command: string,
-  args: string[],
-): { command: string; args: string[] } {
-  return {
-    command: shellQuote(command),
-    args: args.map((a) => shellQuote(a)),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 

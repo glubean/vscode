@@ -20,7 +20,6 @@ import * as fs from "fs";
 import { extractTests, isGlubeanFile, type TestMeta } from "./parser";
 import {
   buildArgs,
-  shellQuoteSpawnArgs,
   formatJson,
   formatHeaders,
   formatTraceEvent,
@@ -876,13 +875,11 @@ async function debugHandler(
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
   // Spawn the CLI process as a detached process group so we can kill
-  // the entire tree (shell + CLI + harness) reliably.
-  // Shell-quote command and args to prevent injection from paths with spaces
-  // or special characters (e.g. $, `, ', ").
-  const quoted = shellQuoteSpawnArgs(glubeanPath, args);
-  const proc = cp.spawn(quoted.command, quoted.args, {
+  // the entire tree (CLI + harness) reliably.
+  // No shell: true — args array is passed directly to the binary, avoiding
+  // any shell interpolation of paths with spaces or special characters.
+  const proc = cp.spawn(glubeanPath, args, {
     cwd,
-    shell: true,
     detached: true, // create new process group for reliable cleanup
     env: {
       ...process.env,
@@ -1375,12 +1372,10 @@ function execGlubean(
   run?: vscode.TestRun,
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    // Shell-quote command and args to prevent injection from paths with
-    // spaces or special characters (e.g. $, `, ', ").
-    const quoted = shellQuoteSpawnArgs(command, args);
-    const proc = cp.spawn(quoted.command, quoted.args, {
+    // No shell: true — args array is passed directly to the binary, avoiding
+    // any shell interpolation of paths with spaces or special characters.
+    const proc = cp.spawn(command, args, {
       cwd,
-      shell: true,
       env: { ...process.env, FORCE_COLOR: "1" }, // keep ANSI colors for pretty output
     });
 
