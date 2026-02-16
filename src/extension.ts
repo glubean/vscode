@@ -16,9 +16,15 @@ import { createPickCodeLensProvider } from "./codeLensProvider";
 // Dependency detection & one-click setup
 // ---------------------------------------------------------------------------
 
+/** Minimum Deno version required (major.minor). Aligns with install.sh. */
+const DENO_MIN_MAJOR = 2;
+const DENO_MIN_MINOR = 0;
+
 interface DepStatus {
   deno: boolean;
   glubean: boolean;
+  /** True when Deno exists but is below the minimum required version. */
+  denoTooOld?: boolean;
 }
 
 /** Cache so we only check once per session (cleared by "Setup" action). */
@@ -43,6 +49,41 @@ function commandExists(command: string): Promise<boolean> {
     proc.on("error", () => resolve(false));
     proc.on("close", (code) => resolve(code === 0));
   });
+}
+
+/**
+ * Get the version string from a command's `--version` output.
+ * Returns the version (e.g. "2.6.9") or empty string on failure.
+ */
+function getCommandVersion(command: string): Promise<string> {
+  return new Promise((resolve) => {
+    cp.exec(
+      `"${command}" --version`,
+      { shell: process.platform === "win32" ? undefined : "/bin/sh", timeout: 10_000 },
+      (err, stdout) => {
+        if (err) {
+          resolve("");
+          return;
+        }
+        // deno --version output: "deno 2.6.9 (stable, ...)"
+        const match = stdout.match(/deno\s+(\d+\.\d+\.\d+)/);
+        resolve(match ? match[1] : "");
+      },
+    );
+  });
+}
+
+/**
+ * Check if a version string meets the minimum Deno requirement.
+ */
+function denoVersionOk(version: string): boolean {
+  const parts = version.split(".");
+  const major = parseInt(parts[0], 10);
+  const minor = parseInt(parts[1], 10);
+  if (isNaN(major) || isNaN(minor)) return false;
+  if (major > DENO_MIN_MAJOR) return true;
+  if (major === DENO_MIN_MAJOR && minor >= DENO_MIN_MINOR) return true;
+  return false;
 }
 
 /**
@@ -72,10 +113,22 @@ async function checkDependencies(): Promise<DepStatus> {
 
   let deno = fs.existsSync(denoWellKnown);
   let glubean = fs.existsSync(glubeanWellKnown);
+  let denoTooOld = false;
 
   // Fallback: check PATH for non-standard installs (e.g. brew, scoop)
   if (!deno) {
     deno = await commandExists("deno");
+  }
+
+  // If Deno exists, verify it meets the minimum version requirement.
+  // Deno 1.x uses different `deno install` flags and may not support JSR.
+  if (deno) {
+    const denoCmd = denoPath();
+    const version = await getCommandVersion(denoCmd);
+    if (version && !denoVersionOk(version)) {
+      denoTooOld = true;
+      deno = false; // Treat as missing so runSetup() will re-install
+    }
   }
 
   // Fallback: check user-configured path or system PATH
@@ -92,7 +145,7 @@ async function checkDependencies(): Promise<DepStatus> {
     }
   }
 
-  cachedDepStatus = { deno, glubean };
+  cachedDepStatus = { deno, glubean, denoTooOld };
   return cachedDepStatus;
 }
 
@@ -313,9 +366,13 @@ async function runSetup(): Promise<boolean> {
       try {
         const status = await checkDependencies();
 
-        // Step 1: Install Deno if missing
+        // Step 1: Install Deno if missing or too old
         if (!status.deno) {
-          progress.report({ message: "Installing Deno runtime..." });
+          progress.report({
+            message: status.denoTooOld
+              ? "Upgrading Deno runtime..."
+              : "Installing Deno runtime...",
+          });
 
           if (process.platform === "win32") {
             await exec(
@@ -448,8 +505,9 @@ async function promptInstallIfNeeded(): Promise<boolean> {
 
   try {
     // Tailor the message to what's actually missing
-    const message =
-      !status.deno && !status.glubean
+    const message = status.denoTooOld
+      ? "Glubean requires Deno 2.0+. Click Continue to upgrade automatically."
+      : !status.deno && !status.glubean
         ? "Glubean needs a one-time setup to run TypeScript natively (~30s)."
         : !status.deno
           ? "Glubean needs to install a TypeScript runtime (Deno) to run your tests."
