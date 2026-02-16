@@ -8,6 +8,8 @@ import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import {
   buildArgs,
+  shellQuote,
+  shellQuoteSpawnArgs,
   formatJson,
   formatHeaders,
   formatTraceEvent,
@@ -79,6 +81,58 @@ describe("buildArgs", () => {
   it("omits --filter for empty string", () => {
     const args = buildArgs("/test.ts", "");
     assert.ok(!args.includes("--filter"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shellQuote (POSIX tests — these run on macOS/Linux)
+// ---------------------------------------------------------------------------
+
+describe("shellQuote", () => {
+  it("wraps a simple path in single quotes", () => {
+    assert.equal(shellQuote("/usr/bin/deno"), "'/usr/bin/deno'");
+  });
+
+  it("escapes single quotes inside the path", () => {
+    assert.equal(
+      shellQuote("/Users/O'Brien/test.ts"),
+      "'/Users/O'\\''Brien/test.ts'",
+    );
+  });
+
+  it("prevents dollar-sign expansion", () => {
+    const quoted = shellQuote("/tmp/$HOME/test.ts");
+    assert.equal(quoted, "'/tmp/$HOME/test.ts'");
+  });
+
+  it("prevents backtick command substitution", () => {
+    const quoted = shellQuote("/tmp/`whoami`/test.ts");
+    assert.equal(quoted, "'/tmp/`whoami`/test.ts'");
+  });
+
+  it("handles spaces in paths", () => {
+    const quoted = shellQuote("/Users/John Smith/project/test.ts");
+    assert.equal(quoted, "'/Users/John Smith/project/test.ts'");
+  });
+
+  it("handles empty string", () => {
+    assert.equal(shellQuote(""), "''");
+  });
+});
+
+describe("shellQuoteSpawnArgs", () => {
+  it("quotes command and all args", () => {
+    const result = shellQuoteSpawnArgs("/path/to/glubean", [
+      "run",
+      "/Users/John Smith/test.ts",
+      "--verbose",
+    ]);
+    assert.equal(result.command, "'/path/to/glubean'");
+    assert.deepEqual(result.args, [
+      "'run'",
+      "'/Users/John Smith/test.ts'",
+      "'--verbose'",
+    ]);
   });
 });
 

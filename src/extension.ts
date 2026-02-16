@@ -13,6 +13,29 @@ import { createHoverProvider } from "./hoverProvider";
 import { createPickCodeLensProvider } from "./codeLensProvider";
 
 // ---------------------------------------------------------------------------
+// Shell quoting
+// ---------------------------------------------------------------------------
+
+/**
+ * Escape a string for safe interpolation inside a shell command.
+ *
+ * On Unix, wraps in single quotes (the only char that needs escaping inside
+ * single quotes is the single quote itself: ' → '\''). On Windows (cmd.exe),
+ * wraps in double quotes and escapes internal double-quotes with backslash.
+ *
+ * This MUST be used whenever a user-controlled or filesystem-derived path is
+ * interpolated into a string passed to `cp.exec()` or `terminal.sendText()`.
+ */
+function shellQuote(arg: string): string {
+  if (process.platform === "win32") {
+    // cmd.exe / PowerShell: wrap in double quotes, escape inner double-quotes
+    return `"${arg.replace(/"/g, '\\"')}"`;
+  }
+  // POSIX: wrap in single quotes; replace inner ' with '\''
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+// ---------------------------------------------------------------------------
 // Dependency detection & one-click setup
 // ---------------------------------------------------------------------------
 
@@ -58,7 +81,7 @@ function commandExists(command: string): Promise<boolean> {
 function getCommandVersion(command: string): Promise<string> {
   return new Promise((resolve) => {
     cp.exec(
-      `"${command}" --version`,
+      `${shellQuote(command)} --version`,
       { shell: process.platform === "win32" ? undefined : "/bin/sh", timeout: 10_000 },
       (err, stdout) => {
         if (err) {
@@ -389,7 +412,7 @@ async function runSetup(): Promise<boolean> {
           // Verify Deno is now available
           const deno = denoPath();
           try {
-            await exec(`"${deno}" --version`);
+            await exec(`${shellQuote(deno)} --version`);
           } catch {
             vscode.window.showErrorMessage(
               "Deno installation succeeded but the binary was not found. " +
@@ -404,7 +427,7 @@ async function runSetup(): Promise<boolean> {
           progress.report({ message: "Installing Glubean CLI..." });
 
           const deno = denoPath();
-          await exec(`"${deno}" install -Agf -n glubean jsr:@glubean/cli`);
+          await exec(`${shellQuote(deno)} install -Agf -n glubean jsr:@glubean/cli`);
         }
 
         // Step 3: Ensure ~/.deno/bin is on the user's shell PATH so
@@ -736,7 +759,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const glubeanBin = resolveGlubeanPath();
       const terminal = getOrCreateTerminal();
       terminal.show();
-      terminal.sendText(`"${glubeanBin}" run "${editor.document.fileName}"`);
+      terminal.sendText(`${shellQuote(glubeanBin)} run ${shellQuote(editor.document.fileName)}`);
     }),
   );
 
@@ -752,7 +775,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const terminal = getOrCreateTerminal();
       terminal.show();
       terminal.sendText(
-        `"${glubeanBin}" run "${workspaceFolder.uri.fsPath}"`,
+        `${shellQuote(glubeanBin)} run ${shellQuote(workspaceFolder.uri.fsPath)}`,
       );
     }),
   );

@@ -49,8 +49,11 @@ curl -fsSL https://deno.land/install.sh | sh
 ~/.deno/bin/deno install -Agf -n glubean jsr:@glubean/cli
 
 # 3. Add to PATH (if not already there)
+# For zsh (macOS default):
 echo 'export PATH="$HOME/.deno/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
+# For bash: use ~/.bashrc (or ~/.bash_profile on macOS)
+# For fish: fish_add_path ~/.deno/bin
 
 # 4. Verify
 deno --version     # should be 2.0+

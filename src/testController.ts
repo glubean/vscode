@@ -20,6 +20,7 @@ import * as fs from "fs";
 import { extractTests, isGlubeanFile, type TestMeta } from "./parser";
 import {
   buildArgs,
+  shellQuoteSpawnArgs,
   formatJson,
   formatHeaders,
   formatTraceEvent,
@@ -876,7 +877,10 @@ async function debugHandler(
 
   // Spawn the CLI process as a detached process group so we can kill
   // the entire tree (shell + CLI + harness) reliably.
-  const proc = cp.spawn(glubeanPath, args, {
+  // Shell-quote command and args to prevent injection from paths with spaces
+  // or special characters (e.g. $, `, ', ").
+  const quoted = shellQuoteSpawnArgs(glubeanPath, args);
+  const proc = cp.spawn(quoted.command, quoted.args, {
     cwd,
     shell: true,
     detached: true, // create new process group for reliable cleanup
@@ -1371,7 +1375,10 @@ function execGlubean(
   run?: vscode.TestRun,
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    const proc = cp.spawn(command, args, {
+    // Shell-quote command and args to prevent injection from paths with
+    // spaces or special characters (e.g. $, `, ', ").
+    const quoted = shellQuoteSpawnArgs(command, args);
+    const proc = cp.spawn(quoted.command, quoted.args, {
       cwd,
       shell: true,
       env: { ...process.env, FORCE_COLOR: "1" }, // keep ANSI colors for pretty output
