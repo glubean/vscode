@@ -264,6 +264,7 @@ async function ensureDenoOnPath(): Promise<void> {
   // user's current shell — avoids duplicating the entry on shell switches
   const allRcFiles = [
     `${home}/.zshrc`,
+    `${home}/.zprofile`,
     `${home}/.bashrc`,
     `${home}/.bash_profile`,
     `${home}/.profile`,
@@ -643,7 +644,7 @@ export function activate(context: vscode.ExtensionContext): void {
       setupStatusBarItem!.tooltip =
         "Click to install Glubean CLI and its dependencies";
       setupStatusBarItem!.backgroundColor = new vscode.ThemeColor(
-        "statusBarItem.warningBackground",
+        "statusBarItem.errorBackground",
       );
       setupStatusBarItem!.show();
     }
