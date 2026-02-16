@@ -1,86 +1,130 @@
 # Glubean Setup
 
-## What gets installed?
+If automatic setup failed, or you prefer full control over what gets installed
+— this guide covers both a one-line installer and step-by-step manual setup.
 
 Glubean needs two things to run your API tests:
 
-1. **Deno** — a TypeScript runtime that runs your `.test.ts` and `.explore.ts`
-   files natively, with no build step or `tsconfig.json` required.
-   Installed to `~/.deno/bin/` (your home directory, no sudo needed).
+1. **Deno** (2.0+) — a TypeScript runtime. Runs your `.test.ts` files natively
+   with no build step. Installed to `~/.deno/bin/` (no sudo needed).
 
-2. **Glubean CLI** — the test runner that powers the ▶ play buttons.
-   Installed as a global Deno tool via the [JSR](https://jsr.io/@glubean/cli) registry.
+2. **Glubean CLI** — the test runner behind the ▶ play buttons.
+   Installed as a Deno tool from [JSR](https://jsr.io/@glubean/cli).
 
-## Why Deno?
+---
 
-Glubean runs TypeScript directly — no compilation, no `node_modules`, no
-config files. Deno makes this possible. You don't need to learn Deno or
-use it for anything else; it works behind the scenes as Glubean's engine.
+## Option A: One-line install (recommended)
 
-Think of it like how VS Code ships with Electron but you never interact
-with Electron directly.
-
-## Is this safe?
-
-- Deno is installed using the [official install script](https://docs.deno.com/runtime/getting_started/installation/)
-  from `deno.land` — the same method recommended by the Deno team.
-- Everything goes into your home directory (`~/.deno/`). No system files
-  are modified, no `sudo` required.
-- Glubean CLI is installed from [JSR](https://jsr.io/@glubean/cli), the
-  JavaScript/TypeScript package registry by the Deno team. The source is
-  fully open at [github.com/glubean/glubean](https://github.com/glubean/glubean).
-
-## Can I uninstall?
+**macOS / Linux** — open a terminal and run:
 
 ```bash
-# Remove Glubean CLI
-deno uninstall glubean
-
-# Remove Deno itself (optional)
-rm -rf ~/.deno
+curl -fsSL https://glubean.com/install.sh | sh
 ```
 
-## Already have Deno?
+**Windows** — open PowerShell and run:
 
-If Deno is already on your system, the setup will skip it and only
-install the Glubean CLI. Your existing Deno version is not modified.
+```powershell
+irm https://glubean.com/install.ps1 | iex
+```
 
-## Recommended: Install the Deno Extension
+This installs both Deno and the CLI, configures your PATH, and verifies
+everything works. If Deno is already installed, it will be kept (or upgraded
+if below 2.0).
 
-For the best editing experience (import completions, type checking, go-to-definition
-inside SDK types), install the official **Deno extension** for VS Code:
+After it finishes, reopen VS Code or open a new terminal — the extension
+detects the binaries automatically.
 
-- Search `denoland.vscode-deno` in the Extensions panel, or
-  [view in Marketplace](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno).
+## Option B: Manual install
 
-This is optional — Glubean works without it — but strongly recommended if you
-write tests frequently.
+Use this if the one-liner fails (network restrictions, corporate proxy, etc.)
+or if you prefer to install things yourself.
 
-## Troubleshooting
-
-If automatic setup fails, you can install manually:
+### macOS / Linux
 
 ```bash
-# Step 1 — Install Deno (macOS / Linux)
+# 1. Install Deno
 curl -fsSL https://deno.land/install.sh | sh
-# or: wget -qO- https://deno.land/install.sh | sh
 
-# Step 1 — Install Deno (Windows PowerShell)
-irm https://deno.land/install.ps1 | iex
-
-# Step 2 — Install Glubean CLI (all platforms)
-# Use the absolute path to avoid PATH issues after a fresh Deno install
+# 2. Install Glubean CLI (use absolute path to avoid PATH issues)
 ~/.deno/bin/deno install -Agf -n glubean jsr:@glubean/cli
 
-# Step 3 — Verify
+# 3. Add to PATH (if not already there)
+echo 'export PATH="$HOME/.deno/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# 4. Verify
+deno --version     # should be 2.0+
+glubean --version
+```
+
+### Windows (PowerShell)
+
+```powershell
+# 1. Install Deno
+irm https://deno.land/install.ps1 | iex
+
+# 2. Install Glubean CLI
+$env:USERPROFILE\.deno\bin\deno.exe install -Agf -n glubean jsr:@glubean/cli
+
+# 3. Verify
 deno --version
 glubean --version
 ```
 
-> **Note**: On Windows, replace `~/.deno/bin/deno` with
-> `%USERPROFILE%\.deno\bin\deno.exe`.
-
-After manual install, the extension will detect the binaries at `~/.deno/bin/`
+After manual install, the extension detects binaries at `~/.deno/bin/`
 automatically — no VS Code reload needed.
 
-Or retry automatic setup: `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux) → **Glubean: Setup**
+---
+
+## Install the Deno extension
+
+For the best editing experience, also install the **Deno extension** for VS Code:
+
+> Search **denoland.vscode-deno** in the Extensions panel, or
+> [install from Marketplace](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno).
+
+This gives you import completions, type checking, and go-to-definition inside
+Glubean SDK types. It's optional — Glubean works without it — but strongly
+recommended.
+
+---
+
+## Why Deno?
+
+Glubean runs TypeScript directly — no compilation, no `node_modules`, no config
+files. Deno makes this possible. You don't need to learn Deno or use it for
+anything else; it works behind the scenes as Glubean's engine.
+
+Think of it like how VS Code ships with Electron but you never interact with
+Electron directly.
+
+## Is this safe?
+
+- Deno is installed from `deno.land` using the
+  [official install script](https://docs.deno.com/runtime/getting_started/installation/).
+- Everything goes into `~/.deno/`. No system files are modified.
+- Glubean CLI source is fully open at
+  [github.com/glubean/glubean](https://github.com/glubean/glubean).
+
+## Uninstall
+
+**macOS / Linux:**
+
+```bash
+deno uninstall glubean       # Remove CLI
+rm -rf ~/.deno               # Remove Deno (optional)
+```
+
+**Windows (PowerShell):**
+
+```powershell
+deno uninstall glubean                            # Remove CLI
+Remove-Item -Recurse -Force "$env:USERPROFILE\.deno"  # Remove Deno (optional)
+```
+
+## Still stuck?
+
+Retry automatic setup from VS Code: `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P`
+(Windows/Linux) → **Glubean: Setup**
+
+Or ask in [GitHub Discussions](https://github.com/glubean/vscode/discussions).
