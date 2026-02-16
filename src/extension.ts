@@ -403,37 +403,54 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Commands ────────────────────────────────────────────────────────────
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("glubean.runFile", async () => {
-      const editor = vscode.window.activeTextEditor;
-      const fileName = editor?.document.fileName ?? "";
-      if (
-        !editor ||
-        (!fileName.endsWith(".test.ts") && !fileName.endsWith(".explore.ts"))
-      ) {
-        vscode.window.showWarningMessage(
-          "Open a .test.ts or .explore.ts file to run.",
-        );
-        return;
-      }
+    vscode.commands.registerCommand(
+      "glubean.runFile",
+      async (resource?: vscode.Uri) => {
+        // Support invocation from explorer context menu (resource arg)
+        // or from editor title button / command palette (active editor)
+        const uri =
+          resource ?? vscode.window.activeTextEditor?.document.uri;
+        const fileName = uri?.fsPath ?? "";
+        if (
+          !uri ||
+          (!fileName.endsWith(".test.ts") && !fileName.endsWith(".explore.ts"))
+        ) {
+          vscode.window.showWarningMessage(
+            "Open a .test.ts or .explore.ts file to run.",
+          );
+          return;
+        }
 
-      const terminal = getOrCreateTerminal();
-      terminal.show();
-      terminal.sendText(`glubean run "${editor.document.fileName}"`);
-    }),
+        await testController.runFileByUri(uri);
+      },
+    ),
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("glubean.runWorkspace", async () => {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        vscode.window.showWarningMessage("No workspace folder open.");
-        return;
-      }
+    vscode.commands.registerCommand(
+      "glubean.runProject",
+      async (resource?: vscode.Uri) => {
+        // Determine which project to run:
+        // 1. From explorer context menu (resource arg)
+        // 2. From the active editor's file
+        // 3. Fall back to first workspace folder
+        const targetUri =
+          resource ??
+          vscode.window.activeTextEditor?.document.uri;
+        const folder = targetUri
+          ? vscode.workspace.getWorkspaceFolder(targetUri)
+          : undefined;
+        const workspaceFolder =
+          folder ?? vscode.workspace.workspaceFolders?.[0];
 
-      const terminal = getOrCreateTerminal();
-      terminal.show();
-      terminal.sendText(`glubean run "${workspaceFolder.uri.fsPath}"`);
-    }),
+        if (!workspaceFolder) {
+          vscode.window.showWarningMessage("No workspace folder open.");
+          return;
+        }
+
+        await testController.runAll(workspaceFolder);
+      },
+    ),
   );
 
   context.subscriptions.push(
@@ -536,17 +553,3 @@ export function deactivate(): void {
   // Nothing to clean up — VS Code disposes subscriptions automatically
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Reuse an existing "Glubean" terminal or create a new one.
- */
-function getOrCreateTerminal(): vscode.Terminal {
-  const existing = vscode.window.terminals.find((t) => t.name === "Glubean");
-  if (existing) {
-    return existing;
-  }
-  return vscode.window.createTerminal("Glubean");
-}

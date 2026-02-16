@@ -52,6 +52,29 @@ interface GlubeanResult {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the workspace folder that contains the given file path.
+ * Falls back to the first workspace folder, then to the file's directory.
+ *
+ * Critical for multi-root workspaces so the CLI runs with the correct cwd
+ * (and picks up the right .env, deno.json, etc.).
+ */
+function resolveWorkspaceFolder(filePath: string): string {
+  const fileUri = vscode.Uri.file(filePath);
+  const folder = vscode.workspace.getWorkspaceFolder(fileUri);
+  if (folder) {
+    return folder.uri.fsPath;
+  }
+  return (
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+    path.dirname(filePath)
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Controller setup
 // ---------------------------------------------------------------------------
 
@@ -126,9 +149,7 @@ export async function runWithPick(
 
   const config = vscode.workspace.getConfiguration("glubean");
   const glubeanPath = config.get<string>("glubeanPath", "glubean");
-  const cwd =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(filePath);
+  const cwd = resolveWorkspaceFolder(filePath);
 
   // Strip "pick:" prefix and template variables to get a stable prefix filter
   // e.g. "pick:search-products-$_pick" → "search-products-"
@@ -196,6 +217,72 @@ export async function rerunLast(): Promise<boolean> {
   await runHandler(request, cts.token);
   cts.dispose();
   return true;
+}
+
+/**
+ * Run all tests in a specific file via the Test Controller.
+ *
+ * Ensures the file is discovered first, then creates a TestRunRequest
+ * targeting the file's TestItem so results flow through the Test Results
+ * panel with structured output, trace auto-open, and pass/fail icons.
+ */
+export async function runFileByUri(uri: vscode.Uri): Promise<void> {
+  // Ensure the file is parsed so its TestItem exists
+  await parseFile(uri);
+
+  const fileItem = fileItems.get(uri.toString());
+  if (!fileItem) {
+    vscode.window.showWarningMessage(
+      "No tests found in this file. Make sure it imports from @glubean/sdk.",
+    );
+    return;
+  }
+
+  const request = new vscode.TestRunRequest([fileItem]);
+  const cts = new vscode.CancellationTokenSource();
+  try {
+    await runHandler(request, cts.token);
+  } finally {
+    cts.dispose();
+  }
+}
+
+/**
+ * Run all tests in a specific project via the Test Controller.
+ *
+ * Discovers test files scoped to the given workspace folder, then runs
+ * only the tests belonging to that folder. This prevents running unrelated
+ * *.test.ts files from other workspace roots in a multi-root setup.
+ */
+export async function runAll(folder: vscode.WorkspaceFolder): Promise<void> {
+  // Discover test files scoped to this folder only (ignores autoDiscover)
+  await discoverTestsInFolder(folder);
+
+  // Collect only the file-level TestItems that belong to this folder
+  const include: vscode.TestItem[] = [];
+  for (const [uriString, item] of fileItems) {
+    const itemFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.parse(uriString),
+    );
+    if (itemFolder && itemFolder.uri.fsPath === folder.uri.fsPath) {
+      include.push(item);
+    }
+  }
+
+  if (include.length === 0) {
+    vscode.window.showInformationMessage(
+      "No Glubean tests found in this project.",
+    );
+    return;
+  }
+
+  const request = new vscode.TestRunRequest(include);
+  const cts = new vscode.CancellationTokenSource();
+  try {
+    await runHandler(request, cts.token);
+  } finally {
+    cts.dispose();
+  }
 }
 
 /**
@@ -293,6 +380,7 @@ function isGlubeanFileName(fileName: string): boolean {
 
 /**
  * Discover all *.test.ts files in the workspace.
+ * Respects the autoDiscover setting — used for background discovery.
  */
 async function discoverAllTests(): Promise<void> {
   const config = vscode.workspace.getConfiguration("glubean");
@@ -302,6 +390,24 @@ async function discoverAllTests(): Promise<void> {
 
   const testFiles = await vscode.workspace.findFiles(
     "**/*.test.ts",
+    "**/node_modules/**",
+  );
+
+  for (const file of testFiles) {
+    await parseFile(file);
+  }
+}
+
+/**
+ * Discover *.test.ts files scoped to a single workspace folder.
+ * Always runs regardless of autoDiscover — used for explicit user actions.
+ */
+async function discoverTestsInFolder(
+  folder: vscode.WorkspaceFolder,
+): Promise<void> {
+  const pattern = new vscode.RelativePattern(folder, "**/*.test.ts");
+  const testFiles = await vscode.workspace.findFiles(
+    pattern,
     "**/node_modules/**",
   );
 
@@ -349,8 +455,7 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
   const key = uri.toString();
 
   // Determine grouping by directory: files under explore/ go to Explore group
-  const workspaceRoot =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+  const workspaceRoot = resolveWorkspaceFolder(uri.fsPath);
   const relPath = path.relative(workspaceRoot, uri.fsPath);
   const isExplore =
     relPath.startsWith("explore/") || relPath.startsWith("explore\\");
@@ -420,9 +525,7 @@ const testItemMeta = new WeakMap<vscode.TestItem, TestMeta>();
  * Looks in `.glubean/traces/{basename}/` relative to the workspace root.
  */
 async function openLatestTrace(filePath: string): Promise<void> {
-  const cwd =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(filePath);
+  const cwd = resolveWorkspaceFolder(filePath);
 
   const baseName = path.basename(filePath).replace(/\.ts$/, "");
   const tracesDir = path.join(cwd, ".glubean", "traces", baseName);
@@ -464,9 +567,7 @@ export async function diffWithPrevious(filePath?: string): Promise<boolean> {
     return false;
   }
 
-  const cwd =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(resolved);
+  const cwd = resolveWorkspaceFolder(resolved);
 
   const baseName = path
     .basename(resolved)
@@ -560,6 +661,9 @@ async function runHandler(
   }
 
   const run = controller.createTestRun(request);
+
+  // Show the Test Results panel so the user sees live output immediately
+  vscode.commands.executeCommand("testing.showMostRecentOutput");
 
   // Track last run for re-run command
   lastRunInclude = request.include;
@@ -831,9 +935,7 @@ async function debugHandler(
 
   const config = vscode.workspace.getConfiguration("glubean");
   const glubeanPath = config.get<string>("glubeanPath", "glubean");
-  const cwd =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(filePath);
+  const cwd = resolveWorkspaceFolder(filePath);
 
   let port: number;
   try {
@@ -904,8 +1006,11 @@ async function debugHandler(
     // Attach VSCode debugger with continueOnAttach so it auto-continues
     // past the --inspect-brk pause point.
     const debugSessionName = `Glubean Debug: ${meta.name || meta.id}`;
+    const debugFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.file(filePath),
+    );
     const debugStarted = await vscode.debug.startDebugging(
-      vscode.workspace.workspaceFolders?.[0],
+      debugFolder ?? vscode.workspace.workspaceFolders?.[0],
       {
         type: "pwa-node",
         request: "attach",
@@ -1026,9 +1131,7 @@ async function runFile(
   const glubeanPath = config.get<string>("glubeanPath", "glubean");
 
   const args = buildArgs(filePath, undefined, undefined, envFileProvider?.());
-  const cwd =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(filePath);
+  const cwd = resolveWorkspaceFolder(filePath);
 
   outputChannel.appendLine(`\n▶ ${glubeanPath} ${args.join(" ")}`);
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
@@ -1108,9 +1211,7 @@ async function runSingleTest(
   // Remove template variables ($name, $_pick, etc.) to get the stable prefix
   filterId = filterId.replace(/\$\w+/g, "");
   const args = buildArgs(filePath, filterId, undefined, envFileProvider?.());
-  const cwd =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(filePath);
+  const cwd = resolveWorkspaceFolder(filePath);
 
   outputChannel.appendLine(`\n▶ ${glubeanPath} ${args.join(" ")}`);
 
@@ -1210,7 +1311,12 @@ function applyResults(
         );
       }
     } else {
-      // Collect failure messages
+      // Collect failure messages — every message gets a location so clicking
+      // any entry in the Test Results panel navigates to the test source.
+      const testLocation =
+        item.uri && item.range
+          ? new vscode.Location(item.uri, item.range)
+          : undefined;
       const messages: vscode.TestMessage[] = [];
 
       for (const event of testResult.events) {
@@ -1224,30 +1330,40 @@ function applyResults(
           if (event.actual !== undefined) {
             msg.actualOutput = JSON.stringify(event.actual);
           }
-          if (item.uri && item.range) {
-            msg.location = new vscode.Location(item.uri, item.range);
+          if (testLocation) {
+            msg.location = testLocation;
           }
           messages.push(msg);
         }
 
         if (event.type === "error" || event.type === "status") {
           if (event.error) {
-            messages.push(new vscode.TestMessage(event.error));
+            const msg = new vscode.TestMessage(event.error);
+            if (testLocation) {
+              msg.location = testLocation;
+            }
+            messages.push(msg);
           }
         }
       }
 
       if (messages.length === 0) {
-        messages.push(new vscode.TestMessage("Test failed"));
+        const msg = new vscode.TestMessage("Test failed");
+        if (testLocation) {
+          msg.location = testLocation;
+        }
+        messages.push(msg);
       }
 
       // Append the full event summary (with HTTP traces) as an additional message
       if (eventsSummary) {
-        messages.push(
-          new vscode.TestMessage(
-            new vscode.MarkdownString("```\n" + eventsSummary + "\n```"),
-          ),
+        const msg = new vscode.TestMessage(
+          new vscode.MarkdownString("```\n" + eventsSummary + "\n```"),
         );
+        if (testLocation) {
+          msg.location = testLocation;
+        }
+        messages.push(msg);
       }
 
       run.failed(item, messages, testResult.durationMs);
@@ -1265,24 +1381,24 @@ function applyResults(
           (e as unknown as Record<string, unknown>).index === stepIndex,
       );
 
-      // Collect events belonging to this step (between step_start and step_end)
+      // Collect events belonging to this step.
+      // Events between step_start and step_end use the `index` field.
+      // Some events (like trace, metric) use `stepIndex` instead.
       const stepEvents: GlubeanEvent[] = [];
       let inStep = false;
       for (const e of testResult.events) {
-        if (
-          e.type === "step_start" &&
-          (e as unknown as Record<string, unknown>).index === stepIndex
-        ) {
+        const ev = e as unknown as Record<string, unknown>;
+        if (e.type === "step_start" && ev.index === stepIndex) {
           inStep = true;
-          continue; // skip the step_start marker itself
+          continue;
         }
-        if (
-          e.type === "step_end" &&
-          (e as unknown as Record<string, unknown>).index === stepIndex
-        ) {
+        if (e.type === "step_end" && ev.index === stepIndex) {
           break;
         }
         if (inStep) {
+          stepEvents.push(e);
+        } else if (ev.stepIndex === stepIndex) {
+          // Catch events tagged with stepIndex but outside start/end markers
           stepEvents.push(e);
         }
       }
@@ -1304,21 +1420,54 @@ function applyResults(
         if (status === "passed") {
           run.passed(stepItem, duration);
         } else if (status === "failed") {
+          // Use the parent test item's location for step messages
+          // so clicking navigates to the test function in source
+          const stepLocation =
+            item.uri && item.range
+              ? new vscode.Location(item.uri, item.range)
+              : undefined;
           const failMessages: vscode.TestMessage[] = [];
+
+          // Include the step_end error message (e.g. "Request failed with status 429")
+          if (ev.error && typeof ev.error === "string") {
+            const msg = new vscode.TestMessage(ev.error);
+            if (stepLocation) msg.location = stepLocation;
+            failMessages.push(msg);
+          }
+
           // Include assertion failures from this step
           for (const se of stepEvents) {
             if (se.type === "assertion" && se.passed === false) {
-              failMessages.push(
-                new vscode.TestMessage(se.message ?? "Assertion failed"),
+              const msg = new vscode.TestMessage(
+                se.message ?? "Assertion failed",
               );
+              if (stepLocation) msg.location = stepLocation;
+              failMessages.push(msg);
             }
             if (se.type === "error") {
-              failMessages.push(new vscode.TestMessage(se.message ?? "Error"));
+              const msg = new vscode.TestMessage(se.message ?? "Error");
+              if (stepLocation) msg.location = stepLocation;
+              failMessages.push(msg);
             }
           }
+
           if (failMessages.length === 0) {
-            failMessages.push(new vscode.TestMessage("Step failed"));
+            const msg = new vscode.TestMessage("Step failed");
+            if (stepLocation) msg.location = stepLocation;
+            failMessages.push(msg);
           }
+
+          // Append the full event summary (HTTP traces, logs) for this step
+          if (stepSummary) {
+            const msg = new vscode.TestMessage(
+              new vscode.MarkdownString(
+                "```\n" + stepSummary + "\n```",
+              ),
+            );
+            if (stepLocation) msg.location = stepLocation;
+            failMessages.push(msg);
+          }
+
           run.failed(stepItem, failMessages, duration);
         }
       }

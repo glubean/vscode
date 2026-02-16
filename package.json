@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean",
   "description": "Code-first API testing and exploration in VS Code. Write TypeScript, click play, see every request and response. Debug with breakpoints. Compare runs with diff. A Postman alternative that lives in your editor.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -70,11 +70,13 @@
     "commands": [
       {
         "command": "glubean.runFile",
-        "title": "Glubean: Run All Tests in File"
+        "title": "Glubean: Run All Tests in File",
+        "icon": "$(play)"
       },
       {
-        "command": "glubean.runWorkspace",
-        "title": "Glubean: Run All Tests in Workspace"
+        "command": "glubean.runProject",
+        "title": "Glubean: Run All Tests in Project",
+        "icon": "$(run-all)"
       },
       {
         "command": "glubean.openLastResult",
@@ -105,12 +107,39 @@
         "title": "Glubean: Run Pick Example"
       }
     ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "glubean.runFile",
+          "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "glubean.runFile",
+          "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
+          "group": "glubean@1"
+        },
+        {
+          "command": "glubean.runProject",
+          "when": "explorerResourceIsFolder",
+          "group": "glubean@2"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "glubean.rerunLast",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "glubean.runFile",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorTextFocus && resourceFilename =~ /\\.(test|explore)\\.ts$/"
       }
     ]
   },
