@@ -122,6 +122,27 @@ export function setEnvFileProvider(fn: () => string | undefined): void {
 }
 
 /**
+ * Optional glubean path provider. When set, returns the resolved path to the
+ * glubean CLI binary (checking well-known install locations as fallback).
+ * Falls back to the config setting if no provider is registered.
+ */
+let glubeanPathProvider: (() => string) | undefined;
+
+/** Register a glubean path provider (called by extension.ts). */
+export function setGlubeanPathProvider(fn: () => string): void {
+  glubeanPathProvider = fn;
+}
+
+/** Resolve the glubean CLI path using the provider or config fallback. */
+function getGlubeanPath(): string {
+  if (glubeanPathProvider) {
+    return glubeanPathProvider();
+  }
+  const config = vscode.workspace.getConfiguration("glubean");
+  return config.get<string>("glubeanPath", "glubean");
+}
+
+/**
  * Run a test.pick example via CodeLens.
  *
  * Uses the Test Controller's TestRun panel (same as gutter play button)
@@ -147,8 +168,7 @@ export async function runWithPick(
     }
   }
 
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
   const cwd = resolveWorkspaceFolder(filePath);
 
   // Strip "pick:" prefix and template variables to get a stable prefix filter
@@ -933,8 +953,7 @@ async function debugHandler(
   const { item, meta, filePath } = filtered[0];
   run.started(item);
 
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
   const cwd = resolveWorkspaceFolder(filePath);
 
   let port: number;
@@ -958,10 +977,11 @@ async function debugHandler(
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
   // Spawn the CLI process as a detached process group so we can kill
-  // the entire tree (shell + CLI + harness) reliably.
+  // the entire tree (CLI + harness) reliably.
+  // No shell: true — args array is passed directly to the binary, avoiding
+  // any shell interpolation of paths with spaces or special characters.
   const proc = cp.spawn(glubeanPath, args, {
     cwd,
-    shell: true,
     detached: true, // create new process group for reliable cleanup
     env: {
       ...process.env,
@@ -1127,8 +1147,7 @@ async function runFile(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
 
   const args = buildArgs(filePath, undefined, undefined, envFileProvider?.());
   const cwd = resolveWorkspaceFolder(filePath);
@@ -1194,8 +1213,7 @@ async function runSingleTest(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const config = vscode.workspace.getConfiguration("glubean");
-  const glubeanPath = config.get<string>("glubeanPath", "glubean");
+  const glubeanPath = getGlubeanPath();
 
   // For data-driven tests (each: / pick:), the parser ID is a synthetic
   // template like "pick:search-products-$_pick" or "each:user-crud-$name".
@@ -1503,9 +1521,10 @@ function execGlubean(
   run?: vscode.TestRun,
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
+    // No shell: true — args array is passed directly to the binary, avoiding
+    // any shell interpolation of paths with spaces or special characters.
     const proc = cp.spawn(command, args, {
       cwd,
-      shell: true,
       env: { ...process.env, FORCE_COLOR: "1" }, // keep ANSI colors for pretty output
     });
 
