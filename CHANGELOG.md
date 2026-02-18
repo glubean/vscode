@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0
+
+### Features
+
+- **One-click setup improvements** — Context-aware install prompts (different messages for missing Deno vs missing CLI vs both), cross-platform installer with curl/wget fallback (Linux) and PowerShell bypass (Windows), "Learn more" button opens bundled setup guide
+- **Directory-based convention** — Test Explorer groups files under "Tests" and "Explore" nodes based on `tests/` and `explore/` directories
+- **PATH terminal fallback** — Integrated terminals automatically have `~/.deno/bin` on PATH via `environmentVariableCollection`, even if shell rc writes fail
+
+### Fixes
+
+- **Re-run Last Request** — Now correctly handles "Run All" (include=undefined); previously returned false when the last run was a full suite run
+- **Removed dead settings** — `glubean.envFile` and `glubean.verbose` settings removed from configuration (they were declared but never read; env file is controlled via the status bar picker, verbose is always on)
+
+### Misc
+
+- Command renamed: "Glubean: Setup" (was "Check Dependencies")
+- Dependency updated: `@glubean/scanner@^0.11.0`
+
 ## 0.1.0 — Initial Release
 
 ### Features

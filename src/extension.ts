@@ -716,6 +716,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // Activate the Test Controller (discovery + run)
   testController.activate(context);
 
+  // Session-level PATH fallback so integrated terminals find glubean/deno
+  // even when shell rc writes fail or a non-login shell is used.
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (home) {
+    const sep = process.platform === "win32" ? "\\" : "/";
+    const denoBin = `${home}${sep}.deno${sep}bin`;
+    if (fs.existsSync(denoBin)) {
+      const delimiter = process.platform === "win32" ? ";" : ":";
+      context.environmentVariableCollection.prepend("PATH", denoBin + delimiter);
+    }
+  }
+
   // Wire up pre-run dependency check — blocks test execution if deps are missing
   testController.setPreRunCheck(promptInstallIfNeeded);
 

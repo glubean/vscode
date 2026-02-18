@@ -92,6 +92,7 @@ let lastResultJsonPath: string | undefined;
 
 /** Last run items — used by the "Re-run Last Request" command. */
 let lastRunInclude: readonly vscode.TestItem[] | undefined;
+let lastRunWasAll = false;
 
 /** Get the path to the most recent result.json file. */
 export function getLastResultJsonPath(): string | undefined {
@@ -234,10 +235,12 @@ export async function runWithPick(
  * Returns false if there's nothing to re-run.
  */
 export async function rerunLast(): Promise<boolean> {
-  if (!lastRunInclude || lastRunInclude.length === 0) {
+  if (!lastRunWasAll && (!lastRunInclude || lastRunInclude.length === 0)) {
     return false;
   }
-  const request = new vscode.TestRunRequest(lastRunInclude);
+  const request = lastRunWasAll
+    ? new vscode.TestRunRequest()
+    : new vscode.TestRunRequest(lastRunInclude);
   const cts = new vscode.CancellationTokenSource();
   await runHandler(request, cts.token);
   cts.dispose();
@@ -776,6 +779,7 @@ async function runHandler(
 
   // Track last run for re-run command
   lastRunInclude = request.include;
+  lastRunWasAll = !request.include;
 
   // Collect tests to run
   const testsToRun: Array<{
