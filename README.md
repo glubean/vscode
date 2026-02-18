@@ -145,10 +145,10 @@ Move a file from `explore/` to `tests/` to promote it to a permanent test — ze
 | Setting                      | Default     | Description                                              |
 | ---------------------------- | ----------- | -------------------------------------------------------- |
 | `glubean.glubeanPath`        | `"glubean"` | Path to the Glubean CLI executable                       |
-| `glubean.envFile`            | `".env"`    | Default `.env` file (relative to workspace root)         |
-| `glubean.verbose`            | `false`     | Pass `--verbose` flag when running tests                 |
 | `glubean.autoDiscover`       | `true`      | Auto-discover tests when files are opened or changed     |
 | `glubean.traceHistoryLimit`  | `20`        | Max trace files to keep per test (older are auto-deleted) |
+
+Environment file and verbose mode are controlled via the status bar picker and always-on respectively.
 
 ## How It Works
 

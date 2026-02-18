@@ -50,16 +50,6 @@
           "default": "glubean",
           "description": "Path to the glubean CLI executable"
         },
-        "glubean.envFile": {
-          "type": "string",
-          "default": ".env",
-          "description": "Path to the .env file (relative to workspace root)"
-        },
-        "glubean.verbose": {
-          "type": "boolean",
-          "default": false,
-          "description": "Pass --verbose flag when running tests"
-        },
         "glubean.autoDiscover": {
           "type": "boolean",
           "default": true,
