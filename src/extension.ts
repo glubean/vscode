@@ -941,7 +941,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
       try {
         const glubeanPath = resolveGlubeanPath();
-        await execBin(glubeanPath, ["init", "--minimal", "--no-interactive"], folder.uri.fsPath);
+        await execBin(glubeanPath, ["init", "--minimal", "--no-interactive", "--overwrite"], folder.uri.fsPath);
 
         const exploreFile = vscode.Uri.joinPath(folder.uri, "explore", "api.test.ts");
         if (fs.existsSync(exploreFile.fsPath)) {
