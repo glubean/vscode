@@ -37,6 +37,19 @@ This repository follows **GitHub Flow**. No exceptions.
 - Never perform any of these operations silently or automatically. Always describe what you intend to do and wait for a clear "yes" or equivalent confirmation.
 - **Never run `git push` to `main`** — push to the feature branch and open a PR.
 
+## Version Alignment with OSS
+
+This extension depends on packages published from the **glubean/glubean** (OSS) monorepo on JSR
+(e.g., `@glubean/scanner`). Versions must stay aligned:
+
+1. **Dependency versions in `package.json`** must match the latest published OSS version.
+   - Example: if OSS is at `0.11.0`, then `"@glubean/scanner": "npm:@jsr/glubean__scanner@^0.11.0"`.
+2. **When bumping OSS versions**, always update this repo's dependencies to match.
+3. **Publishing workflow:**
+   - Bump and publish all OSS packages first (`deno publish` in the OSS repo).
+   - Then update `package.json` here, run `npm install`, and verify `npm run lint` + `npm run build`.
+4. **New OSS packages** (e.g., `@glubean/auth`, `@glubean/graphql`) must be created on JSR before they can be published.
+
 ## Code Standards
 
 - All code comments and documentation in English
