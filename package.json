@@ -104,6 +104,10 @@
         "title": "Glubean: Run Pick Example"
       },
       {
+        "command": "glubean.initProject",
+        "title": "Glubean: Initialize Project"
+      },
+      {
         "command": "glubean.cleanTraces",
         "title": "Glubean: Clean All Traces"
       },
