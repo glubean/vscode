@@ -220,16 +220,11 @@ function updateStatusBar(): void {
 
   // Show position and clickable prev/next hints
   statusBarItem.text = `$(history) Trace ${pos}/${total}  $(arrow-left) $(arrow-right)`;
-  statusBarItem.command = {
-    title: "Trace Navigation",
-    command: "glubean.traceNavMenu",
-  };
-
   // Use a simpler approach: clicking the status bar cycles to the previous trace
   statusBarItem.command = "glubean.tracePrev";
   statusBarItem.tooltip =
     `Glubean Trace ${pos}/${total}\n` +
-    `Click or Alt+[ for older, Alt+] for newer\n` +
+    `Click for older trace, use keybindings for older/newer\n` +
     `${traceFiles[currentIndex]}`;
   statusBarItem.show();
 }

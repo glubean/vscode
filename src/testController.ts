@@ -94,6 +94,9 @@ let lastResultJsonPath: string | undefined;
 let lastRunInclude: readonly vscode.TestItem[] | undefined;
 let lastRunWasAll = false;
 
+/** Show the web viewer prompt at most once per extension session. */
+let shownWebViewerPrompt = false;
+
 /** Get the path to the most recent result.json file. */
 export function getLastResultJsonPath(): string | undefined {
   return lastResultJsonPath;
@@ -242,8 +245,11 @@ export async function rerunLast(): Promise<boolean> {
     ? new vscode.TestRunRequest()
     : new vscode.TestRunRequest(lastRunInclude);
   const cts = new vscode.CancellationTokenSource();
-  await runHandler(request, cts.token);
-  cts.dispose();
+  try {
+    await runHandler(request, cts.token);
+  } finally {
+    cts.dispose();
+  }
   return true;
 }
 
@@ -374,7 +380,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Parse currently open editors ───────────────────────────────────────
   for (const editor of vscode.window.visibleTextEditors) {
     if (isGlubeanFileName(editor.document.fileName)) {
-      parseFile(editor.document.uri);
+      void parseFile(editor.document.uri);
     }
   }
 
@@ -382,7 +388,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => {
       if (isGlubeanFileName(doc.fileName)) {
-        parseFile(doc.uri);
+        void parseFile(doc.uri);
       }
     }),
   );
@@ -391,7 +397,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (isGlubeanFileName(doc.fileName)) {
-        parseFile(doc.uri);
+        void parseFile(doc.uri);
       }
     }),
   );
@@ -842,20 +848,18 @@ async function runHandler(
 
   run.end();
 
-  // Show "View on Web" notification if result JSON was produced
-  if (lastResultJsonPath) {
-    vscode.window
-      .showInformationMessage(
-        "Test run complete. View results on the web?",
-        "Open Viewer",
-      )
-      .then((choice) => {
-        if (choice === "Open Viewer") {
-          vscode.env.openExternal(
-            vscode.Uri.parse("https://glubean.com/viewer"),
-          );
-        }
-      });
+  // Show "View on Web" notification at most once per session.
+  if (lastResultJsonPath && !shownWebViewerPrompt) {
+    shownWebViewerPrompt = true;
+    const choice = await vscode.window.showInformationMessage(
+      "Test run complete. View results on the web?",
+      "Open Viewer",
+    );
+    if (choice === "Open Viewer") {
+      await vscode.env.openExternal(
+        vscode.Uri.parse("https://glubean.com/viewer"),
+      );
+    }
   }
 }
 
@@ -977,7 +981,7 @@ function killProcessGroup(proc: cp.ChildProcess): void {
   }
 
   // Force kill after 2s grace period
-  setTimeout(() => {
+  const forceKillTimer = setTimeout(() => {
     try {
       process.kill(-pid, "SIGKILL");
     } catch {
@@ -988,6 +992,7 @@ function killProcessGroup(proc: cp.ChildProcess): void {
       }
     }
   }, 2000);
+  proc.once("close", () => clearTimeout(forceKillTimer));
 }
 
 /**
@@ -1087,9 +1092,17 @@ async function debugHandler(
   // Don't let the detached process keep the extension host alive
   proc.unref();
 
+  // Ensure process-group kill happens at most once.
+  let processTerminated = false;
+  const terminateProcessGroup = (): void => {
+    if (processTerminated) return;
+    processTerminated = true;
+    killProcessGroup(proc);
+  };
+
   // Handle cancellation
   const cancelDisposable = cancellation.onCancellationRequested(() => {
-    killProcessGroup(proc);
+    terminateProcessGroup();
   });
 
   // Capture stdout for test results panel
@@ -1106,6 +1119,9 @@ async function debugHandler(
   const processExited = new Promise<number>((resolve) => {
     proc.on("close", (code) => resolve(code ?? 1));
   });
+
+  let debugEndedDisposable: vscode.Disposable | undefined;
+  let safetyTimeoutHandle: NodeJS.Timeout | undefined;
 
   try {
     // Poll the inspector HTTP endpoint instead of parsing stderr.
@@ -1147,9 +1163,6 @@ async function debugHandler(
           "Failed to attach debugger. Is the js-debug extension available?",
         ),
       );
-      killProcessGroup(proc);
-      run.end();
-      cancelDisposable.dispose();
       return;
     }
 
@@ -1163,9 +1176,8 @@ async function debugHandler(
     // 2. Debug session ends (user stops, debugger disconnects, etc.)
     // 3. Safety timeout (5 min)
     const debugSessionEnded = new Promise<void>((resolve) => {
-      const disposable = vscode.debug.onDidTerminateDebugSession((session) => {
+      debugEndedDisposable = vscode.debug.onDidTerminateDebugSession((session) => {
         if (session.name === debugSessionName) {
-          disposable.dispose();
           outputChannel.appendLine("[debug] Debug session terminated");
           resolve();
         }
@@ -1174,7 +1186,7 @@ async function debugHandler(
 
     const SAFETY_TIMEOUT_MS = 5 * 60 * 1000;
     const safetyTimeout = new Promise<void>((resolve) => {
-      setTimeout(() => {
+      safetyTimeoutHandle = setTimeout(() => {
         outputChannel.appendLine(
           "[debug] Safety timeout reached (5min), killing process",
         );
@@ -1186,7 +1198,7 @@ async function debugHandler(
     await Promise.race([processExited, debugSessionEnded, safetyTimeout]);
 
     // Kill the process group — the harness may still be alive due to inspector
-    killProcessGroup(proc);
+    terminateProcessGroup();
 
     // Give processes a moment to die before reading results
     await new Promise((r) => setTimeout(r, 500));
@@ -1199,17 +1211,24 @@ async function debugHandler(
       applyResults([{ item, meta }], parsed, run);
       lastResultJsonPath = resultJsonPath;
     } else {
-      // No result JSON — use exit code if process already exited
-      run.passed(item); // Assume pass if we got here without error
+      run.errored(
+        item,
+        new vscode.TestMessage(
+          "No result JSON produced. The test may not have completed — check the output for errors.",
+        ),
+      );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     run.errored(item, new vscode.TestMessage(`Debug error: ${message}`));
     outputChannel.appendLine(`[debug] Error: ${message}`);
-    killProcessGroup(proc);
   } finally {
     cancelDisposable.dispose();
-    killProcessGroup(proc);
+    debugEndedDisposable?.dispose();
+    if (safetyTimeoutHandle) {
+      clearTimeout(safetyTimeoutHandle);
+    }
+    terminateProcessGroup();
     run.end();
   }
 }
