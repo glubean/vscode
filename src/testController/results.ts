@@ -1,11 +1,11 @@
 import * as fs from "fs";
 import * as vscode from "vscode";
-import type { TestMeta } from "./parser";
+import type { TestMeta } from "../parser";
 import {
   buildEventsSummary,
   matchTestResults,
   type GlubeanEvent,
-} from "./testController.utils";
+} from "../testController.utils";
 
 /** Parsed result from --result-json output */
 export interface GlubeanResult {

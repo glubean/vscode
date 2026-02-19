@@ -6,7 +6,7 @@ import {
   findFreePort,
   killProcessGroup,
   pollInspectorReady,
-} from "./testController.debug-utils";
+} from "./debug-utils";
 
 class FakeProcess extends EventEmitter {
   pid?: number;

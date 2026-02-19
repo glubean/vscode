@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import { EventEmitter } from "node:events";
 import type * as cp from "node:child_process";
-import { execGlubean } from "./testController.exec";
+import { execGlubean } from "./exec";
 
 class FakeStream extends EventEmitter {
   emitData(text: string): void {

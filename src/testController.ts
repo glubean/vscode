@@ -19,17 +19,17 @@ import {
   findFreePort,
   killProcessGroup,
   pollInspectorReady,
-} from "./testController.debug-utils";
+} from "./testController/debug-utils";
 import { extractTests, isGlubeanFile, type TestMeta } from "./parser";
-import { execGlubean } from "./testController.exec";
+import { execGlubean } from "./testController/exec";
 import {
   applyResults,
   readResultJson,
-} from "./testController.results";
+} from "./testController/results";
 import {
   diffWithPrevious as diffWithPreviousTrace,
   openLatestTrace as openLatestTraceFile,
-} from "./testController.trace";
+} from "./testController/trace";
 import {
   buildArgs,
   normalizeFilterId,
@@ -551,7 +551,7 @@ const testItemMeta = new WeakMap<vscode.TestItem, TestMeta>();
 
 /**
  * Diff the two latest trace files for a test file.
- * Delegates the filesystem + editor operations to testController.trace.ts.
+ * Delegates the filesystem + editor operations to testController/trace.ts.
  */
 export async function diffWithPrevious(filePath?: string): Promise<boolean> {
   return await diffWithPreviousTrace(filePath, traceModuleDeps);
