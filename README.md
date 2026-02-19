@@ -3,7 +3,9 @@
 </p>
 
 <h1 align="center">Glubean for VS Code</h1>
-<p align="center"><strong>API collections, as real code.</strong> No context switching, no proprietary GUI, just TypeScript.</p>
+<p align="center">A code-first <strong>REST client</strong> and <strong>API testing</strong> tool — the <strong>Postman alternative</strong> that lives in your editor.<br/>AI-friendly SDK: feed your <strong>OpenAPI</strong> / Swagger spec to any AI and get production-ready tests. Just TypeScript.</p>
+
+<p align="center"><strong>REST client</strong> · <strong>API testing</strong> · <strong>Postman alternative</strong> · <strong>AI-friendly</strong> · <strong>OpenAPI</strong> · TypeScript · Deno</p>
 
 <!-- TODO: replace with actual GIF showing gutter click → green check → trace opens beside -->
 <!-- ![Glubean in action](docs/demo.gif) -->
@@ -26,6 +28,7 @@ Click the **▶** button next to `test(` to run it. The response opens as a stru
 ## Why Glubean?
 
 - **Native editor DX** — run API tests from the gutter, see results in the Test Explorer, debug with breakpoints. No browser tabs.
+- **AI-friendly SDK** — rich JSDoc, `@example` tags, and explicit types mean any AI assistant can generate correct tests from a spec or a natural language prompt.
 - **Trace & Diff** — every request/response is captured as a `.trace.jsonc` file. Diff against the last run instantly with VS Code's native diff.
 - **Git-friendly** — your collections are `.ts` files. Review them like code, version them like code.
 - **Zero config** — auto-installs the Glubean runtime on first use (~30s). Just install the extension and go.
@@ -77,6 +80,28 @@ Set breakpoints in your test code, step through API calls, and inspect request/r
 ### Multi-step tests
 
 Builder-style tests (`test("id").step(...)`) show each step as a child node in the Test Explorer with individual pass/fail status. `test.each()` patterns are detected and shown as expandable groups.
+
+## AI-Friendly by Design
+
+Glubean's SDK is built to work with AI assistants. Every interface has rich JSDoc, `@example` tags, and explicit types — so Copilot, Cursor, ChatGPT, or any coding AI can generate correct, runnable tests with minimal prompting.
+
+**Use natural language to explore your APIs:**
+
+1. Paste your OpenAPI / Swagger spec (or just a few endpoint URLs) into the chat.
+2. Ask your AI: _"Generate Glubean tests for the user CRUD endpoints."_
+3. Drop the generated file into `explore/` and click ▶.
+
+That's it — you go from spec to running tests in seconds, no manual HTTP client setup.
+
+```
+You → AI: "Write a Glubean test that creates a user, then fetches it and checks the name matches."
+
+AI → explore/user-crud.test.ts (ready to run)
+```
+
+The `explore/` directory is designed for this workflow: quick iteration, no commitment. When a test proves useful, move it to `tests/` to make it permanent.
+
+> **Tip:** Run `glubean context --openapi spec.json` to generate an AI context file (`.glubean/ai-context.md`) with SDK reference, existing test patterns, and uncovered endpoints — feed this to your AI for even better results.
 
 ## Advanced: Data-Driven Testing with `test.pick`
 

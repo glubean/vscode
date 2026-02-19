@@ -1,7 +1,7 @@
 {
   "name": "glubean",
-  "displayName": "Glubean",
-  "description": "Code-first API testing and exploration in VS Code. Write TypeScript, click play, see every request and response. Debug with breakpoints. Compare runs with diff. A Postman alternative that lives in your editor.",
+  "displayName": "Glubean — API Testing & REST Client",
+  "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
   "version": "0.2.0",
   "publisher": "glubean",
   "license": "MIT",
@@ -19,20 +19,35 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Testing"
+    "Testing",
+    "Other"
   ],
   "keywords": [
     "glubean",
     "api-testing",
-    "test-runner",
-    "deno",
-    "typescript",
+    "api-test",
     "rest-api",
+    "rest-client",
     "http",
+    "http-client",
+    "postman",
+    "postman-alternative",
+    "openapi-testing",
+    "swagger-testing",
+    "test-runner",
     "api-explorer",
     "api-client",
-    "integration-testing"
+    "integration-testing",
+    "contract-testing",
+    "ai-testing",
+    "endpoint-testing",
+    "backend-testing",
+    "api-regression-testing",
+    "deno",
+    "typescript",
+    "code-first"
   ],
+  "qna": "marketplace",
   "galleryBanner": {
     "color": "#1a1a1a",
     "theme": "dark"
