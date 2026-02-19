@@ -7,6 +7,7 @@
 
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as path from "path";
 import * as cp from "child_process";
 import * as testController from "./testController";
 import { createHoverProvider } from "./hoverProvider";
@@ -220,9 +221,9 @@ function exec(command: string): Promise<string> {
  * Run a binary with an args array — no shell involved.
  * Safe for paths containing spaces, $, backticks, etc.
  */
-function execBin(bin: string, args: string[]): Promise<string> {
+function execBin(bin: string, args: string[], cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    cp.execFile(bin, args, { timeout: 240_000 }, (err, stdout, stderr) => {
+    cp.execFile(bin, args, { timeout: 240_000, cwd }, (err, stdout, stderr) => {
       if (err) {
         reject(new Error(stderr || err.message));
       } else {
@@ -808,6 +809,48 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
+  // ── Empty workspace detection (suggest init) ────────────────────────────
+  // If the workspace has no deno.json with glubean config, offer to scaffold
+  // a minimal project. Runs once on activation, non-intrusively.
+  checkDependencies().then((depStatus) => {
+    if (!depStatus.deno || !depStatus.glubean) return;
+
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return;
+
+    const hasGlubeanProject = folders.some((folder) => {
+      const root = folder.uri.fsPath;
+      for (const name of ["deno.json", "deno.jsonc"]) {
+        const configPath = path.join(root, name);
+        if (fs.existsSync(configPath)) {
+          try {
+            const content = fs.readFileSync(configPath, "utf-8");
+            if (content.includes("@glubean/sdk") || content.includes('"glubean"')) {
+              return true;
+            }
+          } catch {
+            // unreadable — skip
+          }
+        }
+      }
+      return false;
+    });
+
+    if (!hasGlubeanProject) {
+      vscode.window
+        .showInformationMessage(
+          "No Glubean project detected. Initialize one?",
+          "Quick Start",
+          "Not now",
+        )
+        .then((choice) => {
+          if (choice === "Quick Start") {
+            vscode.commands.executeCommand("glubean.initProject");
+          }
+        });
+    }
+  });
+
   // ── Commands ────────────────────────────────────────────────────────────
 
   context.subscriptions.push(
@@ -887,6 +930,37 @@ export function activate(context: vscode.ExtensionContext): void {
         );
       } else {
         await runSetup();
+      }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.initProject", async () => {
+      const folder = await pickWorkspaceFolder();
+      if (!folder) {
+        vscode.window.showWarningMessage("No workspace folder open.");
+        return;
+      }
+
+      const depsOk = await promptInstallIfNeeded();
+      if (!depsOk) return;
+
+      try {
+        const glubeanPath = resolveGlubeanPath();
+        await execBin(glubeanPath, ["init", "--minimal", "--no-interactive"], folder.uri.fsPath);
+
+        const exploreFile = vscode.Uri.joinPath(folder.uri, "explore", "api.test.ts");
+        if (fs.existsSync(exploreFile.fsPath)) {
+          const doc = await vscode.workspace.openTextDocument(exploreFile);
+          await vscode.window.showTextDocument(doc);
+        }
+
+        vscode.window.showInformationMessage(
+          "Glubean project initialized — run explore/api.test.ts with the ▶ play button.",
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Glubean init failed: ${message}`);
       }
     }),
   );
