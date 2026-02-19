@@ -178,7 +178,9 @@
     "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
     "lint": "tsc --noEmit",
     "package": "npx @vscode/vsce package",
-    "publish": "npx @vscode/vsce publish"
+    "publish": "npx @vscode/vsce publish",
+    "install:vscode": "npm run package -- --out glubean.vsix && code --install-extension glubean.vsix",
+    "install:cursor": "npm run package -- --out glubean.vsix && cursor --install-extension glubean.vsix"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
