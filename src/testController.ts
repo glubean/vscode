@@ -13,45 +13,29 @@
 
 import * as vscode from "vscode";
 import * as cp from "child_process";
-import * as http from "http";
-import * as net from "net";
 import * as path from "path";
 import * as fs from "fs";
+import {
+  findFreePort,
+  killProcessGroup,
+  pollInspectorReady,
+} from "./testController.debug-utils";
 import { extractTests, isGlubeanFile, type TestMeta } from "./parser";
+import { execGlubean } from "./testController.exec";
+import {
+  applyResults,
+  readResultJson,
+} from "./testController.results";
+import {
+  diffWithPrevious as diffWithPreviousTrace,
+  openLatestTrace as openLatestTraceFile,
+} from "./testController.trace";
 import {
   buildArgs,
   normalizeFilterId,
-  matchTestResults,
-  formatJson,
-  formatHeaders,
-  formatTraceEvent,
-  buildEventsSummary,
   tracePairToCurl,
-  type GlubeanEvent,
   type TracePair,
 } from "./testController.utils";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Parsed result from --result-json output */
-interface GlubeanResult {
-  summary: {
-    total: number;
-    passed: number;
-    failed: number;
-    skipped: number;
-    durationMs: number;
-  };
-  tests: Array<{
-    testId: string;
-    testName: string;
-    success: boolean;
-    durationMs: number;
-    events: GlubeanEvent[];
-  }>;
-}
 
 // ---------------------------------------------------------------------------
 // Workspace resolution
@@ -72,6 +56,8 @@ function workspaceRootFor(filePath: string): string {
     path.dirname(filePath)
   );
 }
+
+const traceModuleDeps = { workspaceRootFor };
 
 // ---------------------------------------------------------------------------
 // Controller setup
@@ -217,7 +203,7 @@ export async function runWithPick(
     }
 
     // Open the latest trace file
-    await openLatestTrace(filePath);
+    await openLatestTraceFile(filePath, undefined, traceModuleDeps);
 
     if (result.stdout) {
       outputChannel.appendLine(result.stdout);
@@ -560,163 +546,15 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
 const testItemMeta = new WeakMap<vscode.TestItem, TestMeta>();
 
 // ---------------------------------------------------------------------------
-// Trace file viewer
+// Trace operations (delegated)
 // ---------------------------------------------------------------------------
 
 /**
- * Find and open the latest .trace.jsonc file for a given test file.
- *
- * Traces live at `.glubean/traces/{fileName}/{testId}/{timestamp}.trace.jsonc`.
- * When `testId` is provided, looks in that specific subdirectory.
- * When omitted (e.g. "run all" or pick/CodeLens without a known ID),
- * scans all test subdirectories and opens the globally newest trace.
- */
-async function openLatestTrace(
-  filePath: string,
-  testId?: string,
-): Promise<void> {
-  const cwd = workspaceRootFor(filePath);
-
-  const baseName = path.basename(filePath).replace(/\.ts$/, "");
-  const fileTracesDir = path.join(cwd, ".glubean", "traces", baseName);
-
-  try {
-    let latestPath: string | undefined;
-
-    if (testId) {
-      // Look in the specific test subdirectory
-      const testDir = path.join(fileTracesDir, testId);
-      const entries = fs
-        .readdirSync(testDir)
-        .filter((f) => f.endsWith(".trace.jsonc"));
-      if (entries.length === 0) return;
-      entries.sort().reverse();
-      latestPath = path.join(testDir, entries[0]);
-    } else {
-      // Scan all test subdirectories for the newest trace
-      const subdirs = fs
-        .readdirSync(fileTracesDir, { withFileTypes: true })
-        .filter((d) => d.isDirectory());
-
-      let newest: { file: string; dir: string } | undefined;
-      for (const sub of subdirs) {
-        const subPath = path.join(fileTracesDir, sub.name);
-        const traces = fs
-          .readdirSync(subPath)
-          .filter((f) => f.endsWith(".trace.jsonc"));
-        if (traces.length === 0) continue;
-        traces.sort().reverse();
-        if (!newest || traces[0] > newest.file) {
-          newest = { file: traces[0], dir: subPath };
-        }
-      }
-      if (!newest) return;
-      latestPath = path.join(newest.dir, newest.file);
-    }
-
-    if (!latestPath) return;
-
-    const doc = await vscode.workspace.openTextDocument(
-      vscode.Uri.file(latestPath),
-    );
-    await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Beside,
-      preview: true,
-      preserveFocus: true, // keep focus on the test file
-    });
-  } catch {
-    // Trace dir doesn't exist yet or read failed — silently skip
-  }
-}
-
-/**
- * Open a VSCode diff view comparing the two most recent trace files
- * for the given test file. If called without a filePath,
- * tries to infer from the active editor or last run.
+ * Diff the two latest trace files for a test file.
+ * Delegates the filesystem + editor operations to testController.trace.ts.
  */
 export async function diffWithPrevious(filePath?: string): Promise<boolean> {
-  // Resolve file path from argument, active editor, or last run
-  const resolved =
-    filePath ?? vscode.window.activeTextEditor?.document.fileName;
-
-  if (!resolved) {
-    return false;
-  }
-
-  const cwd = workspaceRootFor(resolved);
-
-  const baseName = path
-    .basename(resolved)
-    .replace(/\.ts$/, "")
-    .replace(/\.trace\.jsonc$/, ""); // allow calling from an open trace file
-
-  const fileTracesDir = path.join(cwd, ".glubean", "traces", baseName);
-
-  try {
-    // If the resolved file is itself a trace file, its parent dir is the
-    // per-test trace directory — diff within that directory.
-    if (resolved.endsWith(".trace.jsonc")) {
-      const traceDir = path.dirname(resolved);
-      return await diffInDir(traceDir, baseName);
-    }
-
-    // Otherwise scan all test subdirectories and collect every trace with
-    // its full path, then pick the two newest globally.
-    const subdirs = fs
-      .readdirSync(fileTracesDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory());
-
-    const allTraces: { name: string; fullPath: string }[] = [];
-    for (const sub of subdirs) {
-      const subPath = path.join(fileTracesDir, sub.name);
-      const traces = fs
-        .readdirSync(subPath)
-        .filter((f) => f.endsWith(".trace.jsonc"));
-      for (const t of traces) {
-        allTraces.push({ name: t, fullPath: path.join(subPath, t) });
-      }
-    }
-
-    if (allTraces.length < 2) {
-      return false;
-    }
-
-    allTraces.sort((a, b) => b.name.localeCompare(a.name));
-    const newestUri = vscode.Uri.file(allTraces[0].fullPath);
-    const previousUri = vscode.Uri.file(allTraces[1].fullPath);
-
-    await vscode.commands.executeCommand(
-      "vscode.diff",
-      previousUri,
-      newestUri,
-      `${baseName}: previous ↔ latest`,
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Diff the two most recent traces within a single directory.
- */
-async function diffInDir(dir: string, label: string): Promise<boolean> {
-  const entries = fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith(".trace.jsonc"));
-  if (entries.length < 2) return false;
-
-  entries.sort().reverse();
-  const newestUri = vscode.Uri.file(path.join(dir, entries[0]));
-  const previousUri = vscode.Uri.file(path.join(dir, entries[1]));
-
-  await vscode.commands.executeCommand(
-    "vscode.diff",
-    previousUri,
-    newestUri,
-    `${label}: previous ↔ latest`,
-  );
-  return true;
+  return await diffWithPreviousTrace(filePath, traceModuleDeps);
 }
 
 // ---------------------------------------------------------------------------
@@ -869,131 +707,6 @@ async function runHandler(
 
 /** Default inspector port; incremented if busy. */
 const DEBUG_PORT_BASE = 9229;
-
-/**
- * Find a free TCP port starting from `base`.
- * Tries up to 20 consecutive ports before giving up.
- */
-function findFreePort(base: number): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-
-    function tryPort(port: number) {
-      const server = net.createServer();
-      server.once("error", () => {
-        attempts++;
-        if (attempts > 20) {
-          reject(new Error("Could not find a free port for debugger"));
-        } else {
-          tryPort(port + 1);
-        }
-      });
-      server.once("listening", () => {
-        server.close(() => resolve(port));
-      });
-      server.listen(port, "127.0.0.1");
-    }
-
-    tryPort(base);
-  });
-}
-
-/**
- * Poll the V8 Inspector HTTP endpoint until it responds.
- * Returns the WebSocket debugger URL from the /json response.
- *
- * This is more reliable than parsing stderr because stderr output can get
- * lost or buffered when the process tree involves shell wrappers and
- * multiple layers of subprocess inheritance.
- */
-function pollInspectorReady(port: number, timeoutMs = 15000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    let done = false;
-
-    function attempt() {
-      if (done) return;
-      if (Date.now() - startTime > timeoutMs) {
-        done = true;
-        reject(
-          new Error(
-            `Timed out waiting for V8 Inspector on port ${port} (${timeoutMs}ms)`,
-          ),
-        );
-        return;
-      }
-
-      const req = http.get(`http://127.0.0.1:${port}/json`, (res) => {
-        let data = "";
-        res.on("data", (chunk: Buffer) => {
-          data += chunk.toString();
-        });
-        res.on("end", () => {
-          if (done) return;
-          try {
-            const targets = JSON.parse(data);
-            if (Array.isArray(targets) && targets.length > 0) {
-              const wsUrl = targets[0].webSocketDebuggerUrl;
-              if (wsUrl) {
-                done = true;
-                resolve(wsUrl);
-                return;
-              }
-            }
-          } catch {
-            // JSON parse failed, retry
-          }
-          // Got a response but no valid target yet, retry
-          setTimeout(attempt, 200);
-        });
-      });
-      req.on("error", () => {
-        // Connection refused — inspector not ready yet, retry
-        if (!done) {
-          setTimeout(attempt, 200);
-        }
-      });
-      req.end();
-    }
-
-    attempt();
-  });
-}
-
-/**
- * Kill an entire process group (detached process).
- * Falls back to killing just the process if group kill fails.
- */
-function killProcessGroup(proc: cp.ChildProcess): void {
-  const pid = proc.pid;
-  if (!pid) return;
-
-  try {
-    // Kill the entire process group (negative PID)
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    // Fallback: kill just the process
-    try {
-      proc.kill("SIGTERM");
-    } catch {
-      // already dead
-    }
-  }
-
-  // Force kill after 2s grace period
-  const forceKillTimer = setTimeout(() => {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch {
-      try {
-        proc.kill("SIGKILL");
-      } catch {
-        // already dead
-      }
-    }
-  }, 2000);
-  proc.once("close", () => clearTimeout(forceKillTimer));
-}
 
 /**
  * Debug handler — called when user clicks the debug button.
@@ -1299,7 +1012,7 @@ async function runFile(
     }
 
     // Open the latest trace file in a side editor
-    await openLatestTrace(filePath);
+    await openLatestTraceFile(filePath, undefined, traceModuleDeps);
 
     // Also log to Output Channel for persistent reference
     if (result.stdout) {
@@ -1369,7 +1082,11 @@ async function runSingleTest(
     // since the concrete variant ID is only known at runtime.
     const isDataDriven =
       test.meta.id.startsWith("each:") || test.meta.id.startsWith("pick:");
-    await openLatestTrace(filePath, isDataDriven ? undefined : test.meta.id);
+    await openLatestTraceFile(
+      filePath,
+      isDataDriven ? undefined : test.meta.id,
+      traceModuleDeps,
+    );
 
     if (result.stdout) {
       outputChannel.appendLine(result.stdout);
@@ -1387,304 +1104,3 @@ async function runSingleTest(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Result parsing
-// ---------------------------------------------------------------------------
-
-/**
- * Read and parse a .result.json file.
- */
-function readResultJson(filePath: string): GlubeanResult | null {
-  try {
-    const content = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(content) as GlubeanResult;
-  } catch {
-    return null;
-  }
-}
-
-// formatJson, formatHeaders, formatTraceEvent, buildEventsSummary
-// are imported from ./testController.utils
-
-/**
- * Create a TestMessage with an optional source location attached.
- * Reduces boilerplate when building failure messages with navigation.
- */
-function messageWithLocation(
-  content: string | vscode.MarkdownString,
-  location?: vscode.Location,
-): vscode.TestMessage {
-  const msg = new vscode.TestMessage(content);
-  if (location) {
-    msg.location = location;
-  }
-  return msg;
-}
-
-/**
- * Apply structured test results to TestRun items, including rich event details.
- */
-function applyResults(
-  tests: Array<{ item: vscode.TestItem; meta: TestMeta }>,
-  result: GlubeanResult,
-  run: vscode.TestRun,
-): void {
-  const allMatched = matchTestResults(
-    tests.map((t) => t.meta.id),
-    result.tests,
-  );
-
-  for (let i = 0; i < tests.length; i++) {
-    const { item } = tests[i];
-    const matchedResults = allMatched[i];
-
-    if (matchedResults.length === 0) {
-      run.skipped(item);
-      continue;
-    }
-
-    // Aggregate events and status across all matched results
-    const allEvents = matchedResults.flatMap((r) => r.events);
-    const allPassed = matchedResults.every((r) => r.success);
-    const totalDuration = matchedResults.reduce(
-      (s, r) => s + (r.durationMs ?? 0),
-      0,
-    );
-    const displayName = matchedResults
-      .map((r) => r.testName)
-      .join(", ");
-
-    // Build rich event summary for TestMessage
-    const eventsSummary = buildEventsSummary(allEvents);
-
-    if (allPassed) {
-      run.passed(item, totalDuration);
-      // Even for passing tests, output logs/traces to TestRun output
-      if (eventsSummary) {
-        run.appendOutput(
-          `\n── ${displayName} ──\r\n${eventsSummary.replace(
-            /\n/g,
-            "\r\n",
-          )}\r\n`,
-          undefined,
-          item,
-        );
-      }
-    } else {
-      // Every failure message gets a location so clicking navigates to source.
-      const loc =
-        item.uri && item.range
-          ? new vscode.Location(item.uri, item.range)
-          : undefined;
-      const messages: vscode.TestMessage[] = [];
-
-      for (const event of allEvents) {
-        if (event.type === "assertion" && event.passed === false) {
-          const msg = messageWithLocation(
-            event.message ?? "Assertion failed",
-            loc,
-          );
-          if (event.expected !== undefined) {
-            msg.expectedOutput = JSON.stringify(event.expected);
-          }
-          if (event.actual !== undefined) {
-            msg.actualOutput = JSON.stringify(event.actual);
-          }
-          messages.push(msg);
-        }
-
-        if (event.type === "error" || event.type === "status") {
-          if (event.error) {
-            messages.push(messageWithLocation(event.error, loc));
-          }
-        }
-      }
-
-      if (messages.length === 0) {
-        messages.push(messageWithLocation("Test failed", loc));
-      }
-
-      // Append the full event summary (with HTTP traces) as an additional message
-      if (eventsSummary) {
-        messages.push(
-          messageWithLocation(
-            new vscode.MarkdownString("```\n" + eventsSummary + "\n```"),
-            loc,
-          ),
-        );
-      }
-
-      run.failed(item, messages, totalDuration);
-    }
-
-    // Update step children if present — attach per-step output.
-    // For data-driven tests use the first matched result for step mapping
-    // (each variant shares the same step structure).
-    const primaryResult = matchedResults[0];
-    item.children.forEach((stepItem) => {
-      const stepIndex = parseInt(stepItem.id.split("#step-")[1] ?? "-1");
-      if (stepIndex < 0) return;
-
-      // Find the step_end event for status/duration
-      const stepEnd = primaryResult.events.find(
-        (e) =>
-          e.type === "step_end" &&
-          (e as unknown as Record<string, unknown>).index === stepIndex,
-      );
-
-      // Collect events belonging to this step.
-      // Events between step_start and step_end use the `index` field.
-      // Some events (like trace, metric) use `stepIndex` instead.
-      const stepEvents: GlubeanEvent[] = [];
-      let inStep = false;
-      for (const e of primaryResult.events) {
-        const ev = e as unknown as Record<string, unknown>;
-        if (e.type === "step_start" && ev.index === stepIndex) {
-          inStep = true;
-          continue;
-        }
-        if (e.type === "step_end" && ev.index === stepIndex) {
-          break;
-        }
-        if (inStep) {
-          stepEvents.push(e);
-        } else if (ev.stepIndex === stepIndex) {
-          // Catch events tagged with stepIndex but outside start/end markers
-          stepEvents.push(e);
-        }
-      }
-
-      // Build and attach per-step output
-      const stepSummary = buildEventsSummary(stepEvents);
-      if (stepSummary) {
-        run.appendOutput(
-          `${stepSummary.replace(/\n/g, "\r\n")}\r\n`,
-          undefined,
-          stepItem,
-        );
-      }
-
-      if (stepEnd) {
-        const ev = stepEnd as unknown as Record<string, unknown>;
-        const status = ev.status;
-        const duration = ev.durationMs as number | undefined;
-        if (status === "passed") {
-          run.passed(stepItem, duration);
-        } else if (status === "failed") {
-          // Use the parent test item's location so clicking navigates to source
-          const loc =
-            item.uri && item.range
-              ? new vscode.Location(item.uri, item.range)
-              : undefined;
-          const failMessages: vscode.TestMessage[] = [];
-
-          // Include the step_end error message (e.g. "Request failed with status 429")
-          if (ev.error && typeof ev.error === "string") {
-            failMessages.push(messageWithLocation(ev.error, loc));
-          }
-
-          // Include assertion failures from this step
-          for (const se of stepEvents) {
-            if (se.type === "assertion" && se.passed === false) {
-              failMessages.push(
-                messageWithLocation(se.message ?? "Assertion failed", loc),
-              );
-            }
-            if (se.type === "error") {
-              failMessages.push(
-                messageWithLocation(se.message ?? "Error", loc),
-              );
-            }
-          }
-
-          if (failMessages.length === 0) {
-            failMessages.push(messageWithLocation("Step failed", loc));
-          }
-
-          // Append the full event summary (HTTP traces, logs) for this step
-          if (stepSummary) {
-            failMessages.push(
-              messageWithLocation(
-                new vscode.MarkdownString("```\n" + stepSummary + "\n```"),
-                loc,
-              ),
-            );
-          }
-
-          run.failed(stepItem, failMessages, duration);
-        }
-      }
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Process execution
-// ---------------------------------------------------------------------------
-
-interface ExecResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Execute glubean CLI as a child process.
- */
-/**
- * Spawn `glubean` CLI and capture output.
- * When a TestRun is provided, stdout/stderr lines are streamed into it
- * so the Test Results panel shows live output (logs, HTTP traces, etc.).
- *
- * Note: `run.appendOutput()` requires `\r\n` line endings for proper display.
- */
-function execGlubean(
-  command: string,
-  args: string[],
-  cwd: string,
-  cancellation: vscode.CancellationToken,
-  run?: vscode.TestRun,
-): Promise<ExecResult> {
-  return new Promise((resolve, reject) => {
-    // No shell: true — args array is passed directly to the binary, avoiding
-    // any shell interpolation of paths with spaces or special characters.
-    const proc = cp.spawn(command, args, {
-      cwd,
-      env: { ...process.env, FORCE_COLOR: "1" }, // keep ANSI colors for pretty output
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout?.on("data", (data: Buffer) => {
-      const text = data.toString();
-      stdout += text;
-      if (run) {
-        // TestRun.appendOutput requires \r\n line endings
-        run.appendOutput(text.replace(/\n/g, "\r\n"));
-      }
-    });
-
-    proc.stderr?.on("data", (data: Buffer) => {
-      const text = data.toString();
-      stderr += text;
-      if (run) {
-        run.appendOutput(text.replace(/\n/g, "\r\n"));
-      }
-    });
-
-    const disposable = cancellation.onCancellationRequested(() => {
-      proc.kill("SIGTERM");
-    });
-
-    proc.on("error", (err) => {
-      disposable.dispose();
-      reject(err);
-    });
-
-    proc.on("close", (code) => {
-      disposable.dispose();
-      resolve({ exitCode: code ?? 1, stdout, stderr });
-    });
-  });
-}
