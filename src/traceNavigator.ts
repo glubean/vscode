@@ -219,7 +219,7 @@ function updateStatusBar(): void {
   const total = traceFiles.length;
 
   // Show position and clickable prev/next hints
-  statusBarItem.text = `$(history) Trace ${pos}/${total}  $(arrow-left) $(arrow-right)`;
+  statusBarItem.text = `$(history) Trace ${pos}/${total}  $(arrow-left)`;
   // Use a simpler approach: clicking the status bar cycles to the previous trace
   statusBarItem.command = "glubean.tracePrev";
   statusBarItem.tooltip =
