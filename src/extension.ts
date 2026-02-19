@@ -7,6 +7,7 @@
 
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as path from "path";
 import * as cp from "child_process";
 import * as testController from "./testController";
 import { createHoverProvider } from "./hoverProvider";
@@ -817,18 +818,23 @@ export function activate(context: vscode.ExtensionContext): void {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) return;
 
-    const root = folders[0].uri.fsPath;
-    const denoJsonPath = `${root}/deno.json`;
-
-    let hasGlubeanProject = false;
-    if (fs.existsSync(denoJsonPath)) {
-      try {
-        const content = JSON.parse(fs.readFileSync(denoJsonPath, "utf-8"));
-        hasGlubeanProject = !!content.glubean || !!content.imports?.["@glubean/sdk"];
-      } catch {
-        // Malformed JSON — treat as no project
+    const hasGlubeanProject = folders.some((folder) => {
+      const root = folder.uri.fsPath;
+      for (const name of ["deno.json", "deno.jsonc"]) {
+        const configPath = path.join(root, name);
+        if (fs.existsSync(configPath)) {
+          try {
+            const content = fs.readFileSync(configPath, "utf-8");
+            if (content.includes("@glubean/sdk") || content.includes('"glubean"')) {
+              return true;
+            }
+          } catch {
+            // unreadable — skip
+          }
+        }
       }
-    }
+      return false;
+    });
 
     if (!hasGlubeanProject) {
       vscode.window
@@ -941,7 +947,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
       try {
         const glubeanPath = resolveGlubeanPath();
-        await execBin(glubeanPath, ["init", "--minimal", "--no-interactive", "--overwrite"], folder.uri.fsPath);
+        await execBin(glubeanPath, ["init", "--minimal", "--no-interactive"], folder.uri.fsPath);
 
         const exploreFile = vscode.Uri.joinPath(folder.uri, "explore", "api.test.ts");
         if (fs.existsSync(exploreFile.fsPath)) {
