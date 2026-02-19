@@ -27,12 +27,15 @@ const QUICK_PICK_THRESHOLD = 5;
 export function createPickCodeLensProvider(
   runPickCommandId: string,
   pickAndRunCommandId: string,
-): vscode.CodeLensProvider {
+): vscode.CodeLensProvider & vscode.Disposable {
   return new PickCodeLensProvider(runPickCommandId, pickAndRunCommandId);
 }
 
-class PickCodeLensProvider implements vscode.CodeLensProvider {
+class PickCodeLensProvider
+  implements vscode.CodeLensProvider, vscode.Disposable
+{
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
+  private saveListener: vscode.Disposable;
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
   constructor(
@@ -40,9 +43,14 @@ class PickCodeLensProvider implements vscode.CodeLensProvider {
     private readonly pickAndRunCommandId: string,
   ) {
     // Refresh CodeLenses when documents are saved (keys may have changed)
-    vscode.workspace.onDidSaveTextDocument(() => {
+    this.saveListener = vscode.workspace.onDidSaveTextDocument(() => {
       this._onDidChangeCodeLenses.fire();
     });
+  }
+
+  dispose(): void {
+    this.saveListener.dispose();
+    this._onDidChangeCodeLenses.dispose();
   }
 
   provideCodeLenses(

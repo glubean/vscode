@@ -93,6 +93,9 @@ let setupInProgress = false;
 /** Status bar item shown when setup is needed (non-intrusive alternative to popup). */
 let setupStatusBarItem: vscode.StatusBarItem | undefined;
 
+/** Fallback URI for this extension (used when extension lookup by ID fails). */
+let selfExtensionUri: vscode.Uri | undefined;
+
 /**
  * Check whether a command is available on the system PATH.
  * Returns true if the command exits with code 0.
@@ -527,13 +530,28 @@ async function runSetup(): Promise<boolean> {
  * Show the setup.md explainer, then offer to continue with installation.
  */
 async function showSetupDoc(): Promise<boolean> {
+  const ext = vscode.extensions.getExtension("glubean.glubean");
+  const baseUri = ext?.extensionUri ?? selfExtensionUri;
+  if (!baseUri) {
+    vscode.window.showErrorMessage(
+      "Could not locate the extension docs. Please open README for setup steps.",
+    );
+    return false;
+  }
+
   const docUri = vscode.Uri.joinPath(
-    vscode.extensions.getExtension("glubean.glubean")!.extensionUri,
+    baseUri,
     "docs",
     "setup.md",
   );
 
-  await vscode.commands.executeCommand("markdown.showPreview", docUri);
+  try {
+    await vscode.commands.executeCommand("markdown.showPreview", docUri);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to open setup guide: ${message}`);
+    return false;
+  }
 
   const choice = await vscode.window.showInformationMessage(
     "Ready to install?",
@@ -714,6 +732,8 @@ function updateEnvStatusBar(): void {
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
+  selfExtensionUri = context.extensionUri;
+
   // Activate the Test Controller (discovery + run)
   testController.activate(context);
 
@@ -767,11 +787,16 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // test.pick example buttons
+  const pickCodeLensProvider = createPickCodeLensProvider(
+    "glubean.runPick",
+    "glubean.pickAndRun",
+  );
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       codeLensSelector,
-      createPickCodeLensProvider("glubean.runPick", "glubean.pickAndRun"),
+      pickCodeLensProvider,
     ),
+    pickCodeLensProvider,
   );
 
   // ── Trace navigator (StatusBar + prev/next) ────────────────────────────
@@ -788,68 +813,72 @@ export function activate(context: vscode.ExtensionContext): void {
   setupStatusBarItem.command = "glubean.checkDependencies";
   context.subscriptions.push(setupStatusBarItem);
 
-  checkDependencies().then((status) => {
-    if (!status.deno || !status.glubean) {
-      setupStatusBarItem!.text = "$(warning) Glubean: Setup needed";
-      setupStatusBarItem!.tooltip =
-        "Click to install Glubean CLI and its dependencies";
-      setupStatusBarItem!.backgroundColor = new vscode.ThemeColor(
-        "statusBarItem.errorBackground",
-      );
-      setupStatusBarItem!.show();
-    }
+  void (async () => {
+    try {
+      const depStatus = await checkDependencies();
 
-    // If deps are installed but PATH may not be configured yet (e.g. user
-    // installed Deno/Glubean outside of the extension, or the extension
-    // found them via the ~/.deno/bin fallback), ensure the shell rc files
-    // have the PATH entry so `glubean` works in terminal sessions too.
-    // This is idempotent — it checks before writing.
-    if (status.deno || status.glubean) {
-      ensureDenoOnPath();
-    }
-  });
+      if (!depStatus.deno || !depStatus.glubean) {
+        setupStatusBarItem!.text = "$(warning) Glubean: Setup needed";
+        setupStatusBarItem!.tooltip =
+          "Click to install Glubean CLI and its dependencies";
+        setupStatusBarItem!.backgroundColor = new vscode.ThemeColor(
+          "statusBarItem.errorBackground",
+        );
+        setupStatusBarItem!.show();
+      }
 
-  // ── Empty workspace detection (suggest init) ────────────────────────────
-  // If the workspace has no deno.json with glubean config, offer to scaffold
-  // a minimal project. Runs once on activation, non-intrusively.
-  checkDependencies().then((depStatus) => {
-    if (!depStatus.deno || !depStatus.glubean) return;
+      // If deps are installed but PATH may not be configured yet (e.g. user
+      // installed Deno/Glubean outside of the extension, or the extension
+      // found them via the ~/.deno/bin fallback), ensure the shell rc files
+      // have the PATH entry so `glubean` works in terminal sessions too.
+      // This is idempotent — it checks before writing.
+      if (depStatus.deno || depStatus.glubean) {
+        await ensureDenoOnPath();
+      }
 
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) return;
+      // ── Empty workspace detection (suggest init) ────────────────────────
+      // If the workspace has no deno.json with glubean config, offer to
+      // scaffold a minimal project. Runs once on activation, non-intrusively.
+      if (!depStatus.deno || !depStatus.glubean) return;
 
-    const hasGlubeanProject = folders.some((folder) => {
-      const root = folder.uri.fsPath;
-      for (const name of ["deno.json", "deno.jsonc"]) {
-        const configPath = path.join(root, name);
-        if (fs.existsSync(configPath)) {
-          try {
-            const content = fs.readFileSync(configPath, "utf-8");
-            if (content.includes("@glubean/sdk") || content.includes('"glubean"')) {
-              return true;
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) return;
+
+      const hasGlubeanProject = folders.some((folder) => {
+        const root = folder.uri.fsPath;
+        for (const name of ["deno.json", "deno.jsonc"]) {
+          const configPath = path.join(root, name);
+          if (fs.existsSync(configPath)) {
+            try {
+              const content = fs.readFileSync(configPath, "utf-8");
+              if (
+                content.includes("@glubean/sdk") || content.includes('"glubean"')
+              ) {
+                return true;
+              }
+            } catch {
+              // unreadable — skip
             }
-          } catch {
-            // unreadable — skip
           }
         }
-      }
-      return false;
-    });
+        return false;
+      });
 
-    if (!hasGlubeanProject) {
-      vscode.window
-        .showInformationMessage(
+      if (!hasGlubeanProject) {
+        const choice = await vscode.window.showInformationMessage(
           "No Glubean project detected. Initialize one?",
           "Quick Start",
           "Not now",
-        )
-        .then((choice) => {
-          if (choice === "Quick Start") {
-            vscode.commands.executeCommand("glubean.initProject");
-          }
-        });
+        );
+        if (choice === "Quick Start") {
+          await vscode.commands.executeCommand("glubean.initProject");
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Glubean] activation dependency check failed: ${message}`);
     }
-  });
+  })();
 
   // ── Commands ────────────────────────────────────────────────────────────
 

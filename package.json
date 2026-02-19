@@ -155,7 +155,7 @@
         },
         {
           "command": "glubean.runProject",
-          "when": "explorerResourceIsFolder",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /^(?!node_modules$|\\.git$|dist$).+$/",
           "group": "glubean@2"
         }
       ]
@@ -169,29 +169,31 @@
       },
       {
         "command": "glubean.tracePrev",
-        "key": "alt+[",
-        "mac": "alt+[",
+        "key": "ctrl+alt+[",
+        "mac": "cmd+alt+[",
         "when": "editorTextFocus && resourceExtname == .jsonc"
       },
       {
         "command": "glubean.traceNext",
-        "key": "alt+]",
-        "mac": "alt+]",
+        "key": "ctrl+alt+]",
+        "mac": "cmd+alt+]",
         "when": "editorTextFocus && resourceExtname == .jsonc"
       },
       {
         "command": "glubean.runFile",
-        "key": "ctrl+shift+t",
-        "mac": "cmd+shift+t",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
         "when": "editorTextFocus && resourceFilename =~ /\\.(test|explore)\\.ts$/"
       }
     ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
-    "lint": "tsc --noEmit",
+    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch --sourcemap",
+    "lint": "npm run lint:types && npm run lint:eslint",
+    "lint:types": "tsc --noEmit",
+    "lint:eslint": "eslint \"src/**/*.ts\"",
     "package": "npx @vscode/vsce package",
     "publish": "npx @vscode/vsce publish",
     "install:vscode": "npm run package -- --out glubean.vsix && code --install-extension glubean.vsix",
@@ -200,7 +202,10 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
     "esbuild": "^0.24.0",
+    "eslint": "^10.0.0",
     "typescript": "^5.3.0"
   },
   "dependencies": {
