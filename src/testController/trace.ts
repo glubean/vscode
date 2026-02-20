@@ -9,7 +9,10 @@ export interface TraceModuleDeps {
 /**
  * Find and open the latest .trace.jsonc file for a given test file.
  *
- * Traces live at `.glubean/traces/{fileName}/{testId}/{timestamp}.trace.jsonc`.
+ * Traces live at `.glubean/traces/{fileName}/{dirId}/{filename}.trace.jsonc`.
+ * For simple/each tests: dirId = testId, filename = `{timestamp}`.
+ * For pick tests: dirId = groupId (template), filename = `{timestamp}--{testId}`.
+ *
  * When `testId` is provided, looks in that specific subdirectory.
  * When omitted (e.g. "run all" or pick/CodeLens without a known ID),
  * scans all test subdirectories and opens the globally newest trace.
@@ -129,11 +132,16 @@ export async function diffWithPrevious(
     const newestUri = vscode.Uri.file(allTraces[0].fullPath);
     const previousUri = vscode.Uri.file(allTraces[1].fullPath);
 
+    const diffLabel = buildDiffLabel(
+      baseName,
+      allTraces[1].name,
+      allTraces[0].name,
+    );
     await vscode.commands.executeCommand(
       "vscode.diff",
       previousUri,
       newestUri,
-      `${baseName}: previous ↔ latest`,
+      diffLabel,
     );
     return true;
   } catch {
@@ -154,11 +162,37 @@ async function diffInDir(dir: string, label: string): Promise<boolean> {
   const newestUri = vscode.Uri.file(path.join(dir, entries[0]));
   const previousUri = vscode.Uri.file(path.join(dir, entries[1]));
 
+  const diffLabel = buildDiffLabel(label, entries[1], entries[0]);
   await vscode.commands.executeCommand(
     "vscode.diff",
     previousUri,
     newestUri,
-    `${label}: previous ↔ latest`,
+    diffLabel,
   );
   return true;
+}
+
+/**
+ * Build a human-readable diff label. For pick traces with variant-encoded
+ * filenames (e.g. `20260220T1200--search-by-name.trace.jsonc`), shows the
+ * variant names. Falls back to "previous / latest" for plain timestamps.
+ */
+function buildDiffLabel(
+  base: string,
+  olderFile: string,
+  newerFile: string,
+): string {
+  const extractVariant = (f: string): string | undefined => {
+    const stem = f.replace(/\.trace\.jsonc$/, "");
+    const idx = stem.indexOf("--");
+    return idx >= 0 ? stem.slice(idx + 2) : undefined;
+  };
+  const left = extractVariant(olderFile);
+  const right = extractVariant(newerFile);
+  if (left && right) {
+    return left === right
+      ? `${base} (${left}): previous ↔ latest`
+      : `${base}: ${left} ↔ ${right}`;
+  }
+  return `${base}: previous ↔ latest`;
 }
