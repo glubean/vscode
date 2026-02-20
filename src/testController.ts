@@ -907,11 +907,23 @@ async function debugHandler(
     // Wait for any of the three signals
     await Promise.race([processExited, debugSessionEnded, safetyTimeout]);
 
-    // Kill the process group — the harness may still be alive due to inspector
-    terminateProcessGroup();
+    // Give the CLI a grace period to write result JSON before killing.
+    // With --inspect-brk the harness stays alive after test completion;
+    // once the debugger disconnects, the process should exit naturally
+    // and the CLI writes results. Kill only if it doesn't exit in time.
+    const GRACE_MS = 1000;
+    const exitedInTime = await Promise.race([
+      processExited.then(() => true),
+      new Promise<false>((r) => setTimeout(() => r(false), GRACE_MS)),
+    ]);
 
-    // Give processes a moment to die before reading results
-    await new Promise((r) => setTimeout(r, 500));
+    if (!exitedInTime) {
+      outputChannel.appendLine(
+        "[debug] Process still alive after debug session ended, killing",
+      );
+      terminateProcessGroup();
+      await new Promise((r) => setTimeout(r, 300));
+    }
 
     // Try to read result JSON
     const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
@@ -920,6 +932,8 @@ async function debugHandler(
     if (parsed) {
       applyResults([{ item, meta }], parsed, run);
       lastResultJsonPath = resultJsonPath;
+
+      await openLatestTraceFile(filePath, undefined, traceModuleDeps);
     } else {
       run.errored(
         item,
