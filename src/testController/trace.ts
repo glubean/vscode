@@ -190,7 +190,9 @@ function buildDiffLabel(
   const left = extractVariant(olderFile);
   const right = extractVariant(newerFile);
   if (left && right) {
-    return `${base}: ${left} ↔ ${right}`;
+    return left === right
+      ? `${base} (${left}): previous ↔ latest`
+      : `${base}: ${left} ↔ ${right}`;
   }
   return `${base}: previous ↔ latest`;
 }
