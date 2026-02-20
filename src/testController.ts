@@ -80,8 +80,8 @@ let lastResultJsonPath: string | undefined;
 let lastRunInclude: readonly vscode.TestItem[] | undefined;
 let lastRunWasAll = false;
 
-/** Show the web viewer prompt at most once per extension session. */
-let shownWebViewerPrompt = false;
+// TODO: re-enable when https://glubean.com/viewer is live
+// let shownWebViewerPrompt = false;
 
 /** Get the path to the most recent result.json file. */
 export function getLastResultJsonPath(): string | undefined {
@@ -197,9 +197,6 @@ export async function runWithPick(
     if (parsed) {
       lastResultJsonPath = resultJsonPath;
       run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
-      run.appendOutput(
-        `🌐 Open https://glubean.com/viewer to visualize it\r\n`,
-      );
     }
 
     // Open the latest trace file
@@ -686,19 +683,19 @@ async function runHandler(
 
   run.end();
 
-  // Show "View on Web" notification at most once per session.
-  if (lastResultJsonPath && !shownWebViewerPrompt) {
-    shownWebViewerPrompt = true;
-    const choice = await vscode.window.showInformationMessage(
-      "Test run complete. View results on the web?",
-      "Open Viewer",
-    );
-    if (choice === "Open Viewer") {
-      await vscode.env.openExternal(
-        vscode.Uri.parse("https://glubean.com/viewer"),
-      );
-    }
-  }
+  // TODO: re-enable when https://glubean.com/viewer is live
+  // if (lastResultJsonPath && !shownWebViewerPrompt) {
+  //   shownWebViewerPrompt = true;
+  //   const choice = await vscode.window.showInformationMessage(
+  //     "Test run complete. View results on the web?",
+  //     "Open Viewer",
+  //   );
+  //   if (choice === "Open Viewer") {
+  //     await vscode.env.openExternal(
+  //       vscode.Uri.parse("https://glubean.com/viewer"),
+  //     );
+  //   }
+  // }
 }
 
 // ---------------------------------------------------------------------------
@@ -992,9 +989,6 @@ async function runFile(
       applyResults(tests, parsed, run);
       lastResultJsonPath = resultJsonPath;
       run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
-      run.appendOutput(
-        `🌐 Open https://glubean.com/viewer to visualize it\r\n`,
-      );
     } else {
       // Fallback to exit code
       for (const { item } of tests) {
@@ -1063,9 +1057,6 @@ async function runSingleTest(
       applyResults([test], parsed, run);
       lastResultJsonPath = resultJsonPath;
       run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
-      run.appendOutput(
-        `🌐 Open https://glubean.com/viewer to visualize it\r\n`,
-      );
     } else {
       if (result.exitCode === 0) {
         run.passed(test.item);
