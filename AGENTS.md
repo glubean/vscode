@@ -37,6 +37,16 @@ This repository follows **GitHub Flow**. No exceptions.
 - Never perform any of these operations silently or automatically. Always describe what you intend to do and wait for a clear "yes" or equivalent confirmation.
 - **Never run `git push` to `main`** — push to the feature branch and open a PR.
 
+## Extension Version Bumping
+
+**Every PR that changes extension code must bump `version` in `package.json`.**
+
+VS Code caches installed extensions by version number. If code changes but the version stays the same, users who
+reinstall the extension will silently get stale code from the cache.
+
+- Bug fix or dependency update only → bump **patch** (e.g., `0.2.1` → `0.2.2`)
+- New feature or UI change → bump **minor** (e.g., `0.2.x` → `0.3.0`)
+
 ## Version Alignment with OSS
 
 This extension depends on packages published from the **glubean/glubean** (OSS) monorepo on JSR
