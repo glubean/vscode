@@ -77,11 +77,44 @@ async function pickWorkspaceFolder(): Promise<
 const DENO_MIN_MAJOR = 2;
 const DENO_MIN_MINOR = 0;
 
+/**
+ * Minimum Glubean CLI version the extension requires.
+ * Bump this when the extension depends on new CLI/runner features.
+ */
+const MIN_CLI_VERSION = "0.11.2";
+
+// ---------------------------------------------------------------------------
+// Semver helpers
+// ---------------------------------------------------------------------------
+
+/** Parse "major.minor.patch" into a triple, or null on invalid input. */
+function parseSemver(v: string): [number, number, number] | null {
+  const m = v.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+}
+
+/** True when `installed` is older than `required` (both semver strings). */
+function semverLessThan(installed: string, required: string): boolean {
+  const a = parseSemver(installed);
+  const b = parseSemver(required);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return true;
+    if (a[i] > b[i]) return false;
+  }
+  return false;
+}
+
 interface DepStatus {
   deno: boolean;
   glubean: boolean;
   /** True when Deno exists but is below the minimum required version. */
   denoTooOld?: boolean;
+  /** Installed CLI version string, e.g. "0.11.2". Empty if CLI not found. */
+  cliVersion?: string;
+  /** True when CLI exists but is below MIN_CLI_VERSION. */
+  cliOutdated?: boolean;
 }
 
 /** Cache so we only check once per session (cleared by "Setup" action). */
@@ -121,6 +154,25 @@ function getCommandVersion(command: string): Promise<string> {
       }
       // deno --version output: "deno 2.6.9 (stable, ...)"
       const match = stdout.match(/deno\s+(\d+\.\d+\.\d+)/);
+      resolve(match ? match[1] : "");
+    });
+  });
+}
+
+/**
+ * Get the installed Glubean CLI version.
+ * Parses ANSI-colored output like "\x1b[1mglubean\x1b[22m \x1b[94m0.11.2\x1b[39m".
+ */
+function getCliVersion(cliPath: string): Promise<string> {
+  return new Promise((resolve) => {
+    cp.execFile(cliPath, ["--version"], { timeout: 10_000 }, (err, stdout) => {
+      if (err) {
+        resolve("");
+        return;
+      }
+      // Strip ANSI escape codes then match "glubean X.Y.Z"
+      const plain = stdout.replace(/\x1b\[[0-9;]*m/g, "");
+      const match = plain.match(/glubean\s+(\d+\.\d+\.\d+)/);
       resolve(match ? match[1] : "");
     });
   });
@@ -198,7 +250,18 @@ async function checkDependencies(): Promise<DepStatus> {
     }
   }
 
-  cachedDepStatus = { deno, glubean, denoTooOld };
+  // If CLI exists, check its version against MIN_CLI_VERSION.
+  // Treat unparseable/empty version as outdated — better to prompt than silently skip.
+  let cliVersion = "";
+  let cliOutdated = false;
+  if (glubean) {
+    cliVersion = await getCliVersion(resolveGlubeanPath());
+    if (!cliVersion || semverLessThan(cliVersion, MIN_CLI_VERSION)) {
+      cliOutdated = true;
+    }
+  }
+
+  cachedDepStatus = { deno, glubean, denoTooOld, cliVersion, cliOutdated };
   return cachedDepStatus;
 }
 
@@ -520,6 +583,48 @@ async function runSetup(): Promise<boolean> {
           cachedDepStatus = undefined;
           return await runSetup();
         }
+        return false;
+      }
+    },
+  );
+}
+
+/**
+ * Upgrade the Glubean CLI to the latest version via `deno install -Agf`.
+ * Shows a progress notification and clears the dep cache on success.
+ */
+async function upgradeGlubeanCli(): Promise<boolean> {
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Upgrading Glubean CLI",
+      cancellable: false,
+    },
+    async (progress) => {
+      try {
+        progress.report({ message: `Installing latest CLI (requires ≥${MIN_CLI_VERSION})...` });
+        const deno = denoPath();
+        await execBin(deno, ["install", "-Agf", "-n", "glubean", "jsr:@glubean/cli"]);
+
+        // Verify upgrade succeeded
+        progress.report({ message: "Verifying..." });
+        const newVersion = await getCliVersion(resolveGlubeanPath());
+        if (newVersion && !semverLessThan(newVersion, MIN_CLI_VERSION)) {
+          cachedDepStatus = undefined;
+          vscode.window.showInformationMessage(
+            `Glubean CLI upgraded to ${newVersion}.`,
+          );
+          return true;
+        }
+
+        vscode.window.showWarningMessage(
+          `CLI upgrade completed but version (${newVersion || "unknown"}) ` +
+            `is still below ${MIN_CLI_VERSION}. Try reloading VS Code.`,
+        );
+        return false;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`CLI upgrade failed: ${message}`);
         return false;
       }
     },
@@ -872,6 +977,22 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         if (choice === "Quick Start") {
           await vscode.commands.executeCommand("glubean.initProject");
+        }
+      }
+
+      // ── CLI version check (prompt upgrade if outdated or unknown) ─────
+      if (depStatus.cliOutdated) {
+        const installed = depStatus.cliVersion;
+        const msg = installed
+          ? `Glubean CLI ${installed} is outdated (extension requires ≥${MIN_CLI_VERSION}). Upgrade now?`
+          : `Could not determine Glubean CLI version (extension requires ≥${MIN_CLI_VERSION}). Upgrade now?`;
+        const choice = await vscode.window.showWarningMessage(
+          msg,
+          "Upgrade",
+          "Later",
+        );
+        if (choice === "Upgrade") {
+          await upgradeGlubeanCli();
         }
       }
     } catch (err) {
