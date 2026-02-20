@@ -81,7 +81,7 @@ const DENO_MIN_MINOR = 0;
  * Minimum Glubean CLI version the extension requires.
  * Bump this when the extension depends on new CLI/runner features.
  */
-const MIN_CLI_VERSION = "0.11.3";
+const MIN_CLI_VERSION = "0.11.5";
 
 // ---------------------------------------------------------------------------
 // Semver helpers
@@ -536,7 +536,7 @@ async function runSetup(): Promise<boolean> {
           progress.report({ message: "Installing Glubean CLI..." });
 
           const deno = denoPath();
-          await execBin(deno, ["install", "-Agf", "-n", "glubean", "jsr:@glubean/cli"]);
+          await execBin(deno, ["install", "-Agf", "--reload", "-n", "glubean", "jsr:@glubean/cli"]);
         }
 
         // Step 3: Ensure ~/.deno/bin is on the user's shell PATH so
@@ -604,7 +604,7 @@ async function upgradeGlubeanCli(): Promise<boolean> {
       try {
         progress.report({ message: `Installing latest CLI (requires ≥${MIN_CLI_VERSION})...` });
         const deno = denoPath();
-        await execBin(deno, ["install", "-Agf", "-n", "glubean", "jsr:@glubean/cli"]);
+        await execBin(deno, ["install", "-Agf", "--reload", "-n", "glubean", "jsr:@glubean/cli"]);
 
         // Verify upgrade succeeded
         progress.report({ message: "Verifying..." });
