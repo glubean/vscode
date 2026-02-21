@@ -154,8 +154,8 @@ function descriptionFor(
   const total = lastRun.passed + lastRun.failed + lastRun.skipped;
   const counts =
     lastRun.failed > 0
-      ? `${lastRun.passed}/${total}`
-      : `${lastRun.passed}/${total}`;
+      ? `${lastRun.failed}/${total} failed`
+      : `${lastRun.passed}/${total} passed`;
   return `${counts}  ${relativeTime(lastRun.timestamp)}`;
 }
 

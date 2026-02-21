@@ -41,16 +41,23 @@ export class TaskRunner {
   // ── Public API ─────────────────────────────────────────────────────────
 
   async runTask(item: TaskItem): Promise<void> {
-    if (this.running.has(runKey(item))) return;
+    // All tasks in a root share the same last-run.result.json file, so only
+    // one task per root can run at a time to avoid result misattribution.
+    if (this.findRunningForRoot(item.def.workspaceRoot)) return;
 
     item.status = "running";
     item.applyPresentation();
     this.provider.fireChange(item);
 
-    const terminal = vscode.window.createTerminal({
-      name: `glubean: ${item.def.name}`,
-      cwd: item.def.workspaceRoot,
-    });
+    const termName = `glubean: ${item.def.name}`;
+    const terminal =
+      vscode.window.terminals.find(
+        (t) => t.name === termName && t.exitStatus === undefined,
+      ) ??
+      vscode.window.createTerminal({
+        name: termName,
+        cwd: item.def.workspaceRoot,
+      });
 
     const sendTime = Date.now();
     terminal.sendText(`deno task ${shellQuote(item.def.name)}`);
@@ -211,7 +218,9 @@ function runKey(item: TaskItem): string {
 
 function shellQuote(arg: string): string {
   if (process.platform === "win32") {
-    return `"${arg.replace(/"/g, '\\"')}"`;
+    // VS Code defaults to PowerShell on Windows. PowerShell uses '' to escape
+    // a literal single-quote inside a single-quoted string.
+    return `'${arg.replace(/'/g, "''")}'`;
   }
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }

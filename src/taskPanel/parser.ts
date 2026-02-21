@@ -54,9 +54,13 @@ function parseJsonOrJsonc(text: string): Record<string, unknown> | null {
     // Probably JSONC — strip comments and trailing commas
   }
   try {
+    // Strip comments while preserving string contents (e.g. URLs like
+    // "https://..." must not be treated as comment starts).
     const stripped = text
-      .replace(/\/\/.*$/gm, "")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(
+        /("(?:\\.|[^"\\])*")|\/\/.*$|\/\*[\s\S]*?\*\//gm,
+        (m, str) => str ?? "",
+      )
       .replace(/,\s*([}\]])/g, "$1");
     return JSON.parse(stripped);
   } catch {
