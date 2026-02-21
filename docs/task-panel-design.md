@@ -121,15 +121,19 @@ interface LastRunState {
 When the user clicks ▶ on a task row:
 
 1. Mark the item as `running` — show `⟳` icon, disable the run button
-2. Spawn: `deno task <name>` in the workspace root via a VS Code `Terminal`
+2. Execute `deno task <name>` via the VS Code Task API
 
    ```typescript
-   const terminal = vscode.window.createTerminal({
-     name: `glubean: ${task.name}`,
-     cwd: task.workspaceRoot,
-   });
-   terminal.sendText(`deno task ${task.name}`);
-   terminal.show(false); // show panel but don't steal focus
+   const vsTask = new vscode.Task(
+     { type: "glubean", task: task.name },
+     vscode.TaskScope.Workspace,
+     task.name,
+     "glubean",
+     new vscode.ShellExecution("deno", ["task", task.name], {
+       cwd: task.workspaceRoot,
+     }),
+   );
+   const execution = await vscode.tasks.executeTask(vsTask);
    ```
 
 3. Watch `.glubean/last-run.result.json` for modification (file system watcher)
@@ -137,10 +141,11 @@ When the user clicks ▶ on a task row:
 5. If `failed > 0`, open `.glubean/last-run.result.json` directly in `ResultViewerProvider` beside the terminal — it matches `*.result.json`, so the viewer opens automatically with no extra path resolution
 6. Mark the item as done — show `✓` or `✗`
 
-Using `terminal.sendText` (rather than spawning a hidden child process) is deliberate:
-- The user sees the full CLI output in the terminal, exactly as in CI
+Using `vscode.Task` + `ShellExecution` (rather than `terminal.sendText` or a hidden child process) is deliberate:
+- VS Code handles shell quoting natively — no manual escaping needed, immune to injection via crafted task names (newlines, cmd.exe metacharacters, etc.)
+- The user sees the full CLI output in the integrated terminal, exactly as in CI
 - No need to parse stdout; `.glubean/last-run.result.json` is the data channel back to the panel
-- Cancellation is natural (user closes the terminal or presses Ctrl+C)
+- Failure detection is reliable: `vscode.tasks.onDidEndTaskProcess` fires with the process exit code and a `TaskExecution` reference, removing the need for fragile terminal-reference matching
 
 ---
 
@@ -172,16 +177,40 @@ To avoid this, **Run All executes tasks strictly one at a time**:
 ```
 for each task:
   1. Mark task as running (⟳)
-  2. Send `deno task <name>` to terminal
+  2. Execute `deno task <name>` via `vscode.tasks.executeTask`
   3. Await a Promise that resolves when the last-run.result.json watcher fires
      (with a reasonable timeout, e.g. 5 minutes)
   4. Attribute the result, update state
   5. Proceed to next task
 ```
 
-This serialisation guarantees the watcher event that follows a task's terminal command belongs to that task. Parallel execution of tasks is explicitly out of scope for v1.
+Sequential execution means each watcher event is attributed to the task currently in flight. It does **not** guard against external writes (e.g. a concurrent CLI invocation in another terminal) — for those, the runner uses a `sendTime` timestamp and ignores any result whose `mtime` predates it. Parallel execution is out of scope for v1.
 
 A more robust long-term solution: add a `taskName` field to `last-run.result.json` via a `--task-name` flag or the `glubean.json` config, removing the need for heuristics. This is an OSS-side improvement to track separately.
+
+---
+
+## Single-Task Failure Recovery
+
+A task can fail without writing `last-run.result.json` — for example, if `deno` is not installed, the task name is misspelled, or the CLI crashes before completing. Without explicit recovery, the task would remain in the `running` state indefinitely.
+
+The runner addresses this with three fallback mechanisms:
+
+1. **`onDidEndTaskProcess`**: when the task process exits with a non-zero code and no result file has been received within a 500 ms grace period, mark the task as `errored` and show a toast: *"Task '<name>' finished without results — check terminal output."* The grace period exists because the CLI writes the result file after the process exits.
+
+2. **Per-task timeout**: every task dispatch starts a timer (default: 5 minutes, configurable). If the watcher does not fire within this window, mark the task as `timeout` and show a toast. This applies to both single-task runs and each step of "Run All".
+
+3. **Cancel via Ctrl+C**: the user can press Ctrl+C in the task terminal. The process exits with a non-zero code, triggering the `onDidEndTaskProcess` handler above.
+
+The task status icon reflects these states: `⟳` (running), `✓` (passed), `✗` (failed), `⚠` (errored/timeout), `—` (never run).
+
+---
+
+## `mtime` Sanity Check
+
+Before dispatching `deno task <name>`, the runner records `sendTime = Date.now()`. When the file watcher fires, the runner reads the `mtime` of `.glubean/last-run.result.json` via `fs.statSync`. If `mtime < sendTime`, the event is ignored — it belongs to a prior or external run.
+
+This is a lightweight, best-effort guard. It does not protect against all concurrent-write scenarios (e.g. an external process that writes the file at nearly the same instant), but it eliminates the most common case of stale watcher events from a previous run still being in flight.
 
 ---
 
@@ -189,7 +218,7 @@ A more robust long-term solution: add a `taskName` field to `last-run.result.jso
 
 | Watch target | Trigger | Action |
 |---|---|---|
-| `**/deno.json` | create / change | Re-read tasks, rebuild tree |
+| `**/deno.json`, `**/deno.jsonc` | create / change | Re-read tasks, rebuild tree |
 | `**/.glubean/last-run.result.json` | change | Update `lastRun` state, refresh tree, conditionally open result viewer |
 | Workspace folders | add / remove | Rescan for `deno.json` files |
 
@@ -235,7 +264,7 @@ Estimated implementation size: ~450 lines total. No webview. No new npm dependen
         {
           "id": "glubean.tasksView",
           "name": "Tasks",
-          "when": "workspaceContains:**/deno.json"
+          "when": "workspaceContains:**/deno.json || workspaceContains:**/deno.jsonc"
         }
       ]
     },
@@ -289,7 +318,7 @@ Estimated implementation size: ~450 lines total. No webview. No new npm dependen
 |---|---|---|
 | Editor gutter ▶ / CodeLens | Developer | Independent — no overlap |
 | VS Code Test Explorer | Developer | Independent — no overlap |
-| **Glubean Tasks Panel** | **QA engineer** | New entry point, reads same `last-run.result.json` as `openLastResult` command |
+| **Glubean Tasks Panel** | **QA engineer** | New entry point, reads `.glubean/last-run.result.json` (workspace-level file written by CLI — distinct from the per-test-file `*.result.json` used by `openLastResult`) |
 | Result Viewer (`ResultViewerProvider`) | QA / Developer | Reused — panel triggers it automatically after a run |
 | Trace Viewer (`TraceViewerProvider`) | Developer | Independent — QA may use it if they click into individual failures |
 
