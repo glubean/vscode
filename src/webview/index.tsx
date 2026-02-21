@@ -101,7 +101,6 @@ function App() {
     return (
       <ResultViewer
         data={state.data}
-        onViewSource={() => vscode.postMessage({ type: "viewSource" })}
         onOpenFullViewer={() => vscode.postMessage({ type: "openFullViewer" })}
       />
     );
@@ -118,12 +117,7 @@ function App() {
     );
   }
 
-  return (
-    <TraceViewer
-      data={traceData}
-      onViewSource={() => vscode.postMessage({ type: "viewSource" })}
-    />
-  );
+  return <TraceViewer data={traceData} />;
 }
 
 render(<App />, document.getElementById("app")!);

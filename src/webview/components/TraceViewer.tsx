@@ -29,10 +29,9 @@ interface TraceViewerData {
 
 interface TraceViewerProps {
   data: TraceViewerData;
-  onViewSource?: () => void;
 }
 
-export function TraceViewer({ data, onViewSource }: TraceViewerProps) {
+export function TraceViewer({ data }: TraceViewerProps) {
   const [selected, setSelected] = useState(0);
   const call = data.calls[selected];
 
@@ -54,15 +53,6 @@ export function TraceViewer({ data, onViewSource }: TraceViewerProps) {
         )}
         {data.meta.runAt && (
           <span class="text-[10px] muted">{data.meta.runAt}</span>
-        )}
-        {onViewSource && (
-          <button
-            onClick={onViewSource}
-            class="text-[10px] muted px-1.5 py-0.5 rounded hover:bg-hover transition-colors cursor-pointer shrink-0"
-            title="Open as text"
-          >
-            {"{ }"}
-          </button>
         )}
       </div>
 

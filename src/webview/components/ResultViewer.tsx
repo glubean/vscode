@@ -37,7 +37,6 @@ interface ResultViewerData {
 
 interface ResultViewerProps {
   data: ResultViewerData;
-  onViewSource?: () => void;
   onOpenFullViewer?: () => void;
 }
 
@@ -151,7 +150,7 @@ function TestList({ tests }: { tests: ResultViewerData["tests"] }) {
   );
 }
 
-export function ResultViewer({ data, onViewSource, onOpenFullViewer }: ResultViewerProps) {
+export function ResultViewer({ data, onOpenFullViewer }: ResultViewerProps) {
   const [activeTab, setActiveTab] = useState<"tests" | "json">("tests");
   const allPassed = data.summary.failed === 0 && data.summary.skipped === 0;
 
@@ -182,15 +181,6 @@ export function ResultViewer({ data, onViewSource, onOpenFullViewer }: ResultVie
               }}
             >
               Open Full Viewer ↗
-            </button>
-          )}
-          {onViewSource && (
-            <button
-              onClick={onViewSource}
-              class="text-[10px] muted px-1.5 py-0.5 rounded hover:bg-hover transition-colors cursor-pointer shrink-0"
-              title="Open as text"
-            >
-              {"{ }"}
             </button>
           )}
         </div>

@@ -160,32 +160,30 @@
       }
     ],
     "menus": {
-      "editor/title": [
-        {
-          "command": "glubean.traceViewSource",
-          "when": "glubean.traceViewerActive",
-          "group": "navigation@1"
-        },
-        {
-          "command": "glubean.traceViewRich",
-          "when": "!glubean.traceViewerActive && resourceFilename =~ /\\.trace\\.jsonc$/",
-          "group": "navigation@1"
-        },
-        {
-          "command": "glubean.resultViewSource",
-          "when": "glubean.resultViewerActive",
-          "group": "navigation@1"
-        },
-        {
-          "command": "glubean.resultViewRich",
-          "when": "!glubean.resultViewerActive && resourceFilename =~ /\\.result\\.json$/",
-          "group": "navigation@1"
-        }
-      ],
       "editor/title/run": [
         {
           "command": "glubean.runFile",
           "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.traceViewSource",
+          "when": "glubean.traceViewerActive",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.traceViewRich",
+          "when": "!glubean.traceViewerActive && resourceFilename =~ /\\.trace\\.jsonc$/",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.resultViewSource",
+          "when": "glubean.resultViewerActive",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.resultViewRich",
+          "when": "!glubean.resultViewerActive && resourceFilename =~ /\\.result\\.json$/",
           "group": "navigation"
         }
       ],
