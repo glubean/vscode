@@ -7,6 +7,7 @@
  */
 
 import * as vscode from "vscode";
+import { getWebviewHtml } from "./webviewUtils";
 
 // ---------------------------------------------------------------------------
 // Types — passed to the webview
@@ -145,17 +146,20 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
         for (const t of parsed.tests) {
           let failureReason: string | undefined;
           if (!t.success && Array.isArray(t.events)) {
+            // Take the first failure signal encountered: errors and fatal
+            // statuses take priority, followed by the first assertion failure.
             for (const e of t.events) {
               if (e.type === "error" && e.message) {
                 failureReason = e.message;
                 break;
               }
-              if (e.type === "assertion" && !e.passed && e.message) {
-                failureReason = e.message;
-              }
               if (e.type === "status" && (e.error || e.reason)) {
                 failureReason = e.error || e.reason;
                 break;
+              }
+              if (e.type === "assertion" && !e.passed && e.message && !failureReason) {
+                failureReason = e.message;
+                // Don't break — a later error/status event should still win.
               }
             }
           }
@@ -211,43 +215,6 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
   // -------------------------------------------------------------------------
 
   private getHtmlForWebview(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "index.js"),
-    );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "styles.css"),
-    );
-
-    const nonce = getNonce();
-
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <link href="${styleUri}" rel="stylesheet">
-  <title>Result Viewer</title>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+    return getWebviewHtml(webview, this.extensionUri, "Result Viewer");
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getNonce(): string {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let nonce = "";
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
 }

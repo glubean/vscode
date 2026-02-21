@@ -67,12 +67,12 @@ export function RequestList({ calls, selected, onSelect }: RequestListProps) {
             <div class="flex items-center gap-2">
               <span
                 class={`px-1.5 py-0.5 text-[10px] font-semibold rounded ${
-                  isSelected ? "opacity-90" : (METHOD_CLASSES[call.request.method] ?? "muted")
-                }`}
+                  METHOD_CLASSES[call.request.method] ?? "muted"
+                }${isSelected ? " opacity-90" : ""}`}
               >
                 {call.request.method}
               </span>
-              <span class={`text-xs code-font ${isSelected ? "" : statusClass(call.response.status)}`}>
+              <span class={`text-xs code-font ${isSelected ? "opacity-90" : statusClass(call.response.status)}`}>
                 {call.response.status}
               </span>
               <span class={`text-[10px] ml-auto ${isSelected ? "opacity-80" : "muted"}`}>

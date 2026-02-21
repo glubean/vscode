@@ -8,6 +8,7 @@
 
 import * as vscode from "vscode";
 import * as path from "path";
+import { getWebviewHtml } from "./webviewUtils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,7 +125,10 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
 
     let calls: TraceViewerData["calls"] = [];
     try {
-      const stripped = raw.replace(/^\s*\/\/.*$/gm, "");
+      // Strip only leading comment lines (the JSONC header), not the entire
+      // document — a full-document replace could corrupt JSON string values
+      // that happen to contain "//".
+      const stripped = raw.replace(/^(\s*\/\/[^\n]*\n)+/, "");
       const parsed: unknown = JSON.parse(stripped);
       if (Array.isArray(parsed)) {
         calls = parsed;
@@ -191,43 +195,7 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
   // -------------------------------------------------------------------------
 
   private getHtmlForWebview(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "index.js"),
-    );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "styles.css"),
-    );
-
-    const nonce = getNonce();
-
-    return /* html */ `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <link href="${styleUri}" rel="stylesheet">
-  <title>Trace Viewer</title>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+    return getWebviewHtml(webview, this.extensionUri, "Trace Viewer");
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getNonce(): string {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let nonce = "";
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
-}
