@@ -86,7 +86,7 @@ GLUBEAN TASKS                          ↺  ▶
 
 - Each row is a `TaskItem` in the `TreeDataProvider`
 - Status icon: `✓` (all passed), `✗` (failures present), `—` (never run), `⟳` (running)
-- Counts and relative timestamp are sourced from `.glubean/last-run.json`
+- Counts and relative timestamp are sourced from `.glubean/last-run.result.json`
 - The workspace folder name is shown as a group header in multi-root workspaces
 - Toolbar buttons: refresh (re-read `deno.json`) and run all
 
@@ -132,36 +132,36 @@ When the user clicks ▶ on a task row:
    terminal.show(false); // show panel but don't steal focus
    ```
 
-3. Watch `.glubean/last-run.json` for modification (file system watcher)
+3. Watch `.glubean/last-run.result.json` for modification (file system watcher)
 4. When the file changes, parse it, update `lastRun` state, refresh the tree item
-5. If the run produced a single-file `.result.json` (detectable from `last-run.json`'s `files` array having one entry), resolve the sibling path (`<file>.result.json`) and open it in `ResultViewerProvider` beside the terminal. For multi-file runs, open `glubean-run.result.json` in the workspace root if present. Fall back to opening `last-run.json` as plain JSON if neither exists.
+5. If `failed > 0`, open `.glubean/last-run.result.json` directly in `ResultViewerProvider` beside the terminal — it matches `*.result.json`, so the viewer opens automatically with no extra path resolution
 6. Mark the item as done — show `✓` or `✗`
 
 Using `terminal.sendText` (rather than spawning a hidden child process) is deliberate:
 - The user sees the full CLI output in the terminal, exactly as in CI
-- No need to parse stdout; `.glubean/last-run.json` is the data channel back to the panel
+- No need to parse stdout; `.glubean/last-run.result.json` is the data channel back to the panel
 - Cancellation is natural (user closes the terminal or presses Ctrl+C)
 
 ---
 
 ## Result File Integration
 
-Since OSS `v0.11.6` (`feat/ci-flag-and-default-results`, merged PR #23), every `glubean run` invocation automatically writes `.glubean/last-run.json` regardless of flags. This is the panel's data channel.
+Since OSS `v0.11.6` (`feat/ci-flag-and-default-results`, PR #23) + `fix/last-run-result-json` (PR #24), every `glubean run` invocation automatically writes `.glubean/last-run.result.json` regardless of flags. The `.result.json` suffix means it is handled by `ResultViewerProvider` natively.
 
 ```
 .glubean/
-  last-run.json       ← always written, panel reads this
-  traces/             ← trace history (existing)
-  traces.json         ← coverage data (existing)
+  last-run.result.json  ← always written, panel reads this and viewer opens it directly
+  traces/               ← trace history (existing)
+  traces.json           ← coverage data (existing)
 ```
 
-**Auto-open result viewer**: after a run completes (detected via the `last-run.json` watcher), the panel checks `failed > 0`. If so, it resolves the appropriate `.result.json` path (see Execution Model step 5) and opens it via `ResultViewerProvider` (registered for `*.result.json`) beside the terminal. `last-run.json` itself is **not** opened directly — it does not match the viewer's file selector and serves only as the data channel back to the panel.
+**Auto-open result viewer**: after a run completes (detected via the `last-run.result.json` watcher), the panel checks `failed > 0`. If so, it opens `.glubean/last-run.result.json` directly — `ResultViewerProvider` is registered for `*.result.json` and picks it up automatically.
 
 ---
 
-## `last-run.json` matching
+## `last-run.result.json` matching
 
-`last-run.json` does not record which `deno task` name triggered it — it only records test results. The panel uses a **time-based heuristic**: if `last-run.json` is modified within N seconds of `deno task <name>` being sent to the terminal, it is attributed to that task.
+`last-run.result.json` does not record which `deno task` name triggered it — it only records test results. The panel uses a **time-based heuristic**: if `last-run.result.json` is modified within N seconds of `deno task <name>` being sent to the terminal, it is attributed to that task.
 
 ### Run All — sequential execution
 
@@ -173,7 +173,7 @@ To avoid this, **Run All executes tasks strictly one at a time**:
 for each task:
   1. Mark task as running (⟳)
   2. Send `deno task <name>` to terminal
-  3. Await a Promise that resolves when the last-run.json watcher fires
+  3. Await a Promise that resolves when the last-run.result.json watcher fires
      (with a reasonable timeout, e.g. 5 minutes)
   4. Attribute the result, update state
   5. Proceed to next task
@@ -181,7 +181,7 @@ for each task:
 
 This serialisation guarantees the watcher event that follows a task's terminal command belongs to that task. Parallel execution of tasks is explicitly out of scope for v1.
 
-A more robust long-term solution: add a `taskName` field to `last-run.json` via a `--task-name` flag or the `glubean.json` config, removing the need for heuristics. This is an OSS-side improvement to track separately.
+A more robust long-term solution: add a `taskName` field to `last-run.result.json` via a `--task-name` flag or the `glubean.json` config, removing the need for heuristics. This is an OSS-side improvement to track separately.
 
 ---
 
@@ -190,7 +190,7 @@ A more robust long-term solution: add a `taskName` field to `last-run.json` via 
 | Watch target | Trigger | Action |
 |---|---|---|
 | `**/deno.json` | create / change | Re-read tasks, rebuild tree |
-| `**/.glubean/last-run.json` | change | Update `lastRun` state, refresh tree, conditionally open result viewer |
+| `**/.glubean/last-run.result.json` | change | Update `lastRun` state, refresh tree, conditionally open result viewer |
 | Workspace folders | add / remove | Rescan for `deno.json` files |
 
 All watchers use `vscode.workspace.createFileSystemWatcher`. They are disposed on extension deactivation.
@@ -203,7 +203,7 @@ All watchers use `vscode.workspace.createFileSystemWatcher`. They are disposed o
 src/
   taskPanel/
     provider.ts     TreeDataProvider — reads deno.json, builds tree, handles refresh
-    runner.ts       Executes deno task, watches last-run.json, updates state
+    runner.ts       Executes deno task, watches last-run.result.json, updates state
     parser.ts       Parses task command string → structured metadata
     storage.ts      Persists/loads lastRun state via workspaceState
   extension.ts      Registers viewsContainers, views, wires up provider
@@ -289,7 +289,7 @@ Estimated implementation size: ~450 lines total. No webview. No new npm dependen
 |---|---|---|
 | Editor gutter ▶ / CodeLens | Developer | Independent — no overlap |
 | VS Code Test Explorer | Developer | Independent — no overlap |
-| **Glubean Tasks Panel** | **QA engineer** | New entry point, reads same `last-run.json` as `openLastResult` command |
+| **Glubean Tasks Panel** | **QA engineer** | New entry point, reads same `last-run.result.json` as `openLastResult` command |
 | Result Viewer (`ResultViewerProvider`) | QA / Developer | Reused — panel triggers it automatically after a run |
 | Trace Viewer (`TraceViewerProvider`) | Developer | Independent — QA may use it if they click into individual failures |
 
