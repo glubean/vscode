@@ -14,13 +14,14 @@
 ## Show me the code
 
 ```typescript
-import { test, expect } from "@glubean/sdk";
+import { test } from "@glubean/sdk";
 
-export const getUser = test("get-user", async (ctx) => {
-  const res = await ctx.http.get("https://api.example.com/user/1");
+export const getProduct = test("get-product", async (ctx) => {
+  const res = await ctx.http.get("https://dummyjson.com/products/1");
+  ctx.expect(res).toHaveStatus(200);
 
-  expect(res.status).toBe(200);
-  expect(res.json()).toHaveProperty("role", "admin");
+  const body = await res.json();
+  ctx.expect(body).toHaveProperties(["title", "brand"]);
 });
 ```
 

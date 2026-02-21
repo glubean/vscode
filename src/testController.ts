@@ -32,6 +32,7 @@ import {
 } from "./testController/trace";
 import {
   buildArgs,
+  findPairIndexAtLine,
   normalizeFilterId,
   tracePairToCurl,
   type TracePair,
@@ -605,11 +606,10 @@ export async function copyAsCurl(): Promise<boolean> {
 
   const text = editor.document.getText();
 
-  // Strip JSONC comment lines (lines starting with //)
-  const jsonText = text
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("//"))
-    .join("\n");
+  // Strip only leading JSONC comment lines (the file header).
+  // Replacing only the leading block avoids corrupting JSON string values
+  // that happen to contain "//".
+  const jsonText = text.replace(/^(\s*\/\/[^\n]*\n)+/, "");
 
   let pairs: TracePair[];
   try {
@@ -619,10 +619,20 @@ export async function copyAsCurl(): Promise<boolean> {
     return false;
   }
 
-  const curlCommands = pairs.map(tracePairToCurl);
-  const result = curlCommands.join("\n\n");
-  await vscode.env.clipboard.writeText(result);
-  return true;
+  if (pairs.length === 0) return false;
+  const rawIndex =
+    pairs.length > 1
+      ? findPairIndexAtLine(text, editor.selection.active.line)
+      : 0;
+  const targetIndex = Math.min(rawIndex, pairs.length - 1);
+
+  try {
+    const curl = tracePairToCurl(pairs[targetIndex]);
+    await vscode.env.clipboard.writeText(curl);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
