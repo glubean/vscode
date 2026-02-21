@@ -152,6 +152,7 @@ function descriptionFor(
   if (!lastRun) return "never run";
 
   const total = lastRun.passed + lastRun.failed + lastRun.skipped;
+  if (total === 0) return `no tests found  ${relativeTime(lastRun.timestamp)}`;
   const counts =
     lastRun.failed > 0
       ? `${lastRun.failed}/${total} failed`
