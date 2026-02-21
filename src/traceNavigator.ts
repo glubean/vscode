@@ -169,11 +169,12 @@ async function navigateToTrace(
   currentIndex = index;
 
   const filePath = path.join(dir, files[index]);
-  const doc = await vscode.workspace.openTextDocument(filePath);
-  await vscode.window.showTextDocument(doc, {
-    preview: true,
-    viewColumn: vscode.ViewColumn.Beside,
-  });
+  await vscode.commands.executeCommand(
+    "vscode.openWith",
+    vscode.Uri.file(filePath),
+    "glubean.traceViewer",
+    { viewColumn: vscode.ViewColumn.Beside, preview: true },
+  );
 
   updateStatusBar();
 }

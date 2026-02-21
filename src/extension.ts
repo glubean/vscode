@@ -14,6 +14,8 @@ import { createHoverProvider } from "./hoverProvider";
 import { createPickCodeLensProvider } from "./codeLensProvider";
 import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
 import { activateTraceNavigator } from "./traceNavigator";
+import { TraceViewerProvider } from "./traceViewerProvider";
+import { ResultViewerProvider } from "./resultViewerProvider";
 
 // ---------------------------------------------------------------------------
 // Shell quoting
@@ -81,7 +83,7 @@ const DENO_MIN_MINOR = 0;
  * Minimum Glubean CLI version the extension requires.
  * Bump this when the extension depends on new CLI/runner features.
  */
-const MIN_CLI_VERSION = "0.11.5";
+const MIN_CLI_VERSION = "0.11.6";
 
 // ---------------------------------------------------------------------------
 // Semver helpers
@@ -902,6 +904,63 @@ export function activate(context: vscode.ExtensionContext): void {
       pickCodeLensProvider,
     ),
     pickCodeLensProvider,
+  );
+
+  // ── Trace viewer (custom editor for .trace.jsonc) ──────────────────────
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      TraceViewerProvider.viewType,
+      new TraceViewerProvider(context.extensionUri),
+      { supportsMultipleEditorsPerDocument: false },
+    ),
+  );
+
+  // Toggle buttons: switch between custom viewer and text editor
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.traceViewSource", () => {
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const input = tab?.input;
+      const uri = input && typeof input === "object" && "uri" in input
+        ? (input as { uri: vscode.Uri }).uri
+        : undefined;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, "default");
+      }
+    }),
+    vscode.commands.registerCommand("glubean.traceViewRich", () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, TraceViewerProvider.viewType);
+      }
+    }),
+  );
+
+  // ── Result viewer (custom editor for .result.json) ───────────────────
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      ResultViewerProvider.viewType,
+      new ResultViewerProvider(context.extensionUri),
+      { supportsMultipleEditorsPerDocument: false },
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.resultViewSource", () => {
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const input = tab?.input;
+      const uri = input && typeof input === "object" && "uri" in input
+        ? (input as { uri: vscode.Uri }).uri
+        : undefined;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, "default");
+      }
+    }),
+    vscode.commands.registerCommand("glubean.resultViewRich", () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, ResultViewerProvider.viewType);
+      }
+    }),
   );
 
   // ── Trace navigator (StatusBar + prev/next) ────────────────────────────

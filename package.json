@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -137,6 +137,26 @@
       {
         "command": "glubean.traceNext",
         "title": "Glubean: Next Trace"
+      },
+      {
+        "command": "glubean.traceViewSource",
+        "title": "View Source",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "glubean.traceViewRich",
+        "title": "View as Trace",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "glubean.resultViewSource",
+        "title": "View Source",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "glubean.resultViewRich",
+        "title": "View as Result",
+        "icon": "$(open-preview)"
       }
     ],
     "menus": {
@@ -144,6 +164,26 @@
         {
           "command": "glubean.runFile",
           "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.traceViewSource",
+          "when": "glubean.traceViewerActive",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.traceViewRich",
+          "when": "!glubean.traceViewerActive && resourceFilename =~ /\\.trace\\.jsonc$/",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.resultViewSource",
+          "when": "glubean.resultViewerActive",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.resultViewRich",
+          "when": "!glubean.resultViewerActive && resourceFilename =~ /\\.result\\.json$/",
           "group": "navigation"
         }
       ],
@@ -160,6 +200,28 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "glubean.traceViewer",
+        "displayName": "Glubean Trace Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.trace.jsonc"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "glubean.resultViewer",
+        "displayName": "Glubean Result Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.result.json"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "keybindings": [
       {
         "command": "glubean.rerunLast",
@@ -189,8 +251,13 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch --sourcemap",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap",
+    "build:webview": "esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --minify --sourcemap --jsx=automatic --jsx-import-source=preact && npx @tailwindcss/cli -i ./src/webview/styles.css -o ./dist/webview/styles.css -m",
+    "watch": "concurrently \"npm:watch:*\"",
+    "watch:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch --sourcemap",
+    "watch:webview": "esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --watch --sourcemap --jsx=automatic --jsx-import-source=preact",
+    "watch:css": "npx @tailwindcss/cli -i ./src/webview/styles.css -o ./dist/webview/styles.css -w",
     "lint": "npm run lint:types && npm run lint:eslint",
     "lint:types": "tsc --noEmit",
     "lint:eslint": "eslint \"src/**/*.ts\"",
@@ -200,12 +267,21 @@
     "install:cursor": "npm run package -- --out glubean.vsix && cursor --install-extension glubean.vsix"
   },
   "devDependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/language": "^6.12.1",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.39.15",
+    "@lezer/highlight": "^1.2.3",
+    "@tailwindcss/cli": "^4.2.0",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.56.0",
     "@typescript-eslint/parser": "^8.56.0",
+    "concurrently": "^9.2.1",
     "esbuild": "^0.24.0",
     "eslint": "^10.0.0",
+    "preact": "^10.28.4",
+    "tailwindcss": "^4.2.0",
     "typescript": "^5.3.0"
   },
   "dependencies": {
