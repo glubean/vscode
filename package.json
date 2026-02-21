@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -53,10 +53,20 @@
     "theme": "dark"
   },
   "activationEvents": [
-    "workspaceContains:**/*.test.ts"
+    "workspaceContains:**/*.test.ts",
+    "workspaceContains:**/deno.json",
+    "workspaceContains:**/deno.jsonc"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "views": {
+      "test": [
+        {
+          "id": "glubean.tasksView",
+          "name": "Glubean Tasks"
+        }
+      ]
+    },
     "configuration": {
       "title": "Glubean",
       "properties": {
@@ -81,6 +91,12 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Share anonymous usage data (run counts, errors, feature usage) to help improve Glubean. No code, file paths, or personal data is ever collected. [Learn what's collected](https://github.com/glubean/vscode/blob/main/docs/telemetry.md)"
+        },
+        "glubean.taskTimeoutMs": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 10000,
+          "description": "Milliseconds to wait for a task to produce results before marking it as timed out (default: 5 minutes)"
         }
       }
     },
@@ -162,6 +178,21 @@
         "command": "glubean.resultViewRich",
         "title": "View as Result",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "glubean.tasks.run",
+        "title": "Run Task",
+        "icon": "$(play)"
+      },
+      {
+        "command": "glubean.tasks.runAll",
+        "title": "Run All Tasks",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "glubean.tasks.refresh",
+        "title": "Refresh Tasks",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -202,6 +233,25 @@
           "command": "glubean.runProject",
           "when": "explorerResourceIsFolder && resourceFilename =~ /^(?!node_modules$|\\.git$|dist$).+$/",
           "group": "glubean@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "glubean.tasks.runAll",
+          "when": "view == glubean.tasksView",
+          "group": "navigation"
+        },
+        {
+          "command": "glubean.tasks.refresh",
+          "when": "view == glubean.tasksView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "glubean.tasks.run",
+          "when": "view == glubean.tasksView && viewItem == glubeanTask",
+          "group": "inline"
         }
       ]
     },
