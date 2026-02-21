@@ -263,8 +263,8 @@
     "lint:eslint": "eslint \"src/**/*.ts\"",
     "package": "npx @vscode/vsce package",
     "publish": "npx @vscode/vsce publish",
-    "install:vscode": "npm run package -- --out glubean.vsix && code --install-extension glubean.vsix",
-    "install:cursor": "npm run package -- --out glubean.vsix && cursor --install-extension glubean.vsix"
+    "install:vscode": "npm install && npm run package -- --out glubean.vsix && code --install-extension glubean.vsix",
+    "install:cursor": "npm install && npm run package -- --out glubean.vsix && cursor --install-extension glubean.vsix"
   },
   "devDependencies": {
     "@codemirror/lang-json": "^6.0.2",
