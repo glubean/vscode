@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #818cf8;
+  --color-brand-light: #a5b4fc;
+  --color-brand-dark: #6366f1;
+}
+
+@layer base {
+  body {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family, system-ui, -apple-system, sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
+  }
+}
+
+@layer components {
+  /* Mono font inherits from the VS Code editor font */
+  .code-font {
+    font-family: var(--vscode-editor-font-family, "SF Mono", Monaco, Menlo, Consolas, monospace);
+    font-size: var(--vscode-editor-font-size, 12px);
+  }
+
+  /* JSON syntax colors — uses VS Code's token theme colors so they
+     work correctly in both light and dark themes. */
+  .tok-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+  .tok-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+  .tok-boolean { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
+  .tok-null { color: var(--vscode-descriptionForeground, #808080); }
+  .tok-key { color: var(--vscode-debugTokenExpression-name, #9cdcfe); }
+
+  /* HTTP method badges */
+  .method-get { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .method-post { color: var(--vscode-debugIcon-startForeground, #58a6ff); }
+  .method-put { color: var(--vscode-debugConsole-warningForeground, #d29922); }
+  .method-patch { color: var(--vscode-debugConsole-warningForeground, #d29922); }
+  .method-delete { color: var(--vscode-testing-iconFailed, #f85149); }
+
+  .method-get-bg { background: color-mix(in srgb, var(--vscode-testing-iconPassed, #3fb950) 15%, transparent); }
+  .method-post-bg { background: color-mix(in srgb, var(--vscode-debugIcon-startForeground, #58a6ff) 15%, transparent); }
+  .method-put-bg { background: color-mix(in srgb, var(--vscode-debugConsole-warningForeground, #d29922) 15%, transparent); }
+  .method-patch-bg { background: color-mix(in srgb, var(--vscode-debugConsole-warningForeground, #d29922) 15%, transparent); }
+  .method-delete-bg { background: color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 15%, transparent); }
+
+  /* Status code colors */
+  .status-ok { color: var(--vscode-testing-iconPassed, #3fb950); }
+  .status-redirect { color: var(--vscode-debugConsole-warningForeground, #d29922); }
+  .status-error { color: var(--vscode-testing-iconFailed, #f85149); }
+
+  /* Muted foreground */
+  .muted { color: var(--vscode-descriptionForeground, #888); }
+
+  /* Borders */
+  .border-panel { border-color: var(--vscode-panel-border, var(--vscode-widget-border, #333)); }
+
+  /* Surfaces */
+  .bg-sidebar { background: var(--vscode-sideBar-background, var(--vscode-editor-background)); }
+  .bg-hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
+  .bg-badge { background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #fff); }
+
+  /* Active tab indicator — matches VS Code's own tab styling */
+  .tab-active {
+    border-color: var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder, #007fd4));
+    color: var(--vscode-panelTitle-activeForeground, var(--vscode-editor-foreground));
+  }
+
+  /* Selected list item — overrides all child text colors for contrast */
+  .list-item-selected {
+    background: var(--vscode-list-activeSelectionBackground, #094771);
+    color: var(--vscode-list-activeSelectionForeground, #fff);
+  }
+
+  /* CodeMirror viewer wrapper */
+  .code-viewer-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .code-viewer-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 2px 4px;
+    flex-shrink: 0;
+  }
+
+  .code-viewer-editor {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .code-viewer-editor .cm-editor {
+    height: 100%;
+  }
+
+  .code-viewer-editor .cm-scroller {
+    overflow: auto !important;
+  }
+
+  /* JSON punctuation (braces, brackets, colons, commas) */
+  .tok-punctuation {
+    color: var(--vscode-editor-foreground);
+  }
+}
