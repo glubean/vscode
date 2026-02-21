@@ -1,49 +1,57 @@
 /**
- * Custom Text Editor provider for .trace.jsonc files.
+ * Custom Text Editor provider for .result.json files.
  *
- * Renders trace data (HTTP request/response pairs) as a rich Preact-based
- * webview instead of raw JSON text. Users can always "Reopen Editor With…"
- * to fall back to the standard text editor.
+ * Shows a summary bar, test list, and raw JSON in CodeMirror.
+ * For the full rich viewer, the user can click "Open Full Viewer"
+ * which will open glubean.com/viewer.
  */
 
 import * as vscode from "vscode";
-import * as path from "path";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — passed to the webview
 // ---------------------------------------------------------------------------
 
-export interface TraceViewerData {
-  meta: {
-    file: string;
-    testId: string;
-    callCount: number;
-    runAt: string;
-    env: string;
+export interface ResultViewerData {
+  fileName: string;
+  runAt: string;
+  target: string;
+  files: string[];
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    durationMs: number;
+    stats?: {
+      httpRequestTotal?: number;
+      httpErrorTotal?: number;
+      assertionTotal?: number;
+      assertionFailed?: number;
+      warningTotal?: number;
+      warningTriggered?: number;
+      stepTotal?: number;
+      stepPassed?: number;
+      stepFailed?: number;
+    };
   };
-  calls: Array<{
-    request: {
-      method: string;
-      url: string;
-      headers?: Record<string, string>;
-      body?: unknown;
-    };
-    response: {
-      status: number;
-      statusText?: string;
-      durationMs: number;
-      headers?: Record<string, string>;
-      body?: unknown;
-    };
+  tests: Array<{
+    testId: string;
+    testName: string;
+    success: boolean;
+    durationMs: number;
+    tags?: string[];
+    failureReason?: string;
   }>;
+  rawJson: string;
 }
 
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
-export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
-  public static readonly viewType = "glubean.traceViewer";
+export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
+  public static readonly viewType = "glubean.resultViewer";
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -62,11 +70,14 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
     const updateWebview = () => {
-      const data = this.parseTraceDocument(document);
-      void webviewPanel.webview.postMessage({ type: "update", viewerType: "trace", data });
+      const data = this.parseResultDocument(document);
+      void webviewPanel.webview.postMessage({
+        type: "update",
+        viewerType: "result",
+        data,
+      });
     };
 
-    // Send initial data once the webview signals it is ready
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage(
       (msg: { type: string }) => {
         if (msg.type === "ready") {
@@ -77,12 +88,14 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
             document.uri,
             "default",
           );
+        } else if (msg.type === "openFullViewer") {
+          void vscode.window.showInformationMessage(
+            "Full cloud viewer is coming soon! Stay tuned.",
+          );
         }
       },
     );
 
-    // Re-send when the underlying document changes (e.g. trace navigator
-    // switches to a different file that VS Code opens in the same tab)
     const changeDisposable = vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.uri.toString() === document.uri.toString()) {
         updateWebview();
@@ -93,7 +106,7 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
     const setActive = (active: boolean) => {
       void vscode.commands.executeCommand(
         "setContext",
-        "glubean.traceViewerActive",
+        "glubean.resultViewerActive",
         active,
       );
     };
@@ -115,75 +128,82 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
   }
 
   // -------------------------------------------------------------------------
-  // JSONC parsing
+  // JSON parsing
   // -------------------------------------------------------------------------
 
-  private parseTraceDocument(document: vscode.TextDocument): TraceViewerData {
+  private parseResultDocument(
+    document: vscode.TextDocument,
+  ): ResultViewerData {
     const raw = document.getText();
-    const meta = this.parseCommentHeader(raw);
+    const fileName = document.uri.fsPath.split(/[\\/]/).pop() ?? "";
 
-    let calls: TraceViewerData["calls"] = [];
     try {
-      const stripped = raw.replace(/^\s*\/\/.*$/gm, "");
-      const parsed: unknown = JSON.parse(stripped);
-      if (Array.isArray(parsed)) {
-        calls = parsed;
+      const parsed = JSON.parse(raw);
+      const tests: ResultViewerData["tests"] = [];
+
+      if (Array.isArray(parsed.tests)) {
+        for (const t of parsed.tests) {
+          let failureReason: string | undefined;
+          if (!t.success && Array.isArray(t.events)) {
+            for (const e of t.events) {
+              if (e.type === "error" && e.message) {
+                failureReason = e.message;
+                break;
+              }
+              if (e.type === "assertion" && !e.passed && e.message) {
+                failureReason = e.message;
+              }
+              if (e.type === "status" && (e.error || e.reason)) {
+                failureReason = e.error || e.reason;
+                break;
+              }
+            }
+          }
+
+          tests.push({
+            testId: t.testId ?? "",
+            testName: t.testName ?? t.testId ?? "",
+            success: !!t.success,
+            durationMs: t.durationMs ?? 0,
+            tags: t.tags,
+            failureReason,
+          });
+        }
       }
+
+      return {
+        fileName,
+        runAt: parsed.runAt ?? "",
+        target: parsed.target ?? "",
+        files: parsed.files ?? [],
+        summary: {
+          total: parsed.summary?.total ?? 0,
+          passed: parsed.summary?.passed ?? 0,
+          failed: parsed.summary?.failed ?? 0,
+          skipped: parsed.summary?.skipped ?? 0,
+          durationMs: parsed.summary?.durationMs ?? 0,
+          stats: parsed.summary?.stats,
+        },
+        tests,
+        rawJson: raw,
+      };
     } catch {
-      // Malformed JSON — show empty state
+      return {
+        fileName,
+        runAt: "",
+        target: "",
+        files: [],
+        summary: {
+          total: 0,
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          durationMs: 0,
+        },
+        tests: [],
+        rawJson: raw,
+      };
     }
-
-    return {
-      meta: { ...meta, callCount: calls.length },
-      calls,
-    };
-  }
-
-  /**
-   * Extract metadata from the JSONC comment header.
-   *
-   * Expected format (3 lines):
-   *   // tests/foo.test.ts → test-id — 2 HTTP call(s)
-   *   // Run at: 2026-02-20 10:37:06
-   *   // Environment: .env
-   */
-  private parseCommentHeader(text: string): {
-    file: string;
-    testId: string;
-    runAt: string;
-    env: string;
-  } {
-    const lines = text.split("\n").slice(0, 5);
-    let file = "";
-    let testId = "";
-    let runAt = "";
-    let env = "";
-
-    for (const line of lines) {
-      const trimmed = line.replace(/^\s*\/\/\s*/, "");
-
-      const headerMatch = trimmed.match(
-        /^(.+?)\s*→\s*(.+?)\s*—\s*\d+\s+HTTP/,
-      );
-      if (headerMatch) {
-        file = headerMatch[1].trim();
-        testId = headerMatch[2].trim();
-        continue;
-      }
-
-      const runAtMatch = trimmed.match(/^Run at:\s*(.+)/);
-      if (runAtMatch) {
-        runAt = runAtMatch[1].trim();
-        continue;
-      }
-
-      const envMatch = trimmed.match(/^Environment:\s*(.+)/);
-      if (envMatch) {
-        env = envMatch[1].trim();
-      }
-    }
-
-    return { file, testId, runAt, env };
   }
 
   // -------------------------------------------------------------------------
@@ -208,7 +228,7 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <link href="${styleUri}" rel="stylesheet">
-  <title>Trace Viewer</title>
+  <title>Result Viewer</title>
 </head>
 <body>
   <div id="app"></div>

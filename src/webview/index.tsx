@@ -1,8 +1,14 @@
 import { render } from "preact";
 import { useState, useEffect } from "preact/hooks";
 import { TraceViewer } from "./components/TraceViewer";
+import { ResultViewer } from "./components/ResultViewer";
 
-interface TraceViewerData {
+type ViewerState =
+  | { type: "loading" }
+  | { type: "trace"; data: TraceData }
+  | { type: "result"; data: ResultData };
+
+interface TraceData {
   meta: {
     file: string;
     testId: string;
@@ -27,6 +33,35 @@ interface TraceViewerData {
   }>;
 }
 
+interface ResultData {
+  fileName: string;
+  runAt: string;
+  target: string;
+  files: string[];
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    durationMs: number;
+    stats?: {
+      httpRequestTotal?: number;
+      httpErrorTotal?: number;
+      assertionTotal?: number;
+      assertionFailed?: number;
+    };
+  };
+  tests: Array<{
+    testId: string;
+    testName: string;
+    success: boolean;
+    durationMs: number;
+    tags?: string[];
+    failureReason?: string;
+  }>;
+  rawJson: string;
+}
+
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void;
   getState(): unknown;
@@ -36,13 +71,17 @@ declare function acquireVsCodeApi(): {
 const vscode = acquireVsCodeApi();
 
 function App() {
-  const [data, setData] = useState<TraceViewerData | null>(null);
+  const [state, setState] = useState<ViewerState>({ type: "loading" });
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       const msg = e.data;
       if (msg.type === "update") {
-        setData(msg.data);
+        if (msg.viewerType === "result") {
+          setState({ type: "result", data: msg.data });
+        } else {
+          setState({ type: "trace", data: msg.data });
+        }
       }
     };
     window.addEventListener("message", handler);
@@ -50,15 +89,27 @@ function App() {
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  if (!data) {
+  if (state.type === "loading") {
     return (
       <div class="flex items-center justify-center h-screen opacity-50">
-        Loading trace…
+        Loading…
       </div>
     );
   }
 
-  if (data.calls.length === 0) {
+  if (state.type === "result") {
+    return (
+      <ResultViewer
+        data={state.data}
+        onViewSource={() => vscode.postMessage({ type: "viewSource" })}
+        onOpenFullViewer={() => vscode.postMessage({ type: "openFullViewer" })}
+      />
+    );
+  }
+
+  // Trace viewer
+  const traceData = state.data;
+  if (traceData.calls.length === 0) {
     return (
       <div class="flex flex-col items-center justify-center h-screen gap-2 opacity-50">
         <span class="text-lg">No HTTP calls recorded</span>
@@ -69,7 +120,7 @@ function App() {
 
   return (
     <TraceViewer
-      data={data}
+      data={traceData}
       onViewSource={() => vscode.postMessage({ type: "viewSource" })}
     />
   );

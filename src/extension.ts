@@ -15,6 +15,7 @@ import { createPickCodeLensProvider } from "./codeLensProvider";
 import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
 import { activateTraceNavigator } from "./traceNavigator";
 import { TraceViewerProvider } from "./traceViewerProvider";
+import { ResultViewerProvider } from "./resultViewerProvider";
 
 // ---------------------------------------------------------------------------
 // Shell quoting
@@ -930,6 +931,34 @@ export function activate(context: vscode.ExtensionContext): void {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri) {
         void vscode.commands.executeCommand("vscode.openWith", uri, TraceViewerProvider.viewType);
+      }
+    }),
+  );
+
+  // ── Result viewer (custom editor for .result.json) ───────────────────
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      ResultViewerProvider.viewType,
+      new ResultViewerProvider(context.extensionUri),
+      { supportsMultipleEditorsPerDocument: false },
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.resultViewSource", () => {
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const input = tab?.input;
+      const uri = input && typeof input === "object" && "uri" in input
+        ? (input as { uri: vscode.Uri }).uri
+        : undefined;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, "default");
+      }
+    }),
+    vscode.commands.registerCommand("glubean.resultViewRich", () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, ResultViewerProvider.viewType);
       }
     }),
   );

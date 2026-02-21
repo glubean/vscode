@@ -147,6 +147,16 @@
         "command": "glubean.traceViewRich",
         "title": "View as Trace",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "glubean.resultViewSource",
+        "title": "View Source",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "glubean.resultViewRich",
+        "title": "View as Result",
+        "icon": "$(open-preview)"
       }
     ],
     "menus": {
@@ -159,6 +169,16 @@
         {
           "command": "glubean.traceViewRich",
           "when": "!glubean.traceViewerActive && resourceFilename =~ /\\.trace\\.jsonc$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "glubean.resultViewSource",
+          "when": "glubean.resultViewerActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "glubean.resultViewRich",
+          "when": "!glubean.resultViewerActive && resourceFilename =~ /\\.result\\.json$/",
           "group": "navigation@1"
         }
       ],
@@ -189,6 +209,16 @@
         "selector": [
           {
             "filenamePattern": "*.trace.jsonc"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "glubean.resultViewer",
+        "displayName": "Glubean Result Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.result.json"
           }
         ],
         "priority": "default"
