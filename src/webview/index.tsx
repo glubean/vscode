@@ -117,7 +117,14 @@ function App() {
     );
   }
 
-  return <TraceViewer data={traceData} />;
+  return (
+    <TraceViewer
+      data={traceData}
+      onCopyAsCurl={(call) =>
+        vscode.postMessage({ type: "copyAsCurl", request: call.request })
+      }
+    />
+  );
 }
 
 render(<App />, document.getElementById("app")!);

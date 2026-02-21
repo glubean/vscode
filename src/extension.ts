@@ -176,7 +176,19 @@ function getCommandVersion(command: string): Promise<string> {
  */
 function getCliVersion(cliPath: string): Promise<string> {
   return new Promise((resolve) => {
-    cp.execFile(cliPath, ["--version"], { timeout: 10_000 }, (err, stdout) => {
+    // The glubean binary is a deno-install shell script that calls `deno`.
+    // VS Code's extension host inherits the system PATH (from launchd on macOS),
+    // which does not include ~/.deno/bin. Augment PATH so the script can find deno.
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const denoBin =
+      process.platform === "win32"
+        ? `${home}\\.deno\\bin`
+        : `${home}/.deno/bin`;
+    const delimiter = process.platform === "win32" ? ";" : ":";
+    const augmentedPath = `${denoBin}${delimiter}${process.env.PATH || ""}`;
+    const env = { ...process.env, PATH: augmentedPath };
+
+    cp.execFile(cliPath, ["--version"], { timeout: 10_000, env }, (err, stdout) => {
       if (err) {
         resolve("");
         return;

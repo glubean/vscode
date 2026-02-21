@@ -402,3 +402,35 @@ export function tracePairToCurl(pair: TracePair): string {
 
   return parts.join(" \\\n  ");
 }
+
+/**
+ * Scan the raw text of a .trace.jsonc file and return the index of the
+ * top-level array element that contains `cursorLine`.
+ *
+ * Uses brace-depth counting: each top-level `{` starts a new element, the
+ * matching `}` ends it. Returns 0 as a fallback when the cursor is outside
+ * all elements (e.g. on the opening `[` or a comment line).
+ */
+export function findPairIndexAtLine(text: string, cursorLine: number): number {
+  const lines = text.split("\n");
+  let depth = 0;
+  let elementStart = -1;
+  let elementIndex = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trimStart().startsWith("//")) continue;
+    for (const ch of lines[i]) {
+      if (ch === "{") {
+        depth++;
+        if (depth === 1) elementStart = i;
+      } else if (ch === "}") {
+        if (depth === 1) {
+          if (cursorLine >= elementStart && cursorLine <= i) return elementIndex;
+          elementIndex++;
+        }
+        depth--;
+      }
+    }
+  }
+  return 0;
+}

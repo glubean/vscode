@@ -9,6 +9,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { getWebviewHtml } from "./webviewUtils";
+import { tracePairToCurl } from "./testController.utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,7 +75,7 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
 
     // Send initial data once the webview signals it is ready
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage(
-      (msg: { type: string }) => {
+      (msg: { type: string; request?: unknown }) => {
         if (msg.type === "ready") {
           updateWebview();
         } else if (msg.type === "viewSource") {
@@ -83,6 +84,17 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
             document.uri,
             "default",
           );
+        } else if (msg.type === "copyAsCurl" && msg.request) {
+          const req = msg.request as Record<string, unknown>;
+          if (typeof req.url !== "string" || typeof req.method !== "string") return;
+          const curl = tracePairToCurl({
+            request: req as TraceViewerData["calls"][0]["request"],
+          });
+          void vscode.env.clipboard.writeText(curl).then(() => {
+            void vscode.window.showInformationMessage(
+              "cURL command copied to clipboard.",
+            );
+          });
         }
       },
     );

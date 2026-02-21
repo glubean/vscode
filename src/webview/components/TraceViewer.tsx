@@ -29,9 +29,10 @@ interface TraceViewerData {
 
 interface TraceViewerProps {
   data: TraceViewerData;
+  onCopyAsCurl?: (call: TraceViewerData["calls"][0]) => void;
 }
 
-export function TraceViewer({ data }: TraceViewerProps) {
+export function TraceViewer({ data, onCopyAsCurl }: TraceViewerProps) {
   const [selected, setSelected] = useState(0);
   const call = data.calls[selected];
 
@@ -71,7 +72,14 @@ export function TraceViewer({ data }: TraceViewerProps) {
 
         {/* Detail panel */}
         <div class="flex-1 overflow-hidden">
-          {call && <RequestDetail call={call} />}
+          {call && (
+            <RequestDetail
+              call={call}
+              onCopyAsCurl={
+                onCopyAsCurl ? () => onCopyAsCurl(call) : undefined
+              }
+            />
+          )}
         </div>
       </div>
     </div>

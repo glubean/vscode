@@ -19,6 +19,7 @@ interface Call {
 
 interface RequestDetailProps {
   call: Call;
+  onCopyAsCurl?: () => void;
 }
 
 function HeadersTable({ headers }: { headers?: Record<string, string> }) {
@@ -62,7 +63,7 @@ function statusClass(status: number): string {
   return "status-error";
 }
 
-export function RequestDetail({ call }: RequestDetailProps) {
+export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
   const { request, response } = call;
 
   return (
@@ -78,6 +79,15 @@ export function RequestDetail({ call }: RequestDetailProps) {
           {response.statusText ? ` ${response.statusText}` : ""}
         </span>
         <span class="text-[10px] muted">{response.durationMs}ms</span>
+        {onCopyAsCurl && (
+          <button
+            class="text-[10px] muted hover:text-primary px-1 cursor-pointer"
+            onClick={onCopyAsCurl}
+            title="Copy as cURL"
+          >
+            cURL
+          </button>
+        )}
       </div>
 
       {/* Tabbed content */}
