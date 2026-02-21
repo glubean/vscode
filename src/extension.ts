@@ -16,6 +16,9 @@ import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
 import { activateTraceNavigator } from "./traceNavigator";
 import { TraceViewerProvider } from "./traceViewerProvider";
 import { ResultViewerProvider } from "./resultViewerProvider";
+import { TasksProvider, type TaskItem } from "./taskPanel/provider";
+import { TaskRunner } from "./taskPanel/runner";
+import { initStorage } from "./taskPanel/storage";
 
 // ---------------------------------------------------------------------------
 // Shell quoting
@@ -967,6 +970,49 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── Trace navigator (StatusBar + prev/next) ────────────────────────────
   activateTraceNavigator(context);
+
+  // ── Tasks panel (Activity Bar view for QA) ─────────────────────────────
+  initStorage(context.workspaceState);
+  const tasksProvider = new TasksProvider();
+  const taskRunner = new TaskRunner(tasksProvider);
+
+  const tasksView = vscode.window.createTreeView("glubean.tasksView", {
+    treeDataProvider: tasksProvider,
+    showCollapseAll: false,
+  });
+  context.subscriptions.push(tasksView);
+
+  const refreshTasks = () => {
+    tasksProvider.refresh();
+    void vscode.commands.executeCommand(
+      "setContext",
+      "glubean.hasTasks",
+      tasksProvider.getAllTasks().length > 0,
+    );
+  };
+
+  refreshTasks();
+  taskRunner.activate(context.subscriptions);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.tasks.run", (item: TaskItem) => {
+      void taskRunner.runTask(item);
+    }),
+    vscode.commands.registerCommand("glubean.tasks.runAll", () => {
+      void taskRunner.runAllRoots();
+    }),
+    vscode.commands.registerCommand("glubean.tasks.refresh", () => {
+      refreshTasks();
+    }),
+  );
+
+  const configWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/{deno.json,deno.jsonc}",
+  );
+  configWatcher.onDidChange(() => refreshTasks());
+  configWatcher.onDidCreate(() => refreshTasks());
+  configWatcher.onDidDelete(() => refreshTasks());
+  context.subscriptions.push(configWatcher);
 
   // ── Dependency check on activation (non-intrusive) ─────────────────────
   // Instead of popping up a dialog immediately, show a subtle status bar

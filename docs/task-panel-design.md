@@ -128,7 +128,7 @@ When the user clicks ▶ on a task row:
      name: `glubean: ${task.name}`,
      cwd: task.workspaceRoot,
    });
-   terminal.sendText(`deno task ${task.name}`);
+   terminal.sendText(`deno task ${shellQuote(task.name)}`);
    terminal.show(false); // show panel but don't steal focus
    ```
 
@@ -179,9 +179,33 @@ for each task:
   5. Proceed to next task
 ```
 
-This serialisation guarantees the watcher event that follows a task's terminal command belongs to that task. Parallel execution of tasks is explicitly out of scope for v1.
+This serialisation ensures that panel-initiated watcher events are correctly attributed to the task that triggered them (best-effort). It does **not** protect against external writes to the same file (e.g. a concurrent CLI invocation in another terminal). As a lightweight guard, the runner records a `sendTime` timestamp before dispatching each task and ignores any watcher event whose file `mtime` predates `sendTime`. Parallel execution of tasks is explicitly out of scope for v1.
 
 A more robust long-term solution: add a `taskName` field to `last-run.result.json` via a `--task-name` flag or the `glubean.json` config, removing the need for heuristics. This is an OSS-side improvement to track separately.
+
+---
+
+## Single-Task Failure Recovery
+
+A task can fail without writing `last-run.result.json` — for example, if `deno` is not installed, the task name is misspelled, or the CLI crashes before completing. Without explicit recovery, the task would remain in the `running` state indefinitely.
+
+The runner addresses this with three fallback mechanisms:
+
+1. **`onDidCloseTerminal`**: if the terminal associated with a running task is closed (by the user or by the shell exiting) and no result has been received, mark the task as `errored`. Show a toast: *"Task '<name>' finished without results — check terminal output."* with a "Show Output" action.
+
+2. **Per-task timeout**: every task dispatch starts a timer (default: 5 minutes, configurable). If the watcher does not fire within this window, mark the task as `timeout` and show a toast. This applies to both single-task runs and each step of "Run All".
+
+3. **Cancel via terminal close**: the user can close the terminal or press Ctrl+C. `onDidCloseTerminal` fires and marks the task as `cancelled`.
+
+The task status icon reflects these states: `⟳` (running), `✓` (passed), `✗` (failed), `⚠` (errored/timeout), `—` (never run).
+
+---
+
+## `mtime` Sanity Check
+
+Before dispatching `deno task <name>`, the runner records `sendTime = Date.now()`. When the file watcher fires, the runner reads the `mtime` of `.glubean/last-run.result.json` via `fs.statSync`. If `mtime < sendTime`, the event is ignored — it belongs to a prior or external run.
+
+This is a lightweight, best-effort guard. It does not protect against all concurrent-write scenarios (e.g. an external process that writes the file at nearly the same instant), but it eliminates the most common case of stale watcher events from a previous run still being in flight.
 
 ---
 
@@ -189,7 +213,7 @@ A more robust long-term solution: add a `taskName` field to `last-run.result.jso
 
 | Watch target | Trigger | Action |
 |---|---|---|
-| `**/deno.json` | create / change | Re-read tasks, rebuild tree |
+| `**/deno.json`, `**/deno.jsonc` | create / change | Re-read tasks, rebuild tree |
 | `**/.glubean/last-run.result.json` | change | Update `lastRun` state, refresh tree, conditionally open result viewer |
 | Workspace folders | add / remove | Rescan for `deno.json` files |
 
@@ -235,7 +259,7 @@ Estimated implementation size: ~450 lines total. No webview. No new npm dependen
         {
           "id": "glubean.tasksView",
           "name": "Tasks",
-          "when": "workspaceContains:**/deno.json"
+          "when": "workspaceContains:**/deno.json || workspaceContains:**/deno.jsonc"
         }
       ]
     },
@@ -289,7 +313,7 @@ Estimated implementation size: ~450 lines total. No webview. No new npm dependen
 |---|---|---|
 | Editor gutter ▶ / CodeLens | Developer | Independent — no overlap |
 | VS Code Test Explorer | Developer | Independent — no overlap |
-| **Glubean Tasks Panel** | **QA engineer** | New entry point, reads same `last-run.result.json` as `openLastResult` command |
+| **Glubean Tasks Panel** | **QA engineer** | New entry point, reads `.glubean/last-run.result.json` (workspace-level file written by CLI — distinct from the per-test-file `*.result.json` used by `openLastResult`) |
 | Result Viewer (`ResultViewerProvider`) | QA / Developer | Reused — panel triggers it automatically after a run |
 | Trace Viewer (`TraceViewerProvider`) | Developer | Independent — QA may use it if they click into individual failures |
 
