@@ -46,13 +46,18 @@ export interface TraceViewerData {
 export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = "glubean.traceViewer";
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly onOpen?: () => void,
+  ) {}
 
   public async resolveCustomTextEditor(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken,
   ): Promise<void> {
+    this.onOpen?.();
+
     webviewPanel.webview.options = {
       enableScripts: true,
       localResourceRoots: [

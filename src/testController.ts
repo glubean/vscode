@@ -122,6 +122,37 @@ export function setGlubeanPathProvider(fn: () => string): void {
   glubeanPathProvider = fn;
 }
 
+// ---------------------------------------------------------------------------
+// Run complete listener
+// ---------------------------------------------------------------------------
+
+/** Summary passed to the run complete listener after each run handler finishes. */
+export interface RunSummary {
+  /** Number of test items in the run request. */
+  testCount: number;
+  /** Wall-clock duration of the run in milliseconds. */
+  durationMs: number;
+  /** Inferred location of the first test file in the run. */
+  location: "explore" | "tests" | "other";
+}
+
+let runCompleteListener: ((summary: RunSummary) => void) | undefined;
+
+/** Register a run complete listener (called by extension.ts to wire up telemetry). */
+export function setRunCompleteListener(
+  fn: (summary: RunSummary) => void,
+): void {
+  runCompleteListener = fn;
+}
+
+/** Classify which directory a file path belongs to. */
+function classifyRunLocation(filePaths: string[]): RunSummary["location"] {
+  const first = (filePaths[0] ?? "").replace(/\\/g, "/");
+  if (first.includes("/explore/")) return "explore";
+  if (first.includes("/tests/")) return "tests";
+  return "other";
+}
+
 /** Resolve the glubean CLI path using the provider or config fallback. */
 function getGlubeanPath(): string {
   if (glubeanPathProvider) {
@@ -613,6 +644,7 @@ async function runHandler(
     }
   }
 
+  const runStartTime = Date.now();
   const run = controller.createTestRun(request);
 
   // Show the Test Results panel so the user sees live output immediately
@@ -682,6 +714,14 @@ async function runHandler(
   }
 
   run.end();
+
+  if (runCompleteListener && filtered.length > 0) {
+    runCompleteListener({
+      testCount: filtered.length,
+      durationMs: Date.now() - runStartTime,
+      location: classifyRunLocation([...byFile.keys()]),
+    });
+  }
 
   // TODO: re-enable when https://glubean.com/viewer is live
   // if (lastResultJsonPath && !shownWebViewerPrompt) {
