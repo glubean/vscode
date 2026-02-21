@@ -371,6 +371,10 @@ function shellEscape(value: string): string {
   return value.replace(/'/g, "'\\''");
 }
 
+const VALID_HTTP_METHODS = new Set([
+  "GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT",
+]);
+
 /**
  * Convert a trace request/response pair into a cURL command string.
  */
@@ -378,9 +382,13 @@ export function tracePairToCurl(pair: TracePair): string {
   const req = pair.request;
   const parts: string[] = ["curl"];
 
-  // Method
-  if (req.method && req.method.toUpperCase() !== "GET") {
-    parts.push(`-X ${req.method.toUpperCase()}`);
+  // Method — only allow standard HTTP verbs to prevent shell injection
+  const method = (req.method || "GET").toUpperCase();
+  if (!VALID_HTTP_METHODS.has(method)) {
+    throw new Error(`Invalid HTTP method: ${method}`);
+  }
+  if (method !== "GET") {
+    parts.push(`-X ${method}`);
   }
 
   // URL
@@ -417,14 +425,34 @@ export function findPairIndexAtLine(text: string, cursorLine: number): number {
   let elementStart = -1;
   let elementIndex = 0;
   let inString = false;
+  let inBlockComment = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!inString && line.trimStart().startsWith("//")) continue;
+    if (!inString && !inBlockComment && line.trimStart().startsWith("//")) continue;
     for (let j = 0; j < line.length; j++) {
       const ch = line[j];
-      if (ch === '"' && (j === 0 || line[j - 1] !== "\\")) {
-        inString = !inString;
+      const next = j + 1 < line.length ? line[j + 1] : "";
+
+      if (inBlockComment) {
+        if (ch === "*" && next === "/") {
+          inBlockComment = false;
+          j++;
+        }
+        continue;
+      }
+
+      if (!inString && ch === "/" && next === "*") {
+        inBlockComment = true;
+        j++;
+        continue;
+      }
+
+      // Count consecutive backslashes before a quote to handle \\" correctly
+      if (ch === '"') {
+        let backslashes = 0;
+        for (let k = j - 1; k >= 0 && line[k] === "\\"; k--) backslashes++;
+        if (backslashes % 2 === 0) inString = !inString;
       }
       if (inString) continue;
 

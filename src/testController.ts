@@ -628,7 +628,7 @@ export async function copyAsCurl(): Promise<boolean> {
 
   const curl = tracePairToCurl(pairs[targetIndex]);
   await vscode.env.clipboard.writeText(curl);
-  void vscode.window.showInformationMessage("cURL command copied to clipboard.");
+  await vscode.window.showInformationMessage("cURL command copied to clipboard.");
   return true;
 }
 

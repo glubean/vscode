@@ -75,7 +75,7 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
 
     // Send initial data once the webview signals it is ready
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage(
-      (msg: { type: string; request?: unknown }) => {
+      async (msg: { type: string; request?: unknown }) => {
         if (msg.type === "ready") {
           updateWebview();
         } else if (msg.type === "viewSource") {
@@ -86,15 +86,24 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
           );
         } else if (msg.type === "copyAsCurl" && msg.request) {
           const req = msg.request as Record<string, unknown>;
-          if (typeof req.url !== "string" || typeof req.method !== "string") return;
-          const curl = tracePairToCurl({
-            request: req as TraceViewerData["calls"][0]["request"],
-          });
-          void vscode.env.clipboard.writeText(curl).then(() => {
-            void vscode.window.showInformationMessage(
+          if (
+            typeof req.url !== "string" ||
+            typeof req.method !== "string" ||
+            (req.headers != null && typeof req.headers !== "object")
+          ) return;
+          try {
+            const curl = tracePairToCurl({
+              request: req as TraceViewerData["calls"][0]["request"],
+            });
+            await vscode.env.clipboard.writeText(curl);
+            await vscode.window.showInformationMessage(
               "cURL command copied to clipboard.",
             );
-          });
+          } catch {
+            await vscode.window.showWarningMessage(
+              "Could not generate cURL — the request contains invalid data.",
+            );
+          }
         }
       },
     );
