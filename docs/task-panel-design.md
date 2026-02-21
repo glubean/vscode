@@ -134,7 +134,7 @@ When the user clicks ▶ on a task row:
 
 3. Watch `.glubean/last-run.json` for modification (file system watcher)
 4. When the file changes, parse it, update `lastRun` state, refresh the tree item
-5. If `last-run.json` indicates failures → open `ResultViewerProvider` automatically beside the terminal
+5. If the run produced a single-file `.result.json` (detectable from `last-run.json`'s `files` array having one entry), resolve the sibling path (`<file>.result.json`) and open it in `ResultViewerProvider` beside the terminal. For multi-file runs, open `glubean-run.result.json` in the workspace root if present. Fall back to opening `last-run.json` as plain JSON if neither exists.
 6. Mark the item as done — show `✓` or `✗`
 
 Using `terminal.sendText` (rather than spawning a hidden child process) is deliberate:
@@ -155,7 +155,7 @@ Since OSS `v0.11.6` (`feat/ci-flag-and-default-results`, merged PR #23), every `
   traces.json         ← coverage data (existing)
 ```
 
-**Auto-open result viewer**: after a run completes (detected via the `last-run.json` watcher), the panel checks `failed > 0`. If so, it opens the file in `ResultViewerProvider` beside the terminal so QA sees the failure summary without any extra clicks.
+**Auto-open result viewer**: after a run completes (detected via the `last-run.json` watcher), the panel checks `failed > 0`. If so, it resolves the appropriate `.result.json` path (see Execution Model step 5) and opens it via `ResultViewerProvider` (registered for `*.result.json`) beside the terminal. `last-run.json` itself is **not** opened directly — it does not match the viewer's file selector and serves only as the data channel back to the panel.
 
 ---
 
@@ -163,7 +163,25 @@ Since OSS `v0.11.6` (`feat/ci-flag-and-default-results`, merged PR #23), every `
 
 `last-run.json` does not record which `deno task` name triggered it — it only records test results. The panel uses a **time-based heuristic**: if `last-run.json` is modified within N seconds of `deno task <name>` being sent to the terminal, it is attributed to that task.
 
-A more robust solution (future): add a `taskName` field to `last-run.json` via a `--task-name` flag or the `glubean.json` config. This is an OSS-side improvement to track separately.
+### Run All — sequential execution
+
+Running multiple tasks concurrently via a time-based heuristic creates a race condition: if Task A finishes while Task B is already running, the file watcher fires and the panel may attribute Task A's results to Task B.
+
+To avoid this, **Run All executes tasks strictly one at a time**:
+
+```
+for each task:
+  1. Mark task as running (⟳)
+  2. Send `deno task <name>` to terminal
+  3. Await a Promise that resolves when the last-run.json watcher fires
+     (with a reasonable timeout, e.g. 5 minutes)
+  4. Attribute the result, update state
+  5. Proceed to next task
+```
+
+This serialisation guarantees the watcher event that follows a task's terminal command belongs to that task. Parallel execution of tasks is explicitly out of scope for v1.
+
+A more robust long-term solution: add a `taskName` field to `last-run.json` via a `--task-name` flag or the `glubean.json` config, removing the need for heuristics. This is an OSS-side improvement to track separately.
 
 ---
 
@@ -197,6 +215,8 @@ Estimated implementation size: ~450 lines total. No webview. No new npm dependen
 ---
 
 ## `package.json` Contributions
+
+> **Note on `when` clause syntax**: VS Code when-clause context keys (`view`, `viewItem`, etc.) use unquoted identifiers — `view == glubean.tasksView` is the correct and documented syntax. See [VS Code When Clause Contexts](https://code.visualstudio.com/api/references/when-clause-contexts).
 
 ```json
 {
