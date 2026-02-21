@@ -1,3 +1,4 @@
+import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -37,6 +38,9 @@ export function parseTasksFromRoot(workspaceRoot: string): TaskDef[] {
       return tasks;
     } catch (e) {
       console.error(`[glubean] Error parsing ${configPath}:`, e);
+      void vscode.window.showWarningMessage(
+        `Glubean: failed to parse ${path.basename(configPath)} — tasks panel may be incomplete.`,
+      );
       return [];
     }
   }

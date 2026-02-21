@@ -6,6 +6,12 @@ import { setLastRun, type LastRunState } from "./storage";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
+function getTimeoutMs(): number {
+  return vscode.workspace
+    .getConfiguration("glubean")
+    .get<number>("taskTimeoutMs", DEFAULT_TIMEOUT_MS);
+}
+
 // Grace period between process exit and result file arrival.
 // The CLI writes the result file after the process exits, so we wait briefly
 // before concluding that no result will arrive.
@@ -74,7 +80,7 @@ export class TaskRunner {
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(
         () => this.onTimeout(runKey(item)),
-        DEFAULT_TIMEOUT_MS,
+        getTimeoutMs(),
       );
 
       this.running.set(runKey(item), {
@@ -192,7 +198,7 @@ export class TaskRunner {
     this.provider.fireChange(entry.item);
 
     void vscode.window.showWarningMessage(
-      `Task '${entry.item.def.name}' timed out after ${DEFAULT_TIMEOUT_MS / 60_000} minutes.`,
+      `Task '${entry.item.def.name}' timed out after ${getTimeoutMs() / 60_000} minutes.`,
     );
 
     this.settle(key);

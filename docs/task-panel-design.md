@@ -184,7 +184,7 @@ for each task:
   5. Proceed to next task
 ```
 
-This serialisation ensures that panel-initiated watcher events are correctly attributed to the task that triggered them (best-effort). It does **not** protect against external writes to the same file (e.g. a concurrent CLI invocation in another terminal). As a lightweight guard, the runner records a `sendTime` timestamp before dispatching each task and ignores any watcher event whose file `mtime` predates `sendTime`. Parallel execution of tasks is explicitly out of scope for v1.
+Sequential execution means each watcher event is attributed to the task currently in flight. It does **not** guard against external writes (e.g. a concurrent CLI invocation in another terminal) — for those, the runner uses a `sendTime` timestamp and ignores any result whose `mtime` predates it. Parallel execution is out of scope for v1.
 
 A more robust long-term solution: add a `taskName` field to `last-run.result.json` via a `--task-name` flag or the `glubean.json` config, removing the need for heuristics. This is an OSS-side improvement to track separately.
 
