@@ -6,9 +6,14 @@ import { setLastRun, type LastRunState } from "./storage";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
+// Grace period between process exit and result file arrival.
+// The CLI writes the result file after the process exits, so we wait briefly
+// before concluding that no result will arrive.
+const RESULT_GRACE_MS = 500;
+
 interface RunningTask {
   item: TaskItem;
-  terminal: vscode.Terminal;
+  execution: vscode.TaskExecution;
   sendTime: number;
   timeout: ReturnType<typeof setTimeout>;
   resolve: () => void;
@@ -18,7 +23,6 @@ interface RunningTask {
 export class TaskRunner {
   private running = new Map<string, RunningTask>();
   private resultWatcher: vscode.FileSystemWatcher | undefined;
-  private terminalListener: vscode.Disposable | undefined;
 
   constructor(private readonly provider: TasksProvider) {}
 
@@ -32,10 +36,12 @@ export class TaskRunner {
     this.resultWatcher.onDidCreate((uri) => this.onResultChange(uri));
     subscriptions.push(this.resultWatcher);
 
-    this.terminalListener = vscode.window.onDidCloseTerminal((t) =>
-      this.onTerminalClose(t),
+    // Use the Task API process-end event instead of onDidCloseTerminal.
+    // This fires with an exit code and is tied to a specific TaskExecution,
+    // making attribution reliable even when multiple terminals are open.
+    subscriptions.push(
+      vscode.tasks.onDidEndTaskProcess((e) => this.onTaskProcessEnd(e)),
     );
-    subscriptions.push(this.terminalListener);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────
@@ -49,19 +55,21 @@ export class TaskRunner {
     item.applyPresentation();
     this.provider.fireChange(item);
 
-    const termName = `glubean: ${item.def.name}`;
-    const terminal =
-      vscode.window.terminals.find(
-        (t) => t.name === termName && t.exitStatus === undefined,
-      ) ??
-      vscode.window.createTerminal({
-        name: termName,
+    // Use vscode.Task + ShellExecution so the VS Code runtime handles shell
+    // quoting safely — avoids injection via crafted task names (newlines,
+    // shell metacharacters, cmd.exe quoting differences, etc.).
+    const vsTask = new vscode.Task(
+      { type: "glubean", task: item.def.name },
+      vscode.TaskScope.Workspace,
+      item.def.name,
+      "glubean",
+      new vscode.ShellExecution("deno", ["task", item.def.name], {
         cwd: item.def.workspaceRoot,
-      });
+      }),
+    );
 
     const sendTime = Date.now();
-    terminal.sendText(`deno task ${shellQuote(item.def.name)}`);
-    terminal.show(false);
+    const execution = await vscode.tasks.executeTask(vsTask);
 
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(
@@ -71,7 +79,7 @@ export class TaskRunner {
 
       this.running.set(runKey(item), {
         item,
-        terminal,
+        execution,
         sendTime,
         timeout,
         resolve,
@@ -105,7 +113,8 @@ export class TaskRunner {
     let mtime: number;
     try {
       mtime = fs.statSync(filePath).mtimeMs;
-    } catch {
+    } catch (e) {
+      console.error(`[glubean] Error reading mtime for ${filePath}:`, e);
       return;
     }
     if (mtime < entry.sendTime) return;
@@ -113,7 +122,8 @@ export class TaskRunner {
     let raw: string;
     try {
       raw = fs.readFileSync(filePath, "utf-8");
-    } catch {
+    } catch (e) {
+      console.error(`[glubean] Error reading result file ${filePath}:`, e);
       return;
     }
 
@@ -151,26 +161,25 @@ export class TaskRunner {
     this.settle(runKey(entry.item));
   }
 
-  private onTerminalClose(terminal: vscode.Terminal): void {
+  private onTaskProcessEnd(e: vscode.TaskProcessEndEvent): void {
     for (const [key, entry] of this.running) {
-      if (entry.terminal === terminal && !entry.settled) {
-        entry.item.status = "errored";
-        entry.item.applyPresentation();
-        this.provider.fireChange(entry.item);
+      if (entry.execution !== e.execution || entry.settled) continue;
 
-        void vscode.window
-          .showWarningMessage(
+      if (e.exitCode !== 0) {
+        // Give the result file watcher a short grace period to arrive before
+        // declaring the task errored (the CLI writes the file after exit).
+        setTimeout(() => {
+          if (entry.settled) return;
+          entry.item.status = "errored";
+          entry.item.applyPresentation();
+          this.provider.fireChange(entry.item);
+          void vscode.window.showWarningMessage(
             `Task '${entry.item.def.name}' finished without results — check terminal output.`,
-            "Show Output",
-          )
-          .then((action) => {
-            if (action === "Show Output") {
-              terminal.show();
-            }
-          });
-
-        this.settle(key);
+          );
+          this.settle(key);
+        }, RESULT_GRACE_MS);
       }
+      break;
     }
   }
 
@@ -216,15 +225,6 @@ function runKey(item: TaskItem): string {
   return `${item.def.workspaceRoot}::${item.def.name}`;
 }
 
-function shellQuote(arg: string): string {
-  if (process.platform === "win32") {
-    // VS Code defaults to PowerShell on Windows. PowerShell uses '' to escape
-    // a literal single-quote inside a single-quoted string.
-    return `'${arg.replace(/'/g, "''")}'`;
-  }
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
 interface ParsedResult {
   passed: number;
   failed: number;
@@ -243,7 +243,8 @@ function parseResultJson(raw: string): ParsedResult | null {
       skipped: s.skipped,
       durationMs: s.durationMs,
     };
-  } catch {
+  } catch (e) {
+    console.error("[glubean] Error parsing result JSON:", e);
     return null;
   }
 }

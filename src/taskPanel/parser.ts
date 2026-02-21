@@ -35,7 +35,8 @@ export function parseTasksFromRoot(workspaceRoot: string): TaskDef[] {
         }
       }
       return tasks;
-    } catch {
+    } catch (e) {
+      console.error(`[glubean] Error parsing ${configPath}:`, e);
       return [];
     }
   }
@@ -63,7 +64,8 @@ function parseJsonOrJsonc(text: string): Record<string, unknown> | null {
       )
       .replace(/,\s*([}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch {
+  } catch (e) {
+    console.error("[glubean] Error parsing JSONC after stripping comments:", e);
     return null;
   }
 }
