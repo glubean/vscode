@@ -3,9 +3,9 @@
 </p>
 
 <h1 align="center">Glubean for VS Code</h1>
-<p align="center">A code-first <strong>REST client</strong> and <strong>API testing</strong> tool — the <strong>Postman alternative</strong> that lives in your editor.<br/>AI-friendly SDK: feed your <strong>OpenAPI</strong> / Swagger spec to any AI and get production-ready tests. Just TypeScript.</p>
+<p align="center">A code-first <strong>API testing</strong> system for teams — focused on durable regression suites, trace/diff observability, and CI execution from your editor.<br/>AI-friendly SDK: feed your <strong>OpenAPI</strong> / Swagger spec to any AI and turn generated checks into production-ready tests.</p>
 
-<p align="center"><strong>REST client</strong> · <strong>API testing</strong> · <strong>Postman alternative</strong> · <strong>AI-friendly</strong> · <strong>OpenAPI</strong> · TypeScript · Deno</p>
+<p align="center"><strong>API testing</strong> · <strong>regression suite</strong> · <strong>trace & diff</strong> · <strong>CI-ready</strong> · <strong>AI-friendly</strong> · <strong>OpenAPI</strong> · TypeScript · Deno</p>
 
 <p align="center">
   <a href="https://glubean.com"><img alt="Powered by Glubean" src="https://img.shields.io/badge/Powered%20by-glubean.com-F59E0B?style=flat-square" /></a>
@@ -26,13 +26,13 @@ export const getProduct = test("get-product", async (ctx) => {
 });
 ```
 
-Click the **▶** button next to `test(` to run it. The response opens as a structured trace file right beside your code.
+Click the **▶** button next to `test(` to run it. The response opens in the Trace Viewer right beside your code.
 
 ## Why Glubean?
 
 - **Native editor DX** — run API tests from the gutter, see results in the Test Explorer, debug with breakpoints. No browser tabs.
 - **AI-friendly SDK** — rich JSDoc, `@example` tags, and explicit types mean any AI assistant can generate correct tests from a spec or a natural language prompt.
-- **Trace & Diff** — every request/response is captured as a `.trace.jsonc` file. Diff against the last run instantly with VS Code's native diff.
+- **Trace & Diff** — inspect runs in the Trace Viewer, keep history, and diff against the last run instantly.
 - **Git-friendly** — your collections are `.ts` files. Review them like code, version them like code.
 - **Zero config** — auto-installs the Glubean runtime on first use (~30s). Just install the extension and go.
 
@@ -42,7 +42,9 @@ Click the **▶** button next to `test(` to run it. The response opens as a stru
 
 **2. Scaffold** — run `glubean init` in a new folder (or use **Glubean: Initialize Project** from the Command Palette).
 
-**3. Run** — open the generated `*.test.ts` and click the **▶** button in the gutter.
+**3. Explore first** — start in `explore/`, run fast checks with **▶**, inspect Trace Viewer output.
+
+**4. Promote to regression** — move stable checks into `tests/` and run them in CI.
 
 On first use, the extension auto-installs [Deno](https://deno.com) and the [Glubean CLI](https://jsr.io/@glubean/cli) — no manual setup.
 
@@ -81,8 +83,8 @@ Each feature is documented in detail at **[docs.glubean.com](https://docs.glubea
 1. **Discovery** — static regex scans `*.test.ts` for `test()`, `test.each()`, `test.pick()` patterns.
 2. **Display** — each test becomes a `TestItem` with ▶ buttons in the gutter and Test Explorer.
 3. **Execution** — clicking ▶ runs `glubean run <file> --filter <test-id>` via the CLI.
-4. **Traces** — the CLI writes `.trace.jsonc` to `.glubean/traces/`; the extension auto-opens the latest.
-5. **Results** — `.result.json` maps outcomes back to test items as ✓/✗ icons.
+4. **Traces** — the CLI writes `.trace.jsonc` to `.glubean/traces/`; the extension opens the latest in the Trace Viewer.
+5. **Results** — `.glubean/last-run.json` maps outcomes back to test items as ✓/✗ icons.
 
 ## Development
 
