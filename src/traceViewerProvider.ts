@@ -99,7 +99,8 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
             await vscode.window.showInformationMessage(
               "cURL command copied to clipboard.",
             );
-          } catch {
+          } catch (err) {
+            console.error("[Glubean] Failed to generate cURL from trace viewer:", err);
             await vscode.window.showWarningMessage(
               "Could not generate cURL — the request contains invalid data.",
             );

@@ -626,10 +626,13 @@ export async function copyAsCurl(): Promise<boolean> {
       : 0;
   const targetIndex = Math.min(rawIndex, pairs.length - 1);
 
-  const curl = tracePairToCurl(pairs[targetIndex]);
-  await vscode.env.clipboard.writeText(curl);
-  await vscode.window.showInformationMessage("cURL command copied to clipboard.");
-  return true;
+  try {
+    const curl = tracePairToCurl(pairs[targetIndex]);
+    await vscode.env.clipboard.writeText(curl);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
