@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "publisher": "glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -76,6 +76,11 @@
           "minimum": 1,
           "maximum": 100,
           "description": "Max trace files to keep per test (older traces are auto-deleted)"
+        },
+        "glubean.telemetry.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Share anonymous usage data (run counts, errors, feature usage) to help improve Glubean. No code, file paths, or personal data is ever collected. [Learn what's collected](https://github.com/glubean/vscode/blob/main/docs/telemetry.md)"
         }
       }
     },
@@ -285,6 +290,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@glubean/scanner": "npm:@jsr/glubean__scanner@^0.11.0"
+    "@glubean/scanner": "npm:@jsr/glubean__scanner@^0.11.0",
+    "posthog-node": "^5.24.17"
   }
 }

@@ -16,6 +16,12 @@ import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
 import { activateTraceNavigator } from "./traceNavigator";
 import { TraceViewerProvider } from "./traceViewerProvider";
 import { ResultViewerProvider } from "./resultViewerProvider";
+import {
+  initTelemetry,
+  maybeAskConsent,
+  shutdownTelemetry,
+  track,
+} from "./telemetry";
 
 // ---------------------------------------------------------------------------
 // Shell quoting
@@ -825,6 +831,7 @@ function activateEnvSwitcher(context: vscode.ExtensionContext): void {
           selectedEnvFile,
         );
         updateEnvStatusBar();
+        track("env_switched");
       }
     }),
   );
@@ -842,6 +849,10 @@ function updateEnvStatusBar(): void {
 
 export function activate(context: vscode.ExtensionContext): void {
   selfExtensionUri = context.extensionUri;
+
+  // ── Telemetry (opt-in, disabled by default) ─────────────────────────────
+  initTelemetry(context);
+  track("session_start");
 
   // Activate the Test Controller (discovery + run)
   testController.activate(context);
@@ -864,6 +875,19 @@ export function activate(context: vscode.ExtensionContext): void {
   // Wire up glubean path provider — so testController uses the resolved path
   // (with ~/.deno/bin fallback) instead of just the bare "glubean" command
   testController.setGlubeanPathProvider(resolveGlubeanPath);
+
+  // Wire up run complete listener — fires telemetry and the one-time consent
+  // prompt after the user's first successful test run.
+  testController.setRunCompleteListener((summary) => {
+    void (async () => {
+      await maybeAskConsent(context);
+      track("test_run", {
+        test_count: summary.testCount,
+        duration_ms: summary.durationMs,
+        location: summary.location,
+      });
+    })();
+  });
 
   // ── Environment switcher ───────────────────────────────────────────────
   activateEnvSwitcher(context);
@@ -912,7 +936,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       TraceViewerProvider.viewType,
-      new TraceViewerProvider(context.extensionUri),
+      new TraceViewerProvider(context.extensionUri, () => {
+        track("trace_opened");
+      }),
       { supportsMultipleEditorsPerDocument: false },
     ),
   );
@@ -1325,6 +1351,6 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // Nothing to clean up — VS Code disposes subscriptions automatically
+  void shutdownTelemetry();
 }
 
