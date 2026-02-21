@@ -121,15 +121,19 @@ interface LastRunState {
 When the user clicks ▶ on a task row:
 
 1. Mark the item as `running` — show `⟳` icon, disable the run button
-2. Spawn: `deno task <name>` in the workspace root via a VS Code `Terminal`
+2. Execute `deno task <name>` via the VS Code Task API
 
    ```typescript
-   const terminal = vscode.window.createTerminal({
-     name: `glubean: ${task.name}`,
-     cwd: task.workspaceRoot,
-   });
-   terminal.sendText(`deno task ${shellQuote(task.name)}`);
-   terminal.show(false); // show panel but don't steal focus
+   const vsTask = new vscode.Task(
+     { type: "glubean", task: task.name },
+     vscode.TaskScope.Workspace,
+     task.name,
+     "glubean",
+     new vscode.ShellExecution("deno", ["task", task.name], {
+       cwd: task.workspaceRoot,
+     }),
+   );
+   const execution = await vscode.tasks.executeTask(vsTask);
    ```
 
 3. Watch `.glubean/last-run.result.json` for modification (file system watcher)
@@ -137,10 +141,11 @@ When the user clicks ▶ on a task row:
 5. If `failed > 0`, open `.glubean/last-run.result.json` directly in `ResultViewerProvider` beside the terminal — it matches `*.result.json`, so the viewer opens automatically with no extra path resolution
 6. Mark the item as done — show `✓` or `✗`
 
-Using `terminal.sendText` (rather than spawning a hidden child process) is deliberate:
-- The user sees the full CLI output in the terminal, exactly as in CI
+Using `vscode.Task` + `ShellExecution` (rather than `terminal.sendText` or a hidden child process) is deliberate:
+- VS Code handles shell quoting natively — no manual escaping needed, immune to injection via crafted task names (newlines, cmd.exe metacharacters, etc.)
+- The user sees the full CLI output in the integrated terminal, exactly as in CI
 - No need to parse stdout; `.glubean/last-run.result.json` is the data channel back to the panel
-- Cancellation is natural (user closes the terminal or presses Ctrl+C)
+- Failure detection is reliable: `vscode.tasks.onDidEndTaskProcess` fires with the process exit code and a `TaskExecution` reference, removing the need for fragile terminal-reference matching
 
 ---
 
@@ -172,7 +177,7 @@ To avoid this, **Run All executes tasks strictly one at a time**:
 ```
 for each task:
   1. Mark task as running (⟳)
-  2. Send `deno task <name>` to terminal
+  2. Execute `deno task <name>` via `vscode.tasks.executeTask`
   3. Await a Promise that resolves when the last-run.result.json watcher fires
      (with a reasonable timeout, e.g. 5 minutes)
   4. Attribute the result, update state
@@ -191,11 +196,11 @@ A task can fail without writing `last-run.result.json` — for example, if `deno
 
 The runner addresses this with three fallback mechanisms:
 
-1. **`onDidCloseTerminal`**: if the terminal associated with a running task is closed (by the user or by the shell exiting) and no result has been received, mark the task as `errored`. Show a toast: *"Task '<name>' finished without results — check terminal output."* with a "Show Output" action.
+1. **`onDidEndTaskProcess`**: when the task process exits with a non-zero code and no result file has been received within a 500 ms grace period, mark the task as `errored` and show a toast: *"Task '<name>' finished without results — check terminal output."* The grace period exists because the CLI writes the result file after the process exits.
 
 2. **Per-task timeout**: every task dispatch starts a timer (default: 5 minutes, configurable). If the watcher does not fire within this window, mark the task as `timeout` and show a toast. This applies to both single-task runs and each step of "Run All".
 
-3. **Cancel via terminal close**: the user can close the terminal or press Ctrl+C. `onDidCloseTerminal` fires and marks the task as `cancelled`.
+3. **Cancel via Ctrl+C**: the user can press Ctrl+C in the task terminal. The process exits with a non-zero code, triggering the `onDidEndTaskProcess` handler above.
 
 The task status icon reflects these states: `⟳` (running), `✓` (passed), `✗` (failed), `⚠` (errored/timeout), `—` (never run).
 
