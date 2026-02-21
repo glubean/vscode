@@ -416,10 +416,18 @@ export function findPairIndexAtLine(text: string, cursorLine: number): number {
   let depth = 0;
   let elementStart = -1;
   let elementIndex = 0;
+  let inString = false;
 
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trimStart().startsWith("//")) continue;
-    for (const ch of lines[i]) {
+    const line = lines[i];
+    if (!inString && line.trimStart().startsWith("//")) continue;
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      if (ch === '"' && (j === 0 || line[j - 1] !== "\\")) {
+        inString = !inString;
+      }
+      if (inString) continue;
+
       if (ch === "{") {
         depth++;
         if (depth === 1) elementStart = i;

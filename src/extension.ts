@@ -180,12 +180,8 @@ function getCliVersion(cliPath: string): Promise<string> {
     // VS Code's extension host inherits the system PATH (from launchd on macOS),
     // which does not include ~/.deno/bin. Augment PATH so the script can find deno.
     const home = process.env.HOME || process.env.USERPROFILE || "";
-    const denoBin =
-      process.platform === "win32"
-        ? `${home}\\.deno\\bin`
-        : `${home}/.deno/bin`;
-    const delimiter = process.platform === "win32" ? ";" : ":";
-    const augmentedPath = `${denoBin}${delimiter}${process.env.PATH || ""}`;
+    const denoBin = path.join(home, ".deno", "bin");
+    const augmentedPath = `${denoBin}${path.delimiter}${process.env.PATH || ""}`;
     const env = { ...process.env, PATH: augmentedPath };
 
     cp.execFile(cliPath, ["--version"], { timeout: 10_000, env }, (err, stdout) => {

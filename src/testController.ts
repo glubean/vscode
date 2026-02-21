@@ -619,6 +619,7 @@ export async function copyAsCurl(): Promise<boolean> {
     return false;
   }
 
+  if (pairs.length === 0) return false;
   const rawIndex =
     pairs.length > 1
       ? findPairIndexAtLine(text, editor.selection.active.line)
