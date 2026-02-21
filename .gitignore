@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.vsix
+
+# Cursor (track rules, ignore workspace state)
+.cursor/*
+!.cursor/rules/
