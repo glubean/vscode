@@ -171,7 +171,8 @@ export class TaskRunner {
     let mtime: number;
     try {
       mtime = fs.statSync(filePath).mtimeMs;
-    } catch {
+    } catch (e) {
+      console.error(`[glubean] Error reading mtime for ${filePath}:`, e);
       return;
     }
     if (mtime < entry.sendTime) return;
@@ -179,7 +180,8 @@ export class TaskRunner {
     let raw: string;
     try {
       raw = fs.readFileSync(filePath, "utf-8");
-    } catch {
+    } catch (e) {
+      console.error(`[glubean] Error reading result file ${filePath}:`, e);
       return;
     }
 
