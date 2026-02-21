@@ -7,6 +7,10 @@
 
 <p align="center"><strong>REST client</strong> · <strong>API testing</strong> · <strong>Postman alternative</strong> · <strong>AI-friendly</strong> · <strong>OpenAPI</strong> · TypeScript · Deno</p>
 
+<p align="center">
+  <a href="https://glubean.com"><img alt="Powered by Glubean" src="https://img.shields.io/badge/Powered%20by-glubean.com-F59E0B?style=flat-square" /></a>
+</p>
+
 ## Show me the code
 
 ```typescript
@@ -32,12 +36,34 @@ Click the **▶** button next to `test(` to run it. The response opens as a stru
 
 ## Quick Start
 
-1. Install the extension ([Marketplace](https://marketplace.visualstudio.com/items?itemName=Glubean.glubean) or [VSIX download](https://github.com/glubean/vscode/releases)).
-2. Open any `*.test.ts` file that imports `@glubean/sdk`.
-3. Click the **▶** button in the gutter.
+### 1. Install the extension
 
-> The extension auto-installs Deno and the Glubean CLI on the first run. No manual setup required.
-> For manual install or troubleshooting, see the [Setup Guide](docs/setup.md).
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Glubean.glubean) or download a [VSIX](https://github.com/glubean/vscode/releases) for Cursor, VSCodium, or other forks.
+
+On first use, the extension automatically installs two things in the background:
+- **[Deno](https://deno.com)** — the awesome secure TypeScript runtime that executes your tests. Think Node.js, but with built-in TypeScript, a permission model, and no `node_modules`.
+- **[Glubean CLI](https://jsr.io/@glubean/cli)** — where the magic happens. Every ▶ button click, every trace file, every diff — it's all the CLI doing the work. The extension is the UI; the CLI is the engine.
+
+> **Tip:** Also install the [Deno extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno) to get full TypeScript type-checking and IntelliSense in your test files.
+
+### 2. Create a project
+
+Once the CLI is installed, scaffold a new project:
+
+```bash
+mkdir my-project && cd my-project
+glubean init
+```
+
+`glubean init` creates the project structure including `deno.json` (with the `@glubean/sdk` import map), a sample `explore/` directory, and a starter test file — everything the extension needs to discover and run your tests.
+
+You can also run **Glubean: Initialize Project** from the Command Palette (`Cmd+Shift+P`) to scaffold directly into the current workspace folder.
+
+### 3. Run your first test
+
+Open the generated `*.test.ts` file and click the **▶** button in the gutter next to any `test(` call. The response opens as a structured trace file right beside your code.
+
+> For manual CLI install or troubleshooting, see the [Setup Guide](docs/setup.md).
 
 ## Features
 
@@ -283,3 +309,4 @@ deno install -Agf jsr:@glubean/cli
 ## License
 
 MIT
+
