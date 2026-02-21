@@ -19,21 +19,19 @@ import { PostHog } from "posthog-node";
 // Constants
 // ---------------------------------------------------------------------------
 
-const TELEMETRY_DOC_URL =
-  "https://github.com/glubean/vscode/blob/main/docs/telemetry.md";
+const TELEMETRY_DOC_URL = "https://github.com/glubean/vscode/blob/main/docs/telemetry.md";
 
 /**
  * PostHog project write key. This key is intentionally public — it only allows
  * writing anonymous events, not reading data. See docs/telemetry.md for details.
  */
-const POSTHOG_WRITE_KEY = "phc_YOUR_WRITE_KEY_HERE";
+const POSTHOG_WRITE_KEY = "phc_niMOOYwUcGFQ6P37ep3iYnJISRy9M2E5DEln46GHvZW";
 
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
 
 let client: PostHog | null = null;
-let extensionContext: vscode.ExtensionContext | undefined;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -46,15 +44,11 @@ let extensionContext: vscode.ExtensionContext | undefined;
  * the PostHog client accordingly, and subscribes to future config changes.
  */
 export function initTelemetry(context: vscode.ExtensionContext): void {
-  extensionContext = context;
   rebuildClient();
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (
-        e.affectsConfiguration("glubean.telemetry.enabled") ||
-        e.affectsConfiguration("telemetry.telemetryLevel")
-      ) {
+      if (e.affectsConfiguration("glubean.telemetry.enabled") || e.affectsConfiguration("telemetry.telemetryLevel")) {
         rebuildClient();
       }
     }),
@@ -68,10 +62,7 @@ export function initTelemetry(context: vscode.ExtensionContext): void {
  * Properties must not contain file paths, test names, URLs, error messages,
  * or any personally identifiable information.
  */
-export function track(
-  event: string,
-  props?: Record<string, string | number | boolean | undefined>,
-): void {
+export function track(event: string, props?: Record<string, string | number | boolean | undefined>): void {
   if (!client) return;
 
   client.capture({
@@ -105,9 +96,7 @@ export async function shutdownTelemetry(): Promise<void> {
  * the telemetry doc opens in a browser. Either way, the prompt is never shown
  * again — the user can change their mind via Settings at any time.
  */
-export async function maybeAskConsent(
-  context: vscode.ExtensionContext,
-): Promise<void> {
+export async function maybeAskConsent(context: vscode.ExtensionContext): Promise<void> {
   const asked = context.globalState.get<boolean>("telemetry.asked", false);
   if (asked) return;
 
@@ -139,9 +128,7 @@ export async function maybeAskConsent(
 // ---------------------------------------------------------------------------
 
 function isTelemetryEnabled(): boolean {
-  const setting = vscode.workspace
-    .getConfiguration("glubean")
-    .get<boolean>("telemetry.enabled", false);
+  const setting = vscode.workspace.getConfiguration("glubean").get<boolean>("telemetry.enabled", false);
   return setting && vscode.env.isTelemetryEnabled;
 }
 
@@ -161,12 +148,5 @@ function rebuildClient(): void {
 }
 
 function getExtensionVersion(): string {
-  try {
-    return (
-      vscode.extensions.getExtension("glubean.glubean")?.packageJSON
-        ?.version ?? "unknown"
-    );
-  } catch {
-    return "unknown";
-  }
+  return vscode.extensions.getExtension("glubean.glubean")?.packageJSON?.version ?? "unknown";
 }

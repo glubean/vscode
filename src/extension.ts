@@ -936,11 +936,19 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // ── Trace viewer (custom editor for .trace.jsonc) ──────────────────────
+  // Track whether the next open is triggered by the user ("manual") or
+  // programmatically after a test run ("auto"). The flag is set to "manual"
+  // by the traceViewRich command before calling openWith, then consumed and
+  // reset inside the onOpen callback.
+  let nextTraceOpenVia: "auto" | "manual" = "auto";
+
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       TraceViewerProvider.viewType,
       new TraceViewerProvider(context.extensionUri, () => {
-        track("trace_opened");
+        const via = nextTraceOpenVia;
+        nextTraceOpenVia = "auto";
+        track("trace_opened", { via });
       }),
       { supportsMultipleEditorsPerDocument: false },
     ),
@@ -961,6 +969,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("glubean.traceViewRich", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri) {
+        nextTraceOpenVia = "manual";
         void vscode.commands.executeCommand("vscode.openWith", uri, TraceViewerProvider.viewType);
       }
     }),
