@@ -14,6 +14,7 @@ import { createHoverProvider } from "./hoverProvider";
 import { createPickCodeLensProvider } from "./codeLensProvider";
 import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
 import { activateTraceNavigator } from "./traceNavigator";
+import { TraceViewerProvider } from "./traceViewerProvider";
 
 // ---------------------------------------------------------------------------
 // Shell quoting
@@ -902,6 +903,35 @@ export function activate(context: vscode.ExtensionContext): void {
       pickCodeLensProvider,
     ),
     pickCodeLensProvider,
+  );
+
+  // ── Trace viewer (custom editor for .trace.jsonc) ──────────────────────
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      TraceViewerProvider.viewType,
+      new TraceViewerProvider(context.extensionUri),
+      { supportsMultipleEditorsPerDocument: false },
+    ),
+  );
+
+  // Toggle buttons: switch between custom viewer and text editor
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.traceViewSource", () => {
+      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      const input = tab?.input;
+      const uri = input && typeof input === "object" && "uri" in input
+        ? (input as { uri: vscode.Uri }).uri
+        : undefined;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, "default");
+      }
+    }),
+    vscode.commands.registerCommand("glubean.traceViewRich", () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      if (uri) {
+        void vscode.commands.executeCommand("vscode.openWith", uri, TraceViewerProvider.viewType);
+      }
+    }),
   );
 
   // ── Trace navigator (StatusBar + prev/next) ────────────────────────────

@@ -63,12 +63,12 @@ export async function openLatestTrace(
 
     if (!latestPath) return;
 
-    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(latestPath));
-    await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Beside,
-      preview: true,
-      preserveFocus: true, // keep focus on the test file
-    });
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      vscode.Uri.file(latestPath),
+      "glubean.traceViewer",
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, preview: true },
+    );
   } catch {
     // Trace dir doesn't exist yet or read failed — silently skip
   }
