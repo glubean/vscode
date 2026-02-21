@@ -196,6 +196,8 @@ export class TaskRunner {
       durationMs: parsed.durationMs,
     };
 
+    const total = parsed.passed + parsed.failed + parsed.skipped;
+
     entry.item.lastRun = state;
     entry.item.status = parsed.failed > 0 ? "failed" : "passed";
     entry.item.applyPresentation();
@@ -207,18 +209,33 @@ export class TaskRunner {
     );
     this.provider.fireChange(entry.item);
 
-    const uri = vscode.Uri.file(filePath);
-    const openOn = getOpenResultAfterTask();
-    if (
-      openOn === "always" ||
-      (openOn === "failures" && parsed.failed > 0)
-    ) {
-      void vscode.commands.executeCommand(
-        "vscode.openWith",
-        uri,
-        "glubean.resultViewer",
-        vscode.ViewColumn.Beside,
-      );
+    if (total === 0) {
+      void vscode.window
+        .showInformationMessage(
+          "No tests found — make sure *.test.ts files exist in your test directory and export tests using test().",
+          "Learn more",
+        )
+        .then((choice) => {
+          if (choice === "Learn more") {
+            void vscode.env.openExternal(
+              vscode.Uri.parse("https://docs.glubean.com/cli/quick-start"),
+            );
+          }
+        });
+    } else {
+      const uri = vscode.Uri.file(filePath);
+      const openOn = getOpenResultAfterTask();
+      if (
+        openOn === "always" ||
+        (openOn === "failures" && parsed.failed > 0)
+      ) {
+        void vscode.commands.executeCommand(
+          "vscode.openWith",
+          uri,
+          "glubean.resultViewer",
+          vscode.ViewColumn.Beside,
+        );
+      }
     }
 
     this.settle(runKey(entry.item));
