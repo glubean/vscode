@@ -172,9 +172,11 @@ function getCliVersion(cliPath: string): Promise<string> {
         resolve("");
         return;
       }
-      // Strip ANSI escape codes then match "glubean X.Y.Z"
+      // Strip ANSI escape codes then match version: "glubean X.Y.Z" or bare "X.Y.Z"
       const plain = stdout.replace(/\x1b\[[0-9;]*m/g, "");
-      const match = plain.match(/glubean\s+(\d+\.\d+\.\d+)/);
+      const match =
+        plain.match(/glubean\s+(\d+\.\d+\.\d+)/) ??
+        plain.match(/(\d+\.\d+\.\d+)/);
       resolve(match ? match[1] : "");
     });
   });
