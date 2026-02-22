@@ -12,6 +12,12 @@ function getTimeoutMs(): number {
     .get<number>("taskTimeoutMs", DEFAULT_TIMEOUT_MS);
 }
 
+function getOpenResultAfterTask(): string {
+  return vscode.workspace
+    .getConfiguration("glubean")
+    .get<string>("openResultAfterTask", "failures");
+}
+
 // Grace period between process exit and result file arrival.
 // The CLI writes the result file after the process exits, so we wait briefly
 // before concluding that no result will arrive.
@@ -116,6 +122,52 @@ export class TaskRunner {
     const entry = this.findRunningForRoot(root);
     if (!entry) return;
 
+    this.tryApplyResult(filePath, entry);
+  }
+
+  private onTaskProcessEnd(e: vscode.TaskProcessEndEvent): void {
+    for (const [key, entry] of this.running) {
+      if (entry.execution !== e.execution || entry.settled) continue;
+
+      // Give the file watcher a short grace period before falling back to a
+      // manual read. This covers both success (exit 0) and failure paths —
+      // the file watcher may not fire reliably in multi-root workspaces.
+      setTimeout(() => {
+        if (entry.settled) return;
+
+        const resultPath = path.join(
+          entry.item.def.workspaceRoot,
+          ".glubean",
+          "last-run.result.json",
+        );
+        this.tryApplyResult(resultPath, entry);
+
+        if (entry.settled) return;
+
+        if (e.exitCode !== 0) {
+          entry.item.status = "errored";
+          entry.item.applyPresentation();
+          this.provider.fireChange(entry.item);
+          void vscode.window.showWarningMessage(
+            `Task '${entry.item.def.name}' finished without results — check terminal output.`,
+          );
+        } else {
+          entry.item.status = "passed";
+          entry.item.applyPresentation();
+          this.provider.fireChange(entry.item);
+        }
+        this.settle(key);
+      }, RESULT_GRACE_MS);
+
+      break;
+    }
+  }
+
+  // ── Result handling ───────────────────────────────────────────────────
+
+  private tryApplyResult(filePath: string, entry: RunningTask): void {
+    if (entry.settled) return;
+
     let mtime: number;
     try {
       mtime = fs.statSync(filePath).mtimeMs;
@@ -144,6 +196,8 @@ export class TaskRunner {
       durationMs: parsed.durationMs,
     };
 
+    const total = parsed.passed + parsed.failed + parsed.skipped;
+
     entry.item.lastRun = state;
     entry.item.status = parsed.failed > 0 ? "failed" : "passed";
     entry.item.applyPresentation();
@@ -155,38 +209,36 @@ export class TaskRunner {
     );
     this.provider.fireChange(entry.item);
 
-    if (parsed.failed > 0) {
-      void vscode.commands.executeCommand(
-        "vscode.openWith",
-        uri,
-        "glubean.resultViewer",
-        vscode.ViewColumn.Beside,
-      );
+    if (total === 0) {
+      void vscode.window
+        .showInformationMessage(
+          "No tests found — make sure *.test.ts files exist in your test directory and export tests using test().",
+          "Learn more",
+        )
+        .then((choice) => {
+          if (choice === "Learn more") {
+            void vscode.env.openExternal(
+              vscode.Uri.parse("https://docs.glubean.com/cli/quick-start"),
+            );
+          }
+        });
+    } else {
+      const uri = vscode.Uri.file(filePath);
+      const openOn = getOpenResultAfterTask();
+      if (
+        openOn === "always" ||
+        (openOn === "failures" && parsed.failed > 0)
+      ) {
+        void vscode.commands.executeCommand(
+          "vscode.openWith",
+          uri,
+          "glubean.resultViewer",
+          vscode.ViewColumn.Beside,
+        );
+      }
     }
 
     this.settle(runKey(entry.item));
-  }
-
-  private onTaskProcessEnd(e: vscode.TaskProcessEndEvent): void {
-    for (const [key, entry] of this.running) {
-      if (entry.execution !== e.execution || entry.settled) continue;
-
-      if (e.exitCode !== 0) {
-        // Give the result file watcher a short grace period to arrive before
-        // declaring the task errored (the CLI writes the file after exit).
-        setTimeout(() => {
-          if (entry.settled) return;
-          entry.item.status = "errored";
-          entry.item.applyPresentation();
-          this.provider.fireChange(entry.item);
-          void vscode.window.showWarningMessage(
-            `Task '${entry.item.def.name}' finished without results — check terminal output.`,
-          );
-          this.settle(key);
-        }, RESULT_GRACE_MS);
-      }
-      break;
-    }
   }
 
   private onTimeout(key: string): void {
