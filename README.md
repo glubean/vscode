@@ -12,6 +12,25 @@
   <a href="https://docs.glubean.com"><img alt="Docs" src="https://img.shields.io/badge/Docs-docs.glubean.com-818cf8?style=flat-square" /></a>
 </p>
 
+## Demo
+
+<video
+  src="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4"
+  poster="https://raw.githubusercontent.com/naivefun/glubean/main/apps/landing/public/screenshots/1-1920.webp"
+  controls
+  width="560"
+  height="315">
+  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4">
+    <img
+      src="https://raw.githubusercontent.com/naivefun/glubean/main/apps/landing/public/screenshots/1-1920.webp"
+      alt="Glubean demo — click to watch"
+      width="560"
+      height="315" />
+  </a>
+</video>
+
+> **[▶ Watch the 41s demo](https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4)** — run, debug, and diff API tests without leaving VS Code.
+
 ## Show me the code
 
 ```typescript
