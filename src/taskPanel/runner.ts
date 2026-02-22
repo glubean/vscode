@@ -218,7 +218,7 @@ export class TaskRunner {
         .then((choice) => {
           if (choice === "Learn more") {
             void vscode.env.openExternal(
-              vscode.Uri.parse("https://docs.glubean.com/cli/quick-start"),
+              vscode.Uri.parse("https://docs.glubean.com/cli"),
             );
           }
         });
