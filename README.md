@@ -56,6 +56,10 @@ Click the **▶** button next to `test(` to run it. The response opens in the Tr
 
 On first use, the extension auto-installs [Deno](https://deno.com) and the [Glubean CLI](https://jsr.io/@glubean/cli) — no manual setup.
 
+> **Setup not complete?** If Deno or the CLI is missing after install, the status bar shows **⚠ Glubean: Setup needed**. Click it to trigger the installer and follow the prompts.
+>
+> <img src="docs/setup-needed.png" width="400" alt="Glubean: Setup needed status bar button" />
+
 > **Tip:** Install the [Deno extension](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno) for full TypeScript IntelliSense in test files.
 
 For the full walkthrough, see the [Quick Start guide](https://docs.glubean.com/extension/quick-start).
