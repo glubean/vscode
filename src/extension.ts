@@ -140,15 +140,54 @@ let setupStatusBarItem: vscode.StatusBarItem | undefined;
 /** Fallback URI for this extension (used when extension lookup by ID fails). */
 let selfExtensionUri: vscode.Uri | undefined;
 
+/** Last dependency-check error message (used for user-facing diagnostics). */
+let lastDepCheckError: string | undefined;
+
+/** Normalize unknown errors into readable messages. */
+function toErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Show the red "Setup needed" status bar hint.
+ * Keeps setup failures visible instead of failing silently.
+ */
+function showSetupNeededStatusBar(tooltip?: string): void {
+  if (!setupStatusBarItem) return;
+  setupStatusBarItem.text = "$(warning) Glubean: Setup needed";
+  setupStatusBarItem.tooltip =
+    tooltip ?? "Click to install Glubean CLI and its dependencies";
+  setupStatusBarItem.backgroundColor = new vscode.ThemeColor(
+    "statusBarItem.errorBackground",
+  );
+  setupStatusBarItem.show();
+}
+
 /**
  * Check whether a command is available on the system PATH.
  * Returns true if the command exits with code 0.
  */
 function commandExists(command: string): Promise<boolean> {
   return new Promise((resolve) => {
+    let settled = false;
     const proc = cp.spawn(command, ["--version"], { stdio: "ignore" });
-    proc.on("error", () => resolve(false));
-    proc.on("close", (code) => resolve(code === 0));
+    const finish = (exists: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(exists);
+    };
+    // Guard against hung commands so dependency checks never block forever.
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        // Ignore kill errors; timeout already means command is unusable.
+      }
+      finish(false);
+    }, 10_000);
+    proc.on("error", () => finish(false));
+    proc.on("close", (code) => finish(code === 0));
   });
 }
 
@@ -226,63 +265,74 @@ async function checkDependencies(): Promise<DepStatus> {
     return cachedDepStatus;
   }
 
-  // Fast path: check well-known binary locations (instant, no network)
-  const home = process.env.HOME || process.env.USERPROFILE || "";
-  const denoWellKnown =
-    process.platform === "win32"
-      ? `${home}\\.deno\\bin\\deno.exe`
-      : `${home}/.deno/bin/deno`;
-  const glubeanWellKnown =
-    process.platform === "win32"
-      ? `${home}\\.deno\\bin\\glubean.exe`
-      : `${home}/.deno/bin/glubean`;
+  try {
+    // Fast path: check well-known binary locations (instant, no network)
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    const denoWellKnown =
+      process.platform === "win32"
+        ? `${home}\\.deno\\bin\\deno.exe`
+        : `${home}/.deno/bin/deno`;
+    const glubeanWellKnown =
+      process.platform === "win32"
+        ? `${home}\\.deno\\bin\\glubean.exe`
+        : `${home}/.deno/bin/glubean`;
 
-  let deno = fs.existsSync(denoWellKnown);
-  let glubean = fs.existsSync(glubeanWellKnown);
-  let denoTooOld = false;
+    let deno = fs.existsSync(denoWellKnown);
+    let glubean = fs.existsSync(glubeanWellKnown);
+    let denoTooOld = false;
 
-  // Fallback: check PATH for non-standard installs (e.g. brew, scoop)
-  if (!deno) {
-    deno = await commandExists("deno");
-  }
-
-  // If Deno exists, verify it meets the minimum version requirement.
-  // Deno 1.x uses different `deno install` flags and may not support JSR.
-  if (deno) {
-    const denoCmd = denoPath();
-    const version = await getCommandVersion(denoCmd);
-    if (version && !denoVersionOk(version)) {
-      denoTooOld = true;
-      deno = false; // Treat as missing so runSetup() will re-install
+    // Fallback: check PATH for non-standard installs (e.g. brew, scoop)
+    if (!deno) {
+      deno = await commandExists("deno");
     }
-  }
 
-  // Fallback: check user-configured path or system PATH
-  if (!glubean) {
-    const config = vscode.workspace.getConfiguration("glubean");
-    const configured = config.get<string>("glubeanPath", "glubean");
-    if (configured !== "glubean") {
-      // User set a custom path — check that specific path
-      glubean = fs.existsSync(configured) || (await commandExists(configured));
-    } else {
-      // Default "glubean" — check if it's available on system PATH
-      // (e.g. installed via brew, npm global, or manual symlink)
-      glubean = await commandExists("glubean");
+    // If Deno exists, verify it meets the minimum version requirement.
+    // Deno 1.x uses different `deno install` flags and may not support JSR.
+    if (deno) {
+      const denoCmd = denoPath();
+      const version = await getCommandVersion(denoCmd);
+      if (version && !denoVersionOk(version)) {
+        denoTooOld = true;
+        deno = false; // Treat as missing so runSetup() will re-install
+      }
     }
-  }
 
-  // If CLI exists, check its version against MIN_CLI_VERSION.
-  // Treat unparseable/empty version as outdated — better to prompt than silently skip.
-  let cliVersion = "";
-  let cliOutdated = false;
-  if (glubean) {
-    cliVersion = await getCliVersion(resolveGlubeanPath());
-    if (!cliVersion || semverLessThan(cliVersion, MIN_CLI_VERSION)) {
-      cliOutdated = true;
+    // Fallback: check user-configured path or system PATH
+    if (!glubean) {
+      const config = vscode.workspace.getConfiguration("glubean");
+      const configured = config.get<string>("glubeanPath", "glubean");
+      if (configured !== "glubean") {
+        // User set a custom path — check that specific path
+        glubean = fs.existsSync(configured) || (await commandExists(configured));
+      } else {
+        // Default "glubean" — check if it's available on system PATH
+        // (e.g. installed via brew, npm global, or manual symlink)
+        glubean = await commandExists("glubean");
+      }
     }
+
+    // If CLI exists, check its version against MIN_CLI_VERSION.
+    // Treat unparseable/empty version as outdated — better to prompt than silently skip.
+    let cliVersion = "";
+    let cliOutdated = false;
+    if (glubean) {
+      cliVersion = await getCliVersion(resolveGlubeanPath());
+      if (!cliVersion || semverLessThan(cliVersion, MIN_CLI_VERSION)) {
+        cliOutdated = true;
+      }
+    }
+
+    cachedDepStatus = { deno, glubean, denoTooOld, cliVersion, cliOutdated };
+    lastDepCheckError = undefined;
+    return cachedDepStatus;
+  } catch (err) {
+    const message = toErrorMessage(err);
+    lastDepCheckError = message;
+    console.error(`[Glubean] dependency check failed: ${message}`);
+    // Fail safe: report "missing" so UI can guide the user to setup.
+    cachedDepStatus = { deno: false, glubean: false };
   }
 
-  cachedDepStatus = { deno, glubean, denoTooOld, cliVersion, cliOutdated };
   return cachedDepStatus;
 }
 
@@ -544,11 +594,10 @@ async function runSetup(): Promise<boolean> {
           try {
             await execBin(deno, ["--version"]);
           } catch {
-            vscode.window.showErrorMessage(
-              "Deno installation succeeded but the binary was not found. " +
-                "You may need to restart VS Code so your PATH is updated.",
+            throw new Error(
+              "Deno installation completed but the binary was not found. " +
+                "Restart VS Code and run setup again.",
             );
-            return false;
           }
         }
 
@@ -584,15 +633,27 @@ async function runSetup(): Promise<boolean> {
         }
 
         // Installation completed but verification failed — suggest restart as last resort
-        vscode.window.showWarningMessage(
+        showSetupNeededStatusBar("Installation finished but verification failed. Click to retry setup.");
+        const verifyChoice = await vscode.window.showWarningMessage(
           "Glubean was installed but could not be verified. " +
-            "Try reloading VS Code (Cmd+Shift+P → Reload Window).",
+            "Try setup again, open the install guide, or reload VS Code.",
+          "Retry",
+          "Open Install Guide",
+          "Reload Window",
         );
+        if (verifyChoice === "Retry") {
+          cachedDepStatus = undefined;
+          return await runSetup();
+        }
+        if (verifyChoice === "Open Install Guide") {
+          await showSetupDoc();
+        } else if (verifyChoice === "Reload Window") {
+          await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        }
         return false;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const shortcut =
-          process.platform === "darwin" ? "Cmd+Shift+P" : "Ctrl+Shift+P";
+        const message = toErrorMessage(err);
+        showSetupNeededStatusBar(`Setup failed: ${message}. Click to retry setup.`);
         const choice = await vscode.window.showErrorMessage(
           `Glubean setup failed: ${message}`,
           "Open Install Guide",
@@ -1073,13 +1134,23 @@ export function activate(context: vscode.ExtensionContext): void {
       const depStatus = await checkDependencies();
 
       if (!depStatus.deno || !depStatus.glubean) {
-        setupStatusBarItem!.text = "$(warning) Glubean: Setup needed";
-        setupStatusBarItem!.tooltip =
-          "Click to install Glubean CLI and its dependencies";
-        setupStatusBarItem!.backgroundColor = new vscode.ThemeColor(
-          "statusBarItem.errorBackground",
-        );
-        setupStatusBarItem!.show();
+        const tooltip = lastDepCheckError
+          ? `Dependency check failed: ${lastDepCheckError}. Click to run setup.`
+          : undefined;
+        showSetupNeededStatusBar(tooltip);
+        if (lastDepCheckError) {
+          const choice = await vscode.window.showErrorMessage(
+            `Glubean dependency check failed: ${lastDepCheckError}`,
+            "Run Setup",
+            "Open Install Guide",
+          );
+          if (choice === "Run Setup") {
+            cachedDepStatus = undefined;
+            await runSetup();
+          } else if (choice === "Open Install Guide") {
+            await showSetupDoc();
+          }
+        }
       }
 
       // If deps are installed but PATH may not be configured yet (e.g. user
@@ -1146,8 +1217,20 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = toErrorMessage(err);
       console.error(`[Glubean] activation dependency check failed: ${message}`);
+      showSetupNeededStatusBar(`Dependency check failed: ${message}. Click to run setup.`);
+      const choice = await vscode.window.showErrorMessage(
+        `Glubean dependency check failed: ${message}`,
+        "Run Setup",
+        "Open Install Guide",
+      );
+      if (choice === "Run Setup") {
+        cachedDepStatus = undefined;
+        await runSetup();
+      } else if (choice === "Open Install Guide") {
+        await showSetupDoc();
+      }
     }
   })();
 
@@ -1219,17 +1302,33 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("glubean.checkDependencies", async () => {
-      cachedDepStatus = undefined; // clear cache
-      const status = await checkDependencies();
-      if (status.deno && status.glubean) {
-        // Deps found — also ensure PATH is configured (self-healing)
-        await ensureDenoOnPath();
-        setupStatusBarItem?.hide();
-        vscode.window.showInformationMessage(
-          "Glubean: All dependencies are installed.",
+      try {
+        cachedDepStatus = undefined; // clear cache
+        const status = await checkDependencies();
+        if (status.deno && status.glubean) {
+          // Deps found — also ensure PATH is configured (self-healing)
+          await ensureDenoOnPath();
+          setupStatusBarItem?.hide();
+          vscode.window.showInformationMessage(
+            "Glubean: All dependencies are installed.",
+          );
+        } else {
+          await runSetup();
+        }
+      } catch (err) {
+        const message = toErrorMessage(err);
+        showSetupNeededStatusBar(`Dependency check failed: ${message}. Click to run setup.`);
+        const choice = await vscode.window.showErrorMessage(
+          `Glubean dependency check failed: ${message}`,
+          "Run Setup",
+          "Open Install Guide",
         );
-      } else {
-        await runSetup();
+        if (choice === "Run Setup") {
+          cachedDepStatus = undefined;
+          await runSetup();
+        } else if (choice === "Open Install Guide") {
+          await showSetupDoc();
+        }
       }
     }),
   );
