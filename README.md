@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Glubean for VS Code</h1>
-<p align="center">A code-first <strong>API testing</strong> system for teams — focused on durable regression suites, trace/diff observability, and CI execution from your editor.<br/>AI-friendly SDK: feed your <strong>OpenAPI</strong> / Swagger spec to any AI and turn generated checks into production-ready tests.</p>
+<p align="center">A code-first <strong>API testing</strong> system for teams — focused on durable regression suites, trace/diff observability, and CI execution from your editor.<br/>AI-friendly SDK: tell any AI assistant which API to test — or feed it your Postman collection, OpenAPI spec, or any doc that describes your endpoints — and get production-ready tests in minutes.</p>
 
 <p align="center"><strong>API testing</strong> · <strong>regression suite</strong> · <strong>trace & diff</strong> · <strong>CI-ready</strong> · <strong>AI-friendly</strong> · <strong>OpenAPI</strong> · TypeScript · Deno</p>
 
@@ -14,22 +14,11 @@
 
 ## Demo
 
-<video
-  src="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4"
-  poster="https://raw.githubusercontent.com/naivefun/glubean/main/apps/landing/public/screenshots/1-1920.webp"
-  controls
-  width="560"
-  height="315">
-  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4">
-    <img
-      src="https://raw.githubusercontent.com/naivefun/glubean/main/apps/landing/public/screenshots/1-1920.webp"
-      alt="Glubean demo — click to watch"
-      width="560"
-      height="315" />
-  </a>
-</video>
-
-> **[▶ Watch the 41s demo](https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4)** — run, debug, and diff API tests without leaving VS Code.
+<p>
+  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4"><img alt="▶ See extension in action" src="https://img.shields.io/badge/%E2%96%B6%20See%20extension%20in%20action-~41s-818cf8?style=for-the-badge" /></a>
+  &nbsp;
+  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo2.mp4"><img alt="✦ Watch AI generate a test" src="https://img.shields.io/badge/%E2%9C%A6%20Watch%20AI%20generate%20a%20test-a855f7?style=for-the-badge" /></a>
+</p>
 
 ## Show me the code
 
@@ -88,6 +77,8 @@ Each feature is documented in detail at **[docs.glubean.com](https://docs.glubea
 ## Documentation
 
 - [Quick Start](https://docs.glubean.com/extension/quick-start) — install and run your first test
+- [Generate Tests with AI](https://docs.glubean.com/extension/generate-with-ai) — test any public API in 2 minutes, no import files needed
+- [Migrate from Postman / OpenAPI](https://docs.glubean.com/extension/migrate-from-postman) — convert existing API collections with AI
 - [Running Tests](https://docs.glubean.com/extension/running-tests) — gutter buttons, Test Explorer, `test.each`, `test.pick`, Tasks Panel
 - [Traces & Diff](https://docs.glubean.com/extension/traces-and-diff) — trace history, Copy as cURL, diff with previous run
 - [Environments & Secrets](https://docs.glubean.com/extension/environments) — `.env` files, secrets, status bar switcher
