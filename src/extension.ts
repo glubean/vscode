@@ -92,7 +92,7 @@ const DENO_MIN_MINOR = 0;
  * Minimum Glubean CLI version the extension requires.
  * Bump this when the extension depends on new CLI/runner features.
  */
-const MIN_CLI_VERSION = "0.11.6";
+const MIN_CLI_VERSION = "0.11.17";
 
 // ---------------------------------------------------------------------------
 // Semver helpers
