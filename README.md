@@ -14,22 +14,11 @@
 
 ## Demo
 
-<video
-  src="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4"
-  poster="https://raw.githubusercontent.com/naivefun/glubean/main/apps/landing/public/screenshots/1-1920.webp"
-  controls
-  width="560"
-  height="315">
-  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4">
-    <img
-      src="https://raw.githubusercontent.com/naivefun/glubean/main/apps/landing/public/screenshots/1-1920.webp"
-      alt="Glubean demo — click to watch"
-      width="560"
-      height="315" />
-  </a>
-</video>
-
-> **[▶ Watch the 41s demo](https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4)** — run, debug, and diff API tests without leaving VS Code.
+<p>
+  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4"><img alt="▶ See extension in action" src="https://img.shields.io/badge/%E2%96%B6%20See%20extension%20in%20action-~41s-818cf8?style=for-the-badge" /></a>
+  &nbsp;
+  <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo2.mp4"><img alt="✦ Watch AI generate a test" src="https://img.shields.io/badge/%E2%9C%A6%20Watch%20AI%20generate%20a%20test-a855f7?style=for-the-badge" /></a>
+</p>
 
 ## Show me the code
 
