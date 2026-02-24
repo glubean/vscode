@@ -1,0 +1,279 @@
+{
+  "GB Import Test": {
+    "prefix": ["gb-i", "gbi"],
+    "body": [
+      "import { test } from \"@glubean/sdk\";"
+    ],
+    "description": "Import test from @glubean/sdk"
+  },
+  "GB Import Data": {
+    "prefix": ["gb-id", "gbid"],
+    "body": [
+      "import { fromCsv, fromDir, fromYaml, test } from \"@glubean/sdk\";"
+    ],
+    "description": "Import test + data loaders from @glubean/sdk"
+  },
+  "GB Import Configure": {
+    "prefix": ["gb-ic", "gbic"],
+    "body": [
+      "import { configure } from \"@glubean/sdk\";"
+    ],
+    "description": "Import configure from @glubean/sdk"
+  },
+  "GB Import Plugin": {
+    "prefix": ["gb-ip", "gbip"],
+    "body": [
+      "import { configure, definePlugin } from \"@glubean/sdk\";"
+    ],
+    "description": "Import configure + definePlugin from @glubean/sdk"
+  },
+  "GB Simple Test": {
+    "prefix": ["gb-t", "gbt"],
+    "body": [
+      "export const ${1:health} = test(\"${2:health}\", async (ctx) => {",
+      "  const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "  const res = await ctx.http.get(`\\${baseUrl}/${3:health}`);",
+      "  ctx.expect(res.status).toBe(${4:200});",
+      "});"
+    ],
+    "description": "Simple test (minimal)"
+  },
+  "GB Simple Test With Import": {
+    "prefix": ["gb-ti", "gbti"],
+    "body": [
+      "import { test } from \"@glubean/sdk\";",
+      "",
+      "export const ${1:health} = test(\"${2:health}\", async (ctx) => {",
+      "  const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "  const res = await ctx.http.get(`\\${baseUrl}/${3:health}`);",
+      "  ctx.expect(res.status).toBe(${4:200});",
+      "});"
+    ],
+    "description": "Simple test with import"
+  },
+  "GB Test With Meta": {
+    "prefix": ["gb-tm", "gbtm"],
+    "body": [
+      "export const ${1:testName} = test(",
+      "  { id: \"${2:test-id}\", name: \"${3:Test Name}\", tags: [\"${4:smoke}\"] },",
+      "  async (ctx) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const res = await ctx.http.get(`\\${baseUrl}/${5:health}`);",
+      "    ctx.expect(res.status).toBe(${6:200}).orFail();",
+      "    const data = await res.json<${7:{ status: string }}>();",
+      "    ctx.log(\"${8:response}\", data);",
+      "  },",
+      ");"
+    ],
+    "description": "Test with full metadata (tags, name)"
+  },
+  "GB Flow Builder": {
+    "prefix": ["gb-flow", "gbf"],
+    "body": [
+      "export const ${1:authFlow} = test(\"${2:auth-flow}\")",
+      "  .meta({ name: \"${3:Auth Flow}\", tags: [\"${4:auth}\"] })",
+      "  .step(\"${5:login}\", async (ctx) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const data = await ctx.http",
+      "      .post(`\\${baseUrl}/${6:auth/login}`, {",
+      "        json: { ${7:username: \"demo\", password: \"demo\"} },",
+      "      })",
+      "      .json<${8:{ accessToken: string }}>();",
+      "",
+      "    ctx.expect(data.accessToken).toBeDefined().orFail();",
+      "    return { token: data.accessToken };",
+      "  })",
+      "  .step(\"${9:get profile}\", async (ctx, state) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const me = await ctx.http",
+      "      .get(`\\${baseUrl}/${10:auth/me}`, {",
+      "        headers: { Authorization: `Bearer \\${state.token}` },",
+      "      })",
+      "      .json<${11:{ id: number; email: string }}>();",
+      "",
+      "    ctx.expect(me.email).toBeDefined();",
+      "  });"
+    ],
+    "description": "Builder flow with chained steps"
+  },
+  "GB Each Inline": {
+    "prefix": ["gb-each", "gbe"],
+    "body": [
+      "export const ${1:statusChecks} = test.each([",
+      "  { id: ${2:1}, expected: ${3:200} },",
+      "  { id: ${4:999}, expected: ${5:404} },",
+      "])(",
+      "  \"${6:get-user-\\$id}\",",
+      "  async (ctx, { id, expected }) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const res = await ctx.http.get(`\\${baseUrl}/${7:users}/\\${id}`);",
+      "    ctx.expect(res.status).toBe(expected);",
+      "  },",
+      ");"
+    ],
+    "description": "Data-driven test.each with inline table"
+  },
+  "GB Each CSV": {
+    "prefix": ["gb-each-csv", "gbec"],
+    "body": [
+      "import { fromCsv, test } from \"@glubean/sdk\";",
+      "",
+      "export const ${1:endpointTests} = test.each(",
+      "  await fromCsv(\"${2:./data/endpoints.csv}\"),",
+      ")(",
+      "  {",
+      "    id: \"${3:endpoint-\\$method-\\$path}\",",
+      "    name: \"${4:\\$method \\$path -> \\$expected}\",",
+      "    tags: [\"${5:smoke}\", \"${6:endpoints}\"],",
+      "  },",
+      "  async (ctx, { method, path, expected }) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const res = await ctx.http.get(`\\${baseUrl}\\${path}`);",
+      "    ctx.expect(res.status).toBe(Number(expected));",
+      "  },",
+      ");"
+    ],
+    "description": "test.each from CSV loader"
+  },
+  "GB Each YAML Builder": {
+    "prefix": ["gb-each-yaml", "gbey"],
+    "body": [
+      "import { fromYaml, test } from \"@glubean/sdk\";",
+      "",
+      "export const ${1:scenarioTests} = test.each(",
+      "  await fromYaml(\"${2:./data/scenarios.yaml}\"),",
+      ")(",
+      "  {",
+      "    id: \"${3:scenario-\\$id}\",",
+      "    name: \"${4:\\$description}\",",
+      "    tags: \"${5:scenario}\",",
+      "  },",
+      ")",
+      "  .step(\"${6:send request}\", async (ctx, _state, row) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const res = await ctx.http.get(`\\${baseUrl}\\${row.path}`);",
+      "    ctx.expect(res.status).toBe(row.expected);",
+      "    return { status: res.status };",
+      "  })",
+      "  .step(\"${7:log result}\", async (ctx, state, row) => {",
+      "    ctx.log(`\\${row.method} \\${row.path} -> \\${state.status}`);",
+      "  });"
+    ],
+    "description": "test.each builder pattern from YAML loader"
+  },
+  "GB Pick Map": {
+    "prefix": ["gb-pick", "gbp"],
+    "body": [
+      "export const ${1:searchProducts} = test.pick({",
+      "  \"${2:by-name}\": { q: \"${3:phone}\", expected: \"${4:phone}\" },",
+      "  \"${5:empty-query}\": { q: \"\", expected: \"\" },",
+      "})(",
+      "  \"${6:search-products-\\$_pick}\",",
+      "  async (ctx, { q, expected }) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const data = await ctx.http",
+      "      .get(`\\${baseUrl}/${7:products/search}`, { searchParams: { q } })",
+      "      .json<${8:{ products: { title: string }[]; total: number }}>();",
+      "",
+      "    ctx.expect(data.total).toBeType(\"number\");",
+      "    if (expected && data.total > 0) {",
+      "      ctx.expect(data.products[0].title.toLowerCase()).toContain(expected);",
+      "    }",
+      "    ctx.log(`\\\"\\${q}\\\" -> \\${data.total} results`);",
+      "  },",
+      ");"
+    ],
+    "description": "test.pick with named examples map"
+  },
+  "GB Pick JSON": {
+    "prefix": ["gb-pick-json", "gbpj"],
+    "body": [
+      "import examples from \"${1:../data/search-examples.json}\" with { type: \"json\" };",
+      "",
+      "export const ${2:searchProducts} = test.pick(examples)(",
+      "  \"${3:search-\\$_pick}\",",
+      "  async (ctx, { q, expected }) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const res = await ctx.http",
+      "      .get(`\\${baseUrl}/${4:products/search}`, { searchParams: { q } })",
+      "      .json<${5:{ products: { title: string }[]; total: number }}>();",
+      "",
+      "    ctx.expect(res.total).toBeGreaterThan(expected.minResults - 1);",
+      "  },",
+      ");"
+    ],
+    "description": "test.pick using JSON examples"
+  },
+  "GB Pick Dir": {
+    "prefix": ["gb-pick-dir", "gbpd"],
+    "body": [
+      "import { fromDir, test } from \"@glubean/sdk\";",
+      "",
+      "const ${1:examples} = await fromDir.merge(\"${2:./data/${3:create-user}/}\");",
+      "",
+      "export const ${4:createUser} = test.pick(${1:examples})(",
+      "  \"${5:create-user-\\$_pick}\",",
+      "  async (ctx, body) => {",
+      "    const baseUrl = ctx.vars.require(\"BASE_URL\");",
+      "    const res = await ctx.http.post(`\\${baseUrl}/${6:users}`, { json: body });",
+      "    ctx.expect(res.status).toBe(${7:201});",
+      "  },",
+      ");"
+    ],
+    "description": "test.pick using fromDir.merge (shared + local pattern)"
+  },
+  "GB Configure": {
+    "prefix": ["gb-config", "gbc"],
+    "body": [
+      "export const { http, vars, secrets } = configure({",
+      "  vars: { baseUrl: \"${1:BASE_URL}\" },",
+      "  secrets: { apiKey: \"${2:API_KEY}\" },",
+      "  http: {",
+      "    prefixUrl: \"${3:BASE_URL}\",",
+      "    headers: { Authorization: \"Bearer {{${4:API_KEY}}}\" },",
+      "  },",
+      "});"
+    ],
+    "description": "configure() shared vars/secrets/http"
+  },
+  "GB Plugin Define": {
+    "prefix": ["gb-plugin", "gbpl"],
+    "body": [
+      "const ${1:secureApiPlugin} = definePlugin((runtime) => {",
+      "  const client = runtime.http.extend({",
+      "    prefixUrl: runtime.requireVar(\"${2:BASE_URL}\"),",
+      "    headers: { Authorization: `Bearer \\${runtime.requireSecret(\"${3:API_KEY}\")}` },",
+      "  });",
+      "",
+      "  return {",
+      "    ${4:getUsers}: () => client.get(\"${5:users}\").json(),",
+      "  };",
+      "});",
+      "",
+      "export const { ${6:secureApi} } = configure({",
+      "  plugins: {",
+      "    ${6:secureApi}: { factory: ${1:secureApiPlugin} },",
+      "  },",
+      "});"
+    ],
+    "description": "definePlugin + configure plugins"
+  },
+  "GB Expect Guard": {
+    "prefix": ["gb-expect", "gbx"],
+    "body": [
+      "ctx.expect(${1:actual}).toBe(${2:expected}).orFail();"
+    ],
+    "description": "Fluent assertion with orFail guard"
+  },
+  "GB Assert": {
+    "prefix": ["gb-assert", "gba"],
+    "body": [
+      "ctx.assert(",
+      "  ${1:condition},",
+      "  \"${2:assertion message}\",",
+      "  { actual: ${3:actualValue}, expected: ${4:expectedValue} },",
+      ");"
+    ],
+    "description": "Structured hard assertion"
+  }
+}
