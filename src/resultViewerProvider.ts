@@ -13,6 +13,31 @@ import { getWebviewHtml } from "./webviewUtils";
 // Types — passed to the webview
 // ---------------------------------------------------------------------------
 
+/** Lightweight event suitable for the Events timeline tab. */
+export interface TimelineEvent {
+  type: string;
+  message?: string;
+  passed?: boolean;
+  data?: { method?: string; url?: string; status?: number; duration?: number };
+}
+
+/** Full HTTP call data for the Trace tab — mirrors the TraceViewer Call format. */
+export interface TraceCall {
+  request: {
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+  };
+  response: {
+    status: number;
+    statusText?: string;
+    durationMs: number;
+    headers?: Record<string, string>;
+    body?: unknown;
+  };
+}
+
 export interface ResultViewerData {
   fileName: string;
   runAt: string;
@@ -43,6 +68,8 @@ export interface ResultViewerData {
     durationMs: number;
     tags?: string[];
     failureReason?: string;
+    events: TimelineEvent[];
+    calls: TraceCall[];
   }>;
   rawJson: string;
 }
@@ -164,6 +191,48 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
             }
           }
 
+          const trimmedEvents: TimelineEvent[] = [];
+          const calls: TraceCall[] = [];
+          if (Array.isArray(t.events)) {
+            for (const e of t.events) {
+              // Build full trace calls for the Trace tab
+              if (e.type === "trace" && e.data) {
+                calls.push({
+                  request: {
+                    method: e.data.method ?? "GET",
+                    url: e.data.url ?? "",
+                    headers: e.data.requestHeaders,
+                    body: e.data.requestBody,
+                  },
+                  response: {
+                    status: e.data.status ?? 0,
+                    durationMs: e.data.duration ?? 0,
+                    headers: e.data.responseHeaders,
+                    body: e.data.responseBody,
+                  },
+                });
+              }
+
+              // Build lightweight events for the Events tab
+              if (e.type === "summary" || e.type === "status" || e.type === "start") {
+                continue;
+              }
+              trimmedEvents.push({
+                type: e.type,
+                message: e.message,
+                passed: e.passed,
+                data: e.data
+                  ? {
+                      method: e.data.method,
+                      url: e.data.url,
+                      status: e.data.status,
+                      duration: e.data.duration,
+                    }
+                  : undefined,
+              });
+            }
+          }
+
           tests.push({
             testId: t.testId ?? "",
             testName: t.testName ?? t.testId ?? "",
@@ -171,6 +240,8 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
             durationMs: t.durationMs ?? 0,
             tags: t.tags,
             failureReason,
+            events: trimmedEvents,
+            calls,
           });
         }
       }

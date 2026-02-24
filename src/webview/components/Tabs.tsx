@@ -33,7 +33,7 @@ export function Tabs({ tabs, defaultTab }: TabsProps) {
           </button>
         ))}
       </div>
-      <div class="flex-1 overflow-auto p-3">{current?.content}</div>
+      <div class="flex-1 overflow-auto">{current?.content}</div>
     </div>
   );
 }
