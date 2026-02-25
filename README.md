@@ -18,6 +18,8 @@
   <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo.mp4"><img alt="▶ See extension in action" src="https://img.shields.io/badge/%E2%96%B6%20See%20extension%20in%20action-~41s-818cf8?style=for-the-badge" /></a>
   &nbsp;
   <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo2.mp4"><img alt="✦ Watch AI generate a test" src="https://img.shields.io/badge/%E2%9C%A6%20Watch%20AI%20generate%20a%20test-a855f7?style=for-the-badge" /></a>
+  &nbsp;
+  <a href="https://chatgpt.com/g/g-699e31ce19bc8191b748165f46449039-glubean"><img alt="💬 Ask AI about Glubean" src="https://img.shields.io/badge/%F0%9F%92%AC%20Ask%20AI%20about%20Glubean-ChatGPT-10a37f?style=for-the-badge" /></a>
 </p>
 
 ## Show me the code
@@ -42,7 +44,7 @@ Click the **▶** button next to `test(` to run it. The response opens in the Tr
 - **AI-friendly SDK** — rich JSDoc, `@example` tags, and explicit types mean any AI assistant can generate correct tests from a spec or a natural language prompt.
 - **Trace & Diff** — inspect runs in the Trace Viewer, keep history, and diff against the last run instantly.
 - **Git-friendly** — your collections are `.ts` files. Review them like code, version them like code.
-- **Zero config** — auto-installs the Glubean runtime on first use (~30s). Just install the extension and go.
+- **Zero config** — auto-installs the Glubean runtime on first use (one-time, typically 1–3 min). Just install the extension and go.
 
 ## Quick Start
 
@@ -91,6 +93,7 @@ Each feature is documented in detail at **[docs.glubean.com](https://docs.glubea
 - [Explore vs Tests Workflow](https://docs.glubean.com/extension/workflow) — the explore → promote → CI lifecycle
 - [Commands & Settings](https://docs.glubean.com/extension/reference) — full reference
 - [Why Glubean?](https://docs.glubean.com/extension/comparison) — comparison with Postman and REST Client
+- [Ask AI about Glubean](https://chatgpt.com/g/g-699e31ce19bc8191b748165f46449039-glubean) — not sure yet? Let AI explain how Glubean works
 
 ## How It Works
 

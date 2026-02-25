@@ -5,7 +5,7 @@
  * Provides:
  * - `openLatestTrace(workspaceRoot, fileName, testId)` — open the newest trace
  * - `tracePrev()` / `traceNext()` — navigate history
- * - StatusBar item: "Trace 1/5 ◀ ▶" shown when a .trace.jsonc file is active
+ * - Webview ‹ › buttons that trigger tracePrev/traceNext commands
  *
  * Trace files live at:
  *   `.glubean/traces/{fileName}/{testId}/{timestamp}.trace.jsonc`
@@ -28,8 +28,6 @@ let traceFiles: string[] = [];
 /** Index into traceFiles (0 = newest) */
 let currentIndex = 0;
 
-/** StatusBar item showing trace position */
-let statusBarItem: vscode.StatusBarItem | undefined;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -37,20 +35,11 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 
 /**
  * Initialize the trace navigator. Call once from extension activate().
- * Returns disposables to push into context.subscriptions.
  */
 export function activateTraceNavigator(
   context: vscode.ExtensionContext,
 ): void {
-  // StatusBar item (right side, low priority so it sits near env switcher)
-  statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    98,
-  );
-  statusBarItem.tooltip = "Glubean: Navigate trace history";
-  context.subscriptions.push(statusBarItem);
-
-  // Track active editor changes to show/hide the StatusBar
+  // Track active editor changes to sync navigator state
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(onEditorChanged),
   );
@@ -98,34 +87,78 @@ export async function openLatestTrace(
     return;
   }
 
-  await navigateToTrace(dir, files, 0);
+  await navigateToTrace(dir, files, 0, true);
 }
 
 /**
  * Navigate to the previous (older) trace file.
  */
 export async function tracePrev(): Promise<void> {
+  ensureStateFromActiveEditor();
   if (!currentDir || traceFiles.length === 0) return;
-  const next = Math.min(currentIndex + 1, traceFiles.length - 1);
-  if (next !== currentIndex) {
-    await navigateToTrace(currentDir, traceFiles, next);
+  if (currentIndex >= traceFiles.length - 1) {
+    void vscode.window.showInformationMessage("No older traces.");
+    return;
   }
+  await navigateToTrace(currentDir, traceFiles, currentIndex + 1);
 }
 
 /**
  * Navigate to the next (newer) trace file.
  */
 export async function traceNext(): Promise<void> {
+  ensureStateFromActiveEditor();
   if (!currentDir || traceFiles.length === 0) return;
-  const next = Math.max(currentIndex - 1, 0);
-  if (next !== currentIndex) {
-    await navigateToTrace(currentDir, traceFiles, next);
+  if (currentIndex <= 0) {
+    void vscode.window.showInformationMessage("Already at the newest trace.");
+    return;
   }
+  await navigateToTrace(currentDir, traceFiles, currentIndex - 1);
 }
 
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * If navigator state is empty, try to populate it from the active tab.
+ * Custom text editors (webviews) don't fire onDidChangeActiveTextEditor,
+ * so we also check vscode.window.tabGroups for an active .trace.jsonc tab.
+ */
+function ensureStateFromActiveEditor(): void {
+  if (currentDir && traceFiles.length > 0) return;
+
+  // Try standard active text editor first
+  const editor = vscode.window.activeTextEditor;
+  if (editor) {
+    const fp = editor.document.uri.fsPath;
+    if (fp.endsWith(".trace.jsonc")) {
+      syncFromPath(fp);
+      return;
+    }
+  }
+
+  // Fall back to active tab URI (covers custom editors / webviews)
+  const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+  if (activeTab?.input && typeof (activeTab.input as { uri?: unknown }).uri === "object") {
+    const uri = (activeTab.input as { uri: vscode.Uri }).uri;
+    if (uri.fsPath.endsWith(".trace.jsonc")) {
+      syncFromPath(uri.fsPath);
+    }
+  }
+}
+
+function syncFromPath(fsPath: string): void {
+  const dir = path.dirname(fsPath);
+  const fileName = path.basename(fsPath);
+  const files = listTraceFiles(dir);
+  const idx = files.indexOf(fileName);
+  if (idx >= 0) {
+    currentDir = dir;
+    traceFiles = files;
+    currentIndex = idx;
+  }
+}
 
 /**
  * Build the trace directory path from workspace root, file name, and test ID.
@@ -158,11 +191,14 @@ function listTraceFiles(dir: string): string[] {
 
 /**
  * Open a trace file at the given index and update navigator state.
+ * @param beside — true to open in a column beside the current editor (initial open from CodeLens),
+ *                 false to replace the current tab (prev/next navigation).
  */
 async function navigateToTrace(
   dir: string,
   files: string[],
   index: number,
+  beside = false,
 ): Promise<void> {
   currentDir = dir;
   traceFiles = files;
@@ -173,28 +209,22 @@ async function navigateToTrace(
     "vscode.openWith",
     vscode.Uri.file(filePath),
     "glubean.traceViewer",
-    { viewColumn: vscode.ViewColumn.Beside, preview: true },
+    {
+      viewColumn: beside ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
+      preview: true,
+    },
   );
-
-  updateStatusBar();
 }
 
 /**
- * Handle active editor change — show/hide StatusBar based on file type.
+ * Handle active editor change — sync navigator state from file path.
  */
 function onEditorChanged(editor: vscode.TextEditor | undefined): void {
-  if (!editor) {
-    statusBarItem?.hide();
-    return;
-  }
+  if (!editor) return;
 
   const filePath = editor.document.uri.fsPath;
-  if (!filePath.endsWith(".trace.jsonc")) {
-    statusBarItem?.hide();
-    return;
-  }
+  if (!filePath.endsWith(".trace.jsonc")) return;
 
-  // Sync navigator state from the file path
   const dir = path.dirname(filePath);
   const fileName = path.basename(filePath);
   const files = listTraceFiles(dir);
@@ -204,30 +234,7 @@ function onEditorChanged(editor: vscode.TextEditor | undefined): void {
     currentDir = dir;
     traceFiles = files;
     currentIndex = idx;
-    updateStatusBar();
-  } else {
-    statusBarItem?.hide();
   }
-}
-
-/**
- * Update the StatusBar text to reflect current position.
- */
-function updateStatusBar(): void {
-  if (!statusBarItem || traceFiles.length === 0) return;
-
-  const pos = currentIndex + 1;
-  const total = traceFiles.length;
-
-  // Show position and clickable prev/next hints
-  statusBarItem.text = `$(history) Trace ${pos}/${total}  $(arrow-left)`;
-  // Use a simpler approach: clicking the status bar cycles to the previous trace
-  statusBarItem.command = "glubean.tracePrev";
-  statusBarItem.tooltip =
-    `Glubean Trace ${pos}/${total}\n` +
-    `Click for older trace, use keybindings for older/newer\n` +
-    `${traceFiles[currentIndex]}`;
-  statusBarItem.show();
 }
 
 /**

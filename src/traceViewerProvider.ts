@@ -78,6 +78,10 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
       async (msg: { type: string; request?: unknown }) => {
         if (msg.type === "ready") {
           updateWebview();
+        } else if (msg.type === "tracePrev") {
+          await vscode.commands.executeCommand("glubean.tracePrev");
+        } else if (msg.type === "traceNext") {
+          await vscode.commands.executeCommand("glubean.traceNext");
         } else if (msg.type === "viewSource") {
           void vscode.commands.executeCommand(
             "vscode.openWith",
