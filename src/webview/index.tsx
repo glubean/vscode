@@ -33,7 +33,30 @@ interface TraceData {
   }>;
 }
 
-interface ResultData {
+export interface TimelineEvent {
+  type: string;
+  message?: string;
+  passed?: boolean;
+  data?: { method?: string; url?: string; status?: number; duration?: number };
+}
+
+export interface TraceCall {
+  request: {
+    method: string;
+    url: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+  };
+  response: {
+    status: number;
+    statusText?: string;
+    durationMs: number;
+    headers?: Record<string, string>;
+    body?: unknown;
+  };
+}
+
+export interface ResultData {
   fileName: string;
   runAt: string;
   target: string;
@@ -58,6 +81,8 @@ interface ResultData {
     durationMs: number;
     tags?: string[];
     failureReason?: string;
+    events: TimelineEvent[];
+    calls: TraceCall[];
   }>;
   rawJson: string;
 }

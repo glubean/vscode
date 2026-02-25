@@ -90,6 +90,34 @@ export function getLastResultJsonPath(): string | undefined {
 }
 
 /**
+ * After a test run, open the appropriate viewer in a side editor:
+ * - Data-driven runs (test.each / test.pick): result viewer (consistent UX even with 1 row)
+ * - Multi-test runs (run file / run all): result viewer (overview of all tests)
+ * - Single simple test: trace viewer
+ */
+async function openPostRunViewer(
+  filePath: string,
+  resultJsonPath: string,
+  parsed: import("./testController/results").GlubeanResult | null,
+  metaId?: string,
+): Promise<void> {
+  const isDataDriven =
+    metaId?.startsWith("each:") || metaId?.startsWith("pick:");
+  const isMultiTest = (parsed?.tests.length ?? 0) > 1;
+
+  if (parsed && (isDataDriven || isMultiTest)) {
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      vscode.Uri.file(resultJsonPath),
+      "glubean.resultViewer",
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+    );
+  } else {
+    await openLatestTraceFile(filePath, metaId, traceModuleDeps);
+  }
+}
+
+/**
  * Optional pre-run check. When set, this function is called before test execution.
  * If it returns false, the run is aborted (e.g. missing dependencies).
  */
@@ -231,8 +259,7 @@ export async function runWithPick(
       run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
     }
 
-    // Open the latest trace file
-    await openLatestTraceFile(filePath, undefined, traceModuleDeps);
+    await openPostRunViewer(filePath, resultJsonPath, parsed, testId);
 
     if (result.stdout) {
       outputChannel.appendLine(result.stdout);
@@ -983,7 +1010,7 @@ async function debugHandler(
       applyResults([{ item, meta }], parsed, run);
       lastResultJsonPath = resultJsonPath;
 
-      await openLatestTraceFile(filePath, undefined, traceModuleDeps);
+      await openPostRunViewer(filePath, resultJsonPath, parsed);
     } else {
       run.errored(
         item,
@@ -1069,8 +1096,7 @@ async function runFile(
       }
     }
 
-    // Open the latest trace file in a side editor
-    await openLatestTraceFile(filePath, undefined, traceModuleDeps);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
 
     // Also log to Output Channel for persistent reference
     if (result.stdout) {
@@ -1132,16 +1158,7 @@ async function runSingleTest(
       }
     }
 
-    // Open the latest trace file in a side editor.
-    // For plain tests pass the exact ID; for data-driven tests scan all subdirs
-    // since the concrete variant ID is only known at runtime.
-    const isDataDriven =
-      test.meta.id.startsWith("each:") || test.meta.id.startsWith("pick:");
-    await openLatestTraceFile(
-      filePath,
-      isDataDriven ? undefined : test.meta.id,
-      traceModuleDeps,
-    );
+    await openPostRunViewer(filePath, resultJsonPath, parsed, test.meta.id);
 
     if (result.stdout) {
       outputChannel.appendLine(result.stdout);

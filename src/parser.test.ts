@@ -7,7 +7,7 @@
 
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { extractTests, isGlubeanFile } from "./parser";
+import { extractPickExamples, extractTests, isGlubeanFile } from "./parser";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -250,5 +250,120 @@ describe("non-glubean files", () => {
     const content = `export const foo = test("bar", () => {});`;
     const tests = extractTests(content);
     assert.equal(tests.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractPickExamples — dir-merge support
+// ---------------------------------------------------------------------------
+
+describe("extractPickExamples", () => {
+  it("detects fromDir.merge with literal path", () => {
+    const content =
+      SDK_IMPORT +
+      `const examples = await fromDir.merge("./data/add-product/");
+
+export const addProduct = test.pick(examples)(
+  "add-product-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].testId, "add-product-$_pick");
+    assert.equal(picks[0].exportName, "addProduct");
+    assert.deepEqual(picks[0].dataSource, {
+      type: "dir-merge",
+      path: "./data/add-product/",
+    });
+    assert.equal(picks[0].keys, null);
+  });
+
+  it("detects fromDir.merge with options object", () => {
+    const content =
+      SDK_IMPORT +
+      `const specs = await fromDir.merge("./data/specs/", { ext: ".yaml" });
+
+export const specTest = test.pick(specs)(
+  "spec-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.deepEqual(picks[0].dataSource, {
+      type: "dir-merge",
+      path: "./data/specs/",
+    });
+  });
+
+  it("returns undefined dataSource for non-literal fromDir.merge path", () => {
+    const content =
+      SDK_IMPORT +
+      `const dir = vars.require("DATA_DIR");
+const examples = await fromDir.merge(dir);
+
+export const dynTest = test.pick(examples)(
+  "dyn-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].dataSource, undefined);
+    assert.equal(picks[0].keys, null);
+  });
+
+  it("still detects inline object patterns", () => {
+    const content =
+      SDK_IMPORT +
+      `export const search = test.pick({
+  "by-name": { q: "phone" },
+  "by-category": { q: "laptop" },
+})(
+  "search-$_pick",
+  async (ctx, data) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.deepEqual(picks[0].keys, ["by-name", "by-category"]);
+    assert.deepEqual(picks[0].dataSource, { type: "inline" });
+  });
+
+  it("still detects JSON import patterns", () => {
+    const content =
+      SDK_IMPORT +
+      `import examples from "../data/create-user.json" with { type: "json" };
+
+export const createUser = test.pick(examples)(
+  "create-user-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.deepEqual(picks[0].dataSource, {
+      type: "json-import",
+      path: "../data/create-user.json",
+    });
+  });
+
+  it("handles let declarations for fromDir.merge", () => {
+    const content =
+      SDK_IMPORT +
+      `let data = await fromDir.merge("./data/products/");
+
+export const prodTest = test.pick(data)(
+  "prod-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.deepEqual(picks[0].dataSource, {
+      type: "dir-merge",
+      path: "./data/products/",
+    });
   });
 });

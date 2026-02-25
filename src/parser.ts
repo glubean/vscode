@@ -138,8 +138,12 @@ export interface PickMeta {
    * How the data was sourced — helps CodeLens resolve keys at render time.
    * - "inline": keys extracted directly from object literal in source
    * - "json-import": keys come from an imported JSON file (path provided)
+   * - "dir-merge": keys come from all JSON files in a directory, merged
    */
-  dataSource?: { type: "inline" } | { type: "json-import"; path: string };
+  dataSource?:
+    | { type: "inline" }
+    | { type: "json-import"; path: string }
+    | { type: "dir-merge"; path: string };
 }
 
 /**
@@ -171,6 +175,17 @@ export function extractPickExamples(content: string): PickMeta[] {
   let importMatch: RegExpExecArray | null;
   while ((importMatch = importPattern.exec(content)) !== null) {
     jsonImports.set(importMatch[1], importMatch[2]);
+  }
+
+  // Build a map of fromDir.merge assignments: variable name → directory path
+  // Matches: const X = await fromDir.merge("./data/x/")
+  // Also matches with options: const X = await fromDir.merge("./data/x/", { ext: ".yaml" })
+  const dirMergeSources = new Map<string, string>();
+  const dirMergePattern =
+    /(?:const|let)\s+(\w+)\s*=\s*await\s+fromDir\.merge\s*\(\s*["']([^"']+)["']/g;
+  let dirMergeMatch: RegExpExecArray | null;
+  while ((dirMergeMatch = dirMergePattern.exec(content)) !== null) {
+    dirMergeSources.set(dirMergeMatch[1], dirMergeMatch[2]);
   }
 
   // ── Pattern 1: Inline object literal ────────────────────────────────────
@@ -245,14 +260,26 @@ export function extractPickExamples(content: string): PickMeta[] {
         dataSource: { type: "json-import", path: jsonPath },
       });
     } else {
-      // Unknown variable — cannot resolve statically
-      results.push({
-        testId,
-        line,
-        exportName,
-        keys: null,
-        dataSource: undefined,
-      });
+      // Check if the variable is a fromDir.merge assignment
+      const dirPath = dirMergeSources.get(varName);
+      if (dirPath) {
+        results.push({
+          testId,
+          line,
+          exportName,
+          keys: null, // resolved lazily by CodeLens provider via fs
+          dataSource: { type: "dir-merge", path: dirPath },
+        });
+      } else {
+        // Unknown variable — cannot resolve statically
+        results.push({
+          testId,
+          line,
+          exportName,
+          keys: null,
+          dataSource: undefined,
+        });
+      }
     }
   }
 

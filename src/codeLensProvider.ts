@@ -8,6 +8,7 @@
  * Keys are resolved from:
  * 1. Inline object literals in the source code
  * 2. JSON import files (read from disk at render time)
+ * 3. Directory merge via fromDir.merge (reads all JSON files in a directory)
  */
 
 import * as vscode from "vscode";
@@ -36,6 +37,7 @@ class PickCodeLensProvider
 {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   private saveListener: vscode.Disposable;
+  private dataWatcher: vscode.FileSystemWatcher;
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
   constructor(
@@ -46,10 +48,20 @@ class PickCodeLensProvider
     this.saveListener = vscode.workspace.onDidSaveTextDocument(() => {
       this._onDidChangeCodeLenses.fire();
     });
+
+    // Watch data directories for JSON file changes (create/delete/modify)
+    // so CodeLens updates when users add/remove *.local.json files
+    this.dataWatcher = vscode.workspace.createFileSystemWatcher(
+      "**/data/**/*.json",
+    );
+    this.dataWatcher.onDidCreate(() => this._onDidChangeCodeLenses.fire());
+    this.dataWatcher.onDidDelete(() => this._onDidChangeCodeLenses.fire());
+    this.dataWatcher.onDidChange(() => this._onDidChangeCodeLenses.fire());
   }
 
   dispose(): void {
     this.saveListener.dispose();
+    this.dataWatcher.dispose();
     this._onDidChangeCodeLenses.dispose();
   }
 
@@ -163,6 +175,11 @@ class PickCodeLensProvider
       return this.resolveJsonImportKeys(meta.dataSource.path, document);
     }
 
+    // Directory merge: read all JSON files in the directory, merge keys
+    if (meta.dataSource?.type === "dir-merge") {
+      return this.resolveDirMergeKeys(meta.dataSource.path, document);
+    }
+
     return null;
   }
 
@@ -190,6 +207,54 @@ class PickCodeLensProvider
       return null;
     } catch {
       // File not found, parse error, etc.
+      return null;
+    }
+  }
+
+  /**
+   * Read all JSON files in a directory, merge their top-level keys
+   * in alphabetical order (matching SDK's _collectAndSort + Object.assign).
+   *
+   * The test file may use a CWD-relative path (e.g. "./data/add-product/").
+   * Since tests run from the project root, we resolve relative to the
+   * workspace folder containing the document (not the document's own dir).
+   */
+  private resolveDirMergeKeys(
+    dirPath: string,
+    document: vscode.TextDocument,
+  ): string[] | null {
+    try {
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+      const baseDir = workspaceFolder
+        ? workspaceFolder.uri.fsPath
+        : path.dirname(document.uri.fsPath);
+      const resolvedDir = path.resolve(baseDir, dirPath);
+
+      if (!fs.existsSync(resolvedDir) || !fs.statSync(resolvedDir).isDirectory()) {
+        return null;
+      }
+
+      const LOCAL_SUFFIX = ".local.";
+      const allJson = fs
+        .readdirSync(resolvedDir)
+        .filter((f) => f.endsWith(".json"));
+      const shared = allJson.filter((f) => !f.includes(LOCAL_SUFFIX)).sort();
+      const local = allJson.filter((f) => f.includes(LOCAL_SUFFIX)).sort();
+      const files = [...shared, ...local];
+
+      const merged: Record<string, unknown> = {};
+      for (const file of files) {
+        const filePath = path.join(resolvedDir, file);
+        const content = fs.readFileSync(filePath, "utf-8");
+        const data = JSON.parse(content);
+        if (data && typeof data === "object" && !Array.isArray(data)) {
+          Object.assign(merged, data);
+        }
+      }
+
+      const keys = Object.keys(merged);
+      return keys.length > 0 ? keys : null;
+    } catch {
       return null;
     }
   }
