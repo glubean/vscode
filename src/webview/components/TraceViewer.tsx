@@ -29,10 +29,12 @@ interface TraceViewerData {
 
 interface TraceViewerProps {
   data: TraceViewerData;
+  onNewer?: () => void;
+  onOlder?: () => void;
   onCopyAsCurl?: (call: TraceViewerData["calls"][0]) => void;
 }
 
-export function TraceViewer({ data, onCopyAsCurl }: TraceViewerProps) {
+export function TraceViewer({ data, onNewer, onOlder, onCopyAsCurl }: TraceViewerProps) {
   const [selected, setSelected] = useState(0);
   const call = data.calls[selected];
 
@@ -55,6 +57,10 @@ export function TraceViewer({ data, onCopyAsCurl }: TraceViewerProps) {
         {data.meta.runAt && (
           <span class="text-[10px] muted">{data.meta.runAt}</span>
         )}
+        <span class="flex items-center gap-1 border-l border-panel pl-3 ml-1">
+          <button class="nav-btn" onClick={onNewer} title="Newer trace (Cmd+Alt+])">‹</button>
+          <button class="nav-btn" onClick={onOlder} title="Older trace (Cmd+Alt+[)">›</button>
+        </span>
       </div>
 
       {/* Main content */}

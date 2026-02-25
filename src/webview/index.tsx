@@ -145,6 +145,8 @@ function App() {
   return (
     <TraceViewer
       data={traceData}
+      onNewer={() => vscode.postMessage({ type: "traceNext" })}
+      onOlder={() => vscode.postMessage({ type: "tracePrev" })}
       onCopyAsCurl={(call) =>
         vscode.postMessage({ type: "copyAsCurl", request: call.request })
       }

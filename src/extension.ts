@@ -1023,6 +1023,31 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // Auto-redirect: when a .trace.jsonc file is opened as plain text (e.g. via
+  // the file explorer), switch to the rich viewer automatically — unless it was
+  // opened as part of a diff/compare operation, in which case we leave it alone.
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (!doc.uri.fsPath.endsWith(".trace.jsonc")) return;
+      // Delay one event-loop tick so VS Code can finish wiring up the tab.
+      setTimeout(() => {
+        for (const group of vscode.window.tabGroups.all) {
+          for (const tab of group.tabs) {
+            const input = tab.input;
+            if (!input || typeof input !== "object") continue;
+            // TabInputTextDiff has `original` and `modified` — skip diff tabs
+            if ("original" in input && "modified" in input) continue;
+            // TabInputText has `uri` matching our doc — redirect
+            if ("uri" in input && (input as { uri: vscode.Uri }).uri.toString() === doc.uri.toString()) {
+              void vscode.commands.executeCommand("vscode.openWith", doc.uri, TraceViewerProvider.viewType);
+              return;
+            }
+          }
+        }
+      }, 50);
+    }),
+  );
+
   // Toggle buttons: switch between custom viewer and text editor
   context.subscriptions.push(
     vscode.commands.registerCommand("glubean.traceViewSource", () => {
