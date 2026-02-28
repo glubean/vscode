@@ -1187,44 +1187,13 @@ export function activate(context: vscode.ExtensionContext): void {
         await ensureDenoOnPath();
       }
 
-      // ── Empty workspace detection (suggest init) ────────────────────────
-      // If the workspace has no deno.json with glubean config, offer to
-      // scaffold a minimal project. Runs once on activation, non-intrusively.
+      // ── Init prompt removed ─────────────────────────────────────────────
+      // Previously prompted "No Glubean project detected. Initialize one?"
+      // on every activation. Removed because it fires in every non-glubean
+      // workspace and annoys users. Init is available via Command Palette:
+      // "Glubean: Init Project" (glubean.initProject command).
+
       if (!depStatus.deno || !depStatus.glubean) return;
-
-      const folders = vscode.workspace.workspaceFolders;
-      if (!folders || folders.length === 0) return;
-
-      const hasGlubeanProject = folders.some((folder) => {
-        const root = folder.uri.fsPath;
-        for (const name of ["deno.json", "deno.jsonc"]) {
-          const configPath = path.join(root, name);
-          if (fs.existsSync(configPath)) {
-            try {
-              const content = fs.readFileSync(configPath, "utf-8");
-              if (
-                content.includes("@glubean/sdk") || content.includes('"glubean"')
-              ) {
-                return true;
-              }
-            } catch {
-              // unreadable — skip
-            }
-          }
-        }
-        return false;
-      });
-
-      if (!hasGlubeanProject) {
-        const choice = await vscode.window.showInformationMessage(
-          "No Glubean project detected. Initialize one?",
-          "Quick Start",
-          "Not now",
-        );
-        if (choice === "Quick Start") {
-          await vscode.commands.executeCommand("glubean.initProject");
-        }
-      }
 
       // ── CLI version check (prompt upgrade if outdated or unknown) ─────
       if (depStatus.cliOutdated) {
