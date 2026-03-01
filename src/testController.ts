@@ -392,7 +392,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── File watcher for auto-discovery (*.test.ts only) ────────────────────
   const testWatcher = vscode.workspace.createFileSystemWatcher("**/*.test.ts");
 
-  const onFileChange = (uri: vscode.Uri) => parseFile(uri);
+  const onFileChange = (uri: vscode.Uri) => debouncedParse(uri);
   const onFileDelete = (uri: vscode.Uri) => {
     const key = uri.toString();
     const item = fileItems.get(key);
@@ -435,11 +435,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // ── Re-parse on save ──────────────────────────────────────────────────
+  // ── Re-parse on save (debounced) ───────────────────────────────────────
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (isGlubeanFileName(doc.fileName)) {
-        void parseFile(doc.uri);
+        debouncedParse(doc.uri);
       }
     }),
   );
@@ -448,6 +448,28 @@ export function activate(context: vscode.ExtensionContext): void {
 /** Check if a file name is a Glubean test file (*.test.ts). */
 function isGlubeanFileName(fileName: string): boolean {
   return fileName.endsWith(".test.ts");
+}
+
+// ---------------------------------------------------------------------------
+// Debounced parse — coalesce rapid file-change events
+// ---------------------------------------------------------------------------
+
+/** Per-file debounce timers to prevent redundant parseFile() calls. */
+const parseTimers = new Map<string, NodeJS.Timeout>();
+const PARSE_DEBOUNCE_MS = 150;
+
+/**
+ * Schedule a debounced parseFile(). Rapid calls for the same URI within
+ * PARSE_DEBOUNCE_MS are coalesced into a single parse.
+ */
+function debouncedParse(uri: vscode.Uri): void {
+  const key = uri.toString();
+  const existing = parseTimers.get(key);
+  if (existing) clearTimeout(existing);
+  parseTimers.set(key, setTimeout(() => {
+    parseTimers.delete(key);
+    void parseFile(uri);
+  }, PARSE_DEBOUNCE_MS));
 }
 
 // ---------------------------------------------------------------------------

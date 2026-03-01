@@ -7,6 +7,7 @@
 
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as cp from "child_process";
 import * as testController from "./testController";
@@ -109,7 +110,7 @@ function parseSemver(v: string): [number, number, number] | null {
 function semverLessThan(installed: string, required: string): boolean {
   const a = parseSemver(installed);
   const b = parseSemver(required);
-  if (!a || !b) return false;
+  if (!a || !b) return true; // unparseable → treat as outdated
   for (let i = 0; i < 3; i++) {
     if (a[i] < b[i]) return true;
     if (a[i] > b[i]) return false;
@@ -337,24 +338,6 @@ async function checkDependencies(): Promise<DepStatus> {
 }
 
 /**
- * Run a shell command string and return stdout. Rejects on non-zero exit.
- * Only use for commands that genuinely need a shell (e.g. `curl ... | sh`).
- * For calling binaries with arguments, use {@link execBin} instead.
- */
-function exec(command: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const shell = process.platform === "win32" ? undefined : "/bin/sh";
-    cp.exec(command, { shell, timeout: 240_000 }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(stderr || err.message));
-      } else {
-        resolve(stdout);
-      }
-    });
-  });
-}
-
-/**
  * Run a binary with an args array — no shell involved.
  * Safe for paths containing spaces, $, backticks, etc.
  */
@@ -447,15 +430,17 @@ async function ensureDenoOnPath(): Promise<void> {
     // Check if already on PATH
     if ((process.env.PATH || "").includes(".deno\\bin")) return;
 
-    // Add to user-level PATH via PowerShell (persists across sessions)
+    // Add to user-level PATH via PowerShell (persists across sessions).
+    // Uses execBin with args array — no shell interpolation.
     try {
-      await exec(
-        `powershell -NoProfile -Command "` +
-          `$current = [Environment]::GetEnvironmentVariable('Path', 'User'); ` +
+      await execBin("powershell", [
+        "-NoProfile",
+        "-Command",
+        `$current = [Environment]::GetEnvironmentVariable('Path', 'User'); ` +
           `if ($current -notlike '*\\.deno\\bin*') { ` +
-          `[Environment]::SetEnvironmentVariable('Path', \\"$env:USERPROFILE\\.deno\\bin;$current\\", 'User') ` +
-          `}"`,
-      );
+          `[Environment]::SetEnvironmentVariable('Path', "$env:USERPROFILE\\.deno\\bin;$current", 'User') ` +
+          `}`,
+      ]);
     } catch {
       // Non-critical — extension itself works via resolveGlubeanPath()
     }
@@ -578,15 +563,26 @@ async function runSetup(): Promise<boolean> {
           });
 
           if (process.platform === "win32") {
-            await exec(
-              'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://deno.land/install.ps1 | iex"',
-            );
+            // PowerShell args array — no shell interpolation
+            await execBin("powershell", [
+              "-NoProfile",
+              "-ExecutionPolicy", "Bypass",
+              "-Command",
+              "irm https://deno.land/install.ps1 | iex",
+            ]);
           } else {
-            // Prefer curl; fall back to wget for minimal Linux installs
-            const downloader = (await commandExists("curl"))
-              ? "curl -fsSL https://deno.land/install.sh | sh"
-              : "wget -qO- https://deno.land/install.sh | sh";
-            await exec(downloader);
+            // Download installer to temp file, then execute — avoids shell pipe.
+            const tmpScript = path.join(os.tmpdir(), `deno-install-${Date.now()}.sh`);
+            try {
+              if (await commandExists("curl")) {
+                await execBin("curl", ["-fsSL", "-o", tmpScript, "https://deno.land/install.sh"]);
+              } else {
+                await execBin("wget", ["-qO", tmpScript, "https://deno.land/install.sh"]);
+              }
+              await execBin("sh", [tmpScript]);
+            } finally {
+              try { fs.unlinkSync(tmpScript); } catch { /* ignore cleanup errors */ }
+            }
           }
 
           // Verify Deno is now available
@@ -1227,6 +1223,27 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }
   })();
+
+  // ── Periodic version re-check (every 24h) ──────────────────────────────
+  // Long-running VS Code sessions may miss CLI updates. Re-check once a day
+  // and prompt only if the CLI is installed but outdated (don't nag about
+  // missing deps — that's handled by the pre-run check).
+  const RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const recheckTimer = setInterval(async () => {
+    cachedDepStatus = undefined;
+    const status = await checkDependencies();
+    if (status.deno && status.glubean && status.cliOutdated) {
+      const installed = status.cliVersion;
+      const msg = installed
+        ? `Glubean CLI ${installed} is outdated (requires ≥${MIN_CLI_VERSION}). Upgrade now?`
+        : `Could not determine CLI version (requires ≥${MIN_CLI_VERSION}). Upgrade now?`;
+      const choice = await vscode.window.showWarningMessage(msg, "Upgrade", "Later");
+      if (choice === "Upgrade") {
+        await upgradeGlubeanCli();
+      }
+    }
+  }, RECHECK_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(recheckTimer) });
 
   // ── Commands ────────────────────────────────────────────────────────────
 
