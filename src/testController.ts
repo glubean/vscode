@@ -20,7 +20,7 @@ import {
   killProcessGroup,
   pollInspectorReady,
 } from "./testController/debug-utils";
-import { extractTests, isGlubeanFile, type TestMeta } from "./parser";
+import { extractAliasesFromSource, extractTests, type TestMeta } from "./parser";
 import { execGlubean } from "./testController/exec";
 import {
   applyResults,
@@ -73,6 +73,57 @@ const fileItems = new Map<string, vscode.TestItem>();
 /** Root group nodes for Test Explorer tree */
 let testsRoot: vscode.TestItem | undefined;
 let exploreRoot: vscode.TestItem | undefined;
+
+// ---------------------------------------------------------------------------
+// Alias registry — auto-detected test.extend() / task.extend() function names
+// ---------------------------------------------------------------------------
+
+/**
+ * Workspace-level set of custom function names discovered from `.extend()` calls.
+ * e.g. `const browserTest = test.extend({...})` → adds "browserTest".
+ * Passed to `isGlubeanFile()` and `extractTests()` so they recognize
+ * `export const x = browserTest(...)` in test files.
+ */
+const aliasRegistry = new Set<string>();
+
+/**
+ * Scan all .ts files in the workspace for `.extend()` aliases.
+ * Called on activation and when non-test .ts files change.
+ */
+async function discoverAliases(): Promise<void> {
+  const tsFiles = await vscode.workspace.findFiles(
+    "**/*.ts",
+    "**/node_modules/**",
+  );
+  const prev = new Set(aliasRegistry);
+  aliasRegistry.clear();
+  for (const file of tsFiles) {
+    try {
+      const content = (await vscode.workspace.fs.readFile(file)).toString();
+      for (const alias of extractAliasesFromSource(content)) {
+        aliasRegistry.add(alias);
+      }
+    } catch {
+      // skip unreadable files
+    }
+  }
+
+  // If aliases changed, re-parse all test files so they pick up the new names
+  if (!setsEqual(prev, aliasRegistry)) {
+    await discoverAllTests();
+  }
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+/** Get current aliases as array (for passing to parser functions). */
+export function getAliases(): string[] | undefined {
+  return aliasRegistry.size > 0 ? [...aliasRegistry] : undefined;
+}
 
 /** Path to the most recent result.json — used by the "Open Last Result" command. */
 let lastResultJsonPath: string | undefined;
@@ -389,6 +440,24 @@ export function activate(context: vscode.ExtensionContext): void {
     true, // default debug profile
   );
 
+  // ── Alias discovery (scan for .extend() calls) ─────────────────────────
+  // Must run before test discovery so aliases are available for parsing.
+  // Fire-and-forget: discoverAliases triggers discoverAllTests when done.
+  void discoverAliases();
+
+  // Watch non-test .ts files for .extend() changes (config/fixture files)
+  const aliasWatcher = vscode.workspace.createFileSystemWatcher("**/*.ts");
+  aliasWatcher.onDidChange((uri) => {
+    if (!isGlubeanFileName(uri.fsPath)) void discoverAliases();
+  });
+  aliasWatcher.onDidCreate((uri) => {
+    if (!isGlubeanFileName(uri.fsPath)) void discoverAliases();
+  });
+  aliasWatcher.onDidDelete((uri) => {
+    if (!isGlubeanFileName(uri.fsPath)) void discoverAliases();
+  });
+  context.subscriptions.push(aliasWatcher);
+
   // ── File watcher for auto-discovery (*.test.ts only) ────────────────────
   const testWatcher = vscode.workspace.createFileSystemWatcher("**/*.test.ts");
 
@@ -531,26 +600,13 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
     return;
   }
 
-  if (!isGlubeanFile(content)) {
-    // Remove previously discovered items for this file if it's no longer a glubean file
-    const key = uri.toString();
-    const existing = fileItems.get(key);
-    if (existing) {
-      // Remove from whichever root it belongs to
-      testsRoot?.children.delete(existing.id);
-      exploreRoot?.children.delete(existing.id);
-      controller.items.delete(existing.id);
-      fileItems.delete(key);
-    }
-    return;
-  }
-
+  const aliases = getAliases();
   const key = uri.toString();
 
-  const tests = extractTests(content);
+  const tests = extractTests(content, aliases);
   if (tests.length === 0) {
-    // File still imports SDK but has no test exports — clean up any
-    // previously discovered items so they don't linger as ghost nodes.
+    // No test exports found — clean up any previously discovered items
+    // so they don't linger as ghost nodes.
     const existing = fileItems.get(key);
     if (existing) {
       testsRoot?.children.delete(existing.id);

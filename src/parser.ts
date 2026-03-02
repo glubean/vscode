@@ -11,6 +11,7 @@
  */
 
 import {
+  extractAliasesFromSource,
   extractFromSource,
   isGlubeanFile as _isGlubeanFile,
   type ExportMeta,
@@ -37,6 +38,7 @@ export interface TestMeta {
 // Re-export so existing consumers (testController, codeLensProvider, etc.)
 // don't need to change their imports.
 export const isGlubeanFile = _isGlubeanFile;
+export { extractAliasesFromSource };
 
 // ---------------------------------------------------------------------------
 // ExportMeta → TestMeta adapter
@@ -84,14 +86,12 @@ function toTestMeta(e: ExportMeta): TestMeta {
  * This is a pure function — no file system or runtime needed.
  *
  * @param content - TypeScript source code
- * @returns Array of discovered test metadata, or empty array if not a Glubean file
+ * @param customFns - Additional function names discovered via alias scanning.
+ *                    Passed through to `extractFromSource`.
+ * @returns Array of discovered test metadata, or empty array if no tests found
  */
-export function extractTests(content: string): TestMeta[] {
-  if (!isGlubeanFile(content)) {
-    return [];
-  }
-
-  const all = extractFromSource(content).map(toTestMeta);
+export function extractTests(content: string, customFns?: string[]): TestMeta[] {
+  const all = extractFromSource(content, customFns).map(toTestMeta);
 
   // Deduplicate by id — keeps first occurrence when multiple exports share
   // the same test id (e.g. re-exports or copy-paste errors).
@@ -157,14 +157,17 @@ export interface PickMeta {
  * so CodeLens can show a format hint.
  *
  * @param content - TypeScript source code
+ * @param customFns - Additional function names discovered via alias scanning.
+ *                    Used to build the pick pattern regex alongside base names.
  * @returns Array of PickMeta, or empty if no test.pick calls found
  */
-export function extractPickExamples(content: string): PickMeta[] {
-  if (!isGlubeanFile(content)) {
-    return [];
-  }
-
+export function extractPickExamples(content: string, customFns?: string[]): PickMeta[] {
   const results: PickMeta[] = [];
+
+  // Build function-name alternation for pick patterns
+  const fnAlt = customFns && customFns.length > 0
+    ? [...new Set(["test", "task", ...customFns])].map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")
+    : "\\w*(?:Test|Task)|test|task";
 
   // Build a map of JSON imports: variable name → file path
   // Matches: import X from "./path.json" with { type: "json" }
@@ -189,10 +192,11 @@ export function extractPickExamples(content: string): PickMeta[] {
   }
 
   // ── Pattern 1: Inline object literal ────────────────────────────────────
-  // Matches: test.pick({ "key1": ..., "key2": ... })("id-$_pick", ...)
-  // We look for test.pick(\s*{ and try to extract top-level string keys.
-  const inlinePickPattern =
-    /export\s+const\s+(\w+)\s*=\s*test\.pick\s*\(\s*\{([\s\S]*?)\}\s*\)\s*\(\s*["']([^"']+)["']/g;
+  // Matches: <fn>.pick({ "key1": ..., "key2": ... })("id-$_pick", ...)
+  const inlinePickPattern = new RegExp(
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\.pick\\s*\\(\\s*\\{([\\s\\S]*?)\\}\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
+    "g",
+  );
 
   let match: RegExpExecArray | null;
   while ((match = inlinePickPattern.exec(content)) !== null) {
@@ -237,10 +241,12 @@ export function extractPickExamples(content: string): PickMeta[] {
   }
 
   // ── Pattern 2: Variable reference (JSON import or other) ────────────────
-  // Matches: test.pick(variableName)("id-$_pick", ...)
-  // Must NOT match the inline pattern (which has { after test.pick( )
-  const varPickPattern =
-    /export\s+const\s+(\w+)\s*=\s*test\.pick\s*\(\s*(\w+)\s*\)\s*\(\s*["']([^"']+)["']/g;
+  // Matches: <fn>.pick(variableName)("id-$_pick", ...)
+  // Must NOT match the inline pattern (which has { after <fn>.pick( )
+  const varPickPattern = new RegExp(
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\.pick\\s*\\(\\s*(\\w+)\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
+    "g",
+  );
 
   while ((match = varPickPattern.exec(content)) !== null) {
     const exportName = match[1];
