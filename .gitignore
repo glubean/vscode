@@ -5,3 +5,6 @@ dist/
 # Cursor (track rules, ignore workspace state)
 .cursor/*
 !.cursor/rules/
+
+# Claude Code
+.claude/
