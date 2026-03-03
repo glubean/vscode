@@ -1028,15 +1028,28 @@ export function activate(context: vscode.ExtensionContext): void {
       // Delay one event-loop tick so VS Code can finish wiring up the tab.
       setTimeout(() => {
         const docUriStr = doc.uri.toString();
+
+        // If this file is already open in a custom editor anywhere, skip.
+        // This prevents duplicates when openLatestTrace() already opened it.
+        for (const group of vscode.window.tabGroups.all) {
+          for (const tab of group.tabs) {
+            const input = tab.input;
+            if (
+              input && typeof input === "object" &&
+              "viewType" in input && "uri" in input &&
+              (input as { uri: vscode.Uri }).uri.toString() === docUriStr
+            ) {
+              return;
+            }
+          }
+        }
+
+        // Not in a custom editor — find the plain text tab and redirect it.
         for (const group of vscode.window.tabGroups.all) {
           for (const tab of group.tabs) {
             const input = tab.input;
             if (!input || typeof input !== "object") continue;
-            // TabInputTextDiff has `original` and `modified` — skip diff tabs
             if ("original" in input && "modified" in input) continue;
-            // TabInputCustom has `viewType` — already in rich viewer, skip
-            if ("viewType" in input) continue;
-            // TabInputText has `uri` matching our doc — redirect
             if ("uri" in input && (input as { uri: vscode.Uri }).uri.toString() === docUriStr) {
               void vscode.commands.executeCommand("vscode.openWith", doc.uri, TraceViewerProvider.viewType);
               return;
