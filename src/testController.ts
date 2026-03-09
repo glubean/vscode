@@ -520,16 +520,22 @@ function isGlubeanFileName(fileName: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Debounced parse — coalesce rapid file-change events
+// Debounced parse — coalesce rapid file-change events + per-file mutex
 // ---------------------------------------------------------------------------
 
 /** Per-file debounce timers to prevent redundant parseFile() calls. */
 const parseTimers = new Map<string, NodeJS.Timeout>();
 const PARSE_DEBOUNCE_MS = 150;
 
+/** Per-file mutex: prevents overlapping parseFile() async calls for the same URI. */
+const parseLocks = new Map<string, boolean>();
+const parseQueued = new Map<string, boolean>();
+
 /**
  * Schedule a debounced parseFile(). Rapid calls for the same URI within
  * PARSE_DEBOUNCE_MS are coalesced into a single parse.
+ * A per-file mutex ensures only one parseFile() runs at a time per URI;
+ * if a parse is already in progress, the next one is queued.
  */
 function debouncedParse(uri: vscode.Uri): void {
   const key = uri.toString();
@@ -537,8 +543,30 @@ function debouncedParse(uri: vscode.Uri): void {
   if (existing) clearTimeout(existing);
   parseTimers.set(key, setTimeout(() => {
     parseTimers.delete(key);
-    void parseFile(uri);
+    void lockedParse(uri);
   }, PARSE_DEBOUNCE_MS));
+}
+
+async function lockedParse(uri: vscode.Uri): Promise<void> {
+  const key = uri.toString();
+
+  if (parseLocks.get(key)) {
+    // A parse is already running — queue one more (only the latest matters)
+    parseQueued.set(key, true);
+    return;
+  }
+
+  parseLocks.set(key, true);
+  try {
+    await parseFile(uri);
+  } finally {
+    parseLocks.delete(key);
+    // If another parse was queued while we were running, run it now
+    if (parseQueued.get(key)) {
+      parseQueued.delete(key);
+      void lockedParse(uri);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

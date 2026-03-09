@@ -3,6 +3,8 @@
 ## What This Repo Is
 VSCode extension for Glubean. Provides test discovery, CodeLens, run/debug, trace viewer.
 
+**Feature Map:** Before modifying, check `internal/00-overview/feature-map/vscode.md` for existing capabilities.
+
 ## Current Focus (updated 2026-03-03)
 1. **URGENT: Currently on `fix/vscode-hardening` branch with 3 unmerged commits.** Finish and merge this first.
 2. N2: Fix parse race (debounce + mutex) — this is a Now item
