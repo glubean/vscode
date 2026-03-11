@@ -74,7 +74,7 @@ For the full walkthrough, see the [Quick Start guide](https://docs.glubean.com/e
 | **Traces & Diff** | Rich trace viewer, trace history with prev/next navigation, side-by-side diff |
 | **Environments** | Status bar switcher for `.env` files, auto-loads matching `.secrets`, hover preview |
 | **Debugging** | Full breakpoint support via Deno's V8 inspector |
-| **AI Integration** | Generate tests from OpenAPI specs, `glubean context` for richer AI output |
+| **AI Integration** | Generate tests from OpenAPI specs |
 | **Tasks Panel** | Run named test suites from the sidebar — no CLI knowledge required |
 | **Data-driven** | `test.each` for every row, `test.pick` for random example selection with CodeLens |
 
