@@ -182,10 +182,11 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
 
   // Build a map of fromDir.merge assignments: variable name → directory path
   // Matches: const X = await fromDir.merge("./data/x/")
+  // Also matches with generic: const X = await fromDir.merge<T>("./data/x/")
   // Also matches with options: const X = await fromDir.merge("./data/x/", { ext: ".yaml" })
   const dirMergeSources = new Map<string, string>();
   const dirMergePattern =
-    /(?:const|let)\s+(\w+)\s*=\s*await\s+fromDir\.merge\s*\(\s*["']([^"']+)["']/g;
+    /(?:const|let)\s+(\w+)\s*=\s*await\s+fromDir\.merge\s*(?:<[^>]*>)?\s*\(\s*["']([^"']+)["']/g;
   let dirMergeMatch: RegExpExecArray | null;
   while ((dirMergeMatch = dirMergePattern.exec(content)) !== null) {
     dirMergeSources.set(dirMergeMatch[1], dirMergeMatch[2]);
@@ -194,7 +195,7 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
   // ── Pattern 1: Inline object literal ────────────────────────────────────
   // Matches: <fn>.pick({ "key1": ..., "key2": ... })("id-$_pick", ...)
   const inlinePickPattern = new RegExp(
-    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\.pick\\s*\\(\\s*\\{([\\s\\S]*?)\\}\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\s*\\.pick\\s*\\(\\s*\\{([\\s\\S]*?)\\}\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
     "g",
   );
 
@@ -244,7 +245,7 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
   // Matches: <fn>.pick(variableName)("id-$_pick", ...)
   // Must NOT match the inline pattern (which has { after <fn>.pick( )
   const varPickPattern = new RegExp(
-    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\.pick\\s*\\(\\s*(\\w+)\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\s*\\.pick\\s*\\(\\s*(\\w+)\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
     "g",
   );
 

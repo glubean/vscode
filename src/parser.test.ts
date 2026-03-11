@@ -349,6 +349,48 @@ export const createUser = test.pick(examples)(
     });
   });
 
+  it("detects .pick on next line (chained after newline + generic)", () => {
+    const content =
+      SDK_IMPORT +
+      `const scenarios = await fromDir.merge<OptScenario>("./data/optimize/");
+
+export const optimizeSingapore = test
+    .pick(scenarios)("optimize-sg-$_pick")
+    .meta({ name: "Optimization Singapore", tags: ["api", "optimize"] })
+    .setup(async (_ctx, row) => ({
+      description: row.description,
+      body: row.body,
+    }))
+    .use(withOptimization);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].testId, "optimize-sg-$_pick");
+    assert.equal(picks[0].exportName, "optimizeSingapore");
+    assert.deepEqual(picks[0].dataSource, {
+      type: "dir-merge",
+      path: "./data/optimize/",
+    });
+  });
+
+  it("detects inline .pick on next line", () => {
+    const content =
+      SDK_IMPORT +
+      `export const search = test
+  .pick({
+  "by-name": { q: "phone" },
+  "by-category": { q: "laptop" },
+})(
+  "search-$_pick",
+  async (ctx, data) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.deepEqual(picks[0].keys, ["by-name", "by-category"]);
+    assert.equal(picks[0].testId, "search-$_pick");
+  });
+
   it("handles let declarations for fromDir.merge", () => {
     const content =
       SDK_IMPORT +
