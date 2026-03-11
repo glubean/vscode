@@ -9,6 +9,7 @@ import { strict as assert } from "node:assert";
 import {
   buildArgs,
   normalizeFilterId,
+  shouldOpenResultViewer,
   matchTestResults,
   formatJson,
   formatHeaders,
@@ -49,6 +50,40 @@ describe("normalizeFilterId", () => {
 
   it("handles ID with no template variables after prefix", () => {
     assert.equal(normalizeFilterId("pick:exact-name"), "exact-name");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldOpenResultViewer
+// ---------------------------------------------------------------------------
+
+describe("shouldOpenResultViewer", () => {
+  it("returns true for pick: prefix (data-driven)", () => {
+    assert.equal(shouldOpenResultViewer("pick:search-$_pick", 1), true);
+  });
+
+  it("returns true for each: prefix (data-driven)", () => {
+    assert.equal(shouldOpenResultViewer("each:get-user-$id", 1), true);
+  });
+
+  it("returns true for multiple tests even without prefix", () => {
+    assert.equal(shouldOpenResultViewer("health-check", 3), true);
+  });
+
+  it("returns true for undefined metaId with multiple tests", () => {
+    assert.equal(shouldOpenResultViewer(undefined, 2), true);
+  });
+
+  it("returns false for single plain test", () => {
+    assert.equal(shouldOpenResultViewer("health-check", 1), false);
+  });
+
+  it("returns false for undefined metaId with single test", () => {
+    assert.equal(shouldOpenResultViewer(undefined, 1), false);
+  });
+
+  it("returns false for zero tests without prefix", () => {
+    assert.equal(shouldOpenResultViewer("health-check", 0), false);
   });
 });
 

@@ -34,6 +34,7 @@ import {
   buildArgs,
   findPairIndexAtLine,
   normalizeFilterId,
+  shouldOpenResultViewer,
   tracePairToCurl,
   type TracePair,
 } from "./testController.utils";
@@ -152,11 +153,7 @@ async function openPostRunViewer(
   parsed: import("./testController/results").GlubeanResult | null,
   metaId?: string,
 ): Promise<void> {
-  const isDataDriven =
-    metaId?.startsWith("each:") || metaId?.startsWith("pick:");
-  const isMultiTest = (parsed?.tests.length ?? 0) > 1;
-
-  if (parsed && (isDataDriven || isMultiTest)) {
+  if (parsed && shouldOpenResultViewer(metaId, parsed.tests.length)) {
     await vscode.commands.executeCommand(
       "vscode.openWith",
       vscode.Uri.file(resultJsonPath),
@@ -277,13 +274,9 @@ export async function runWithPick(
   const glubeanPath = getGlubeanPath();
   const cwd = workspaceRootFor(filePath);
 
-  // Strip "pick:" prefix and template variables to get a stable prefix filter
-  // e.g. "pick:search-products-$_pick" → "search-products-"
-  let filterId = testId;
-  if (filterId.startsWith("pick:")) {
-    filterId = filterId.slice(5);
-  }
-  filterId = filterId.replace(/\$\w+/g, "");
+  // Normalize to a stable prefix filter
+  // e.g. "search-products-$_pick" → "search-products-"
+  const filterId = normalizeFilterId(testId);
 
   const args = buildArgs(filePath, filterId, pickKey, envFileProvider?.(), getTraceLimit());
 
@@ -310,7 +303,7 @@ export async function runWithPick(
       run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
     }
 
-    await openPostRunViewer(filePath, resultJsonPath, parsed, testId);
+    await openPostRunViewer(filePath, resultJsonPath, parsed, `pick:${testId}`);
 
     if (result.stdout) {
       outputChannel.appendLine(result.stdout);
