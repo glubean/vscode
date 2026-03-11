@@ -1473,11 +1473,16 @@ export function activate(context: vscode.ExtensionContext): void {
           vscode.window.showWarningMessage("No file specified for pick run.");
           return;
         }
-        await testController.runWithPick(
-          args.filePath,
-          args.testId,
-          args.pickKey,
-        );
+        pickCodeLensProvider.setRunning(args.filePath, args.testId);
+        try {
+          await testController.runWithPick(
+            args.filePath,
+            args.testId,
+            args.pickKey,
+          );
+        } finally {
+          pickCodeLensProvider.clearRunning(args.filePath, args.testId);
+        }
       },
     ),
   );
@@ -1524,11 +1529,16 @@ export function activate(context: vscode.ExtensionContext): void {
           ? "all"
           : picked.map((p) => p.label).join(",");
 
-        await testController.runWithPick(
-          args.filePath,
-          args.testId,
-          pickKey,
-        );
+        pickCodeLensProvider.setRunning(args.filePath, args.testId);
+        try {
+          await testController.runWithPick(
+            args.filePath,
+            args.testId,
+            pickKey,
+          );
+        } finally {
+          pickCodeLensProvider.clearRunning(args.filePath, args.testId);
+        }
       },
     ),
   );

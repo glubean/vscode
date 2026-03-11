@@ -26,19 +26,27 @@ const QUICK_PICK_THRESHOLD = 5;
  * @param runPickCommandId The command ID to execute when a CodeLens is clicked
  * @param pickAndRunCommandId The command ID for QuickPick selection (many keys)
  */
+export interface PickCodeLens extends vscode.CodeLensProvider, vscode.Disposable {
+  /** Mark a test as running — CodeLens will show a spinner. */
+  setRunning(filePath: string, testId: string): void;
+  /** Clear running state — CodeLens reverts to normal. */
+  clearRunning(filePath: string, testId: string): void;
+}
+
 export function createPickCodeLensProvider(
   runPickCommandId: string,
   pickAndRunCommandId: string,
-): vscode.CodeLensProvider & vscode.Disposable {
+): PickCodeLens {
   return new PickCodeLensProvider(runPickCommandId, pickAndRunCommandId);
 }
 
 class PickCodeLensProvider
-  implements vscode.CodeLensProvider, vscode.Disposable
+  implements PickCodeLens
 {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   private saveListener: vscode.Disposable;
   private dataWatcher: vscode.FileSystemWatcher;
+  private running = new Set<string>();
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
   constructor(
@@ -60,6 +68,20 @@ class PickCodeLensProvider
     this.dataWatcher.onDidChange(() => this._onDidChangeCodeLenses.fire());
   }
 
+  private runKey(filePath: string, testId: string): string {
+    return `${filePath}::${testId}`;
+  }
+
+  setRunning(filePath: string, testId: string): void {
+    this.running.add(this.runKey(filePath, testId));
+    this._onDidChangeCodeLenses.fire();
+  }
+
+  clearRunning(filePath: string, testId: string): void {
+    this.running.delete(this.runKey(filePath, testId));
+    this._onDidChangeCodeLenses.fire();
+  }
+
   dispose(): void {
     this.saveListener.dispose();
     this.dataWatcher.dispose();
@@ -79,10 +101,22 @@ class PickCodeLensProvider
     const lenses: vscode.CodeLens[] = [];
 
     for (const meta of pickMetas) {
-      // Resolve keys (may require reading JSON file from disk)
-      const keys = this.resolveKeys(meta, document);
       const line = meta.line - 1; // 0-based for VS Code
       const range = new vscode.Range(line, 0, line, 0);
+
+      // Show spinner if this test is currently running
+      if (this.running.has(this.runKey(document.uri.fsPath, meta.testId))) {
+        lenses.push(
+          new vscode.CodeLens(range, {
+            title: "$(sync~spin) Running\u2026",
+            command: "",
+          })
+        );
+        continue;
+      }
+
+      // Resolve keys (may require reading JSON file from disk)
+      const keys = this.resolveKeys(meta, document);
 
       if (keys && keys.length > 0) {
         const baseArgs = {
