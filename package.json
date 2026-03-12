@@ -53,9 +53,7 @@
     "theme": "dark"
   },
   "activationEvents": [
-    "workspaceContains:**/*.test.ts",
-    "workspaceContains:**/deno.json",
-    "workspaceContains:**/deno.jsonc"
+    "workspaceContains:**/*.test.ts"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -70,12 +68,7 @@
     "configuration": {
       "title": "Glubean",
       "properties": {
-        "glubean.glubeanPath": {
-          "type": "string",
-          "default": "glubean",
-          "description": "Path to the glubean CLI executable"
-        },
-        "glubean.autoDiscover": {
+"glubean.autoDiscover": {
           "type": "boolean",
           "default": true,
           "description": "Automatically discover tests when files are opened or changed"
@@ -328,7 +321,7 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "npm run build:extension && npm run build:webview",
-    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap",
+    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@glubean/runner --format=cjs --platform=node --minify --sourcemap",
     "build:webview": "esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --minify --sourcemap --jsx=automatic --jsx-import-source=preact && npx @tailwindcss/cli -i ./src/webview/styles.css -o ./dist/webview/styles.css -m",
     "watch": "concurrently \"npm:watch:*\"",
     "watch:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch --sourcemap",
@@ -361,7 +354,8 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@glubean/scanner": "npm:@jsr/glubean__scanner@^0.12.0",
+    "@glubean/runner": "file:../nodev/packages/runner",
+    "@glubean/scanner": "file:../nodev/packages/scanner",
     "posthog-node": "^5.24.17"
   }
 }

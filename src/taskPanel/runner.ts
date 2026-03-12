@@ -75,7 +75,7 @@ export class TaskRunner {
       vscode.TaskScope.Workspace,
       item.def.name,
       "glubean",
-      new vscode.ShellExecution("deno", ["task", item.def.name], {
+      new vscode.ShellExecution("npm", ["run", item.def.name], {
         cwd: item.def.workspaceRoot,
       }),
     );

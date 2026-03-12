@@ -7,7 +7,6 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import {
-  buildArgs,
   normalizeFilterId,
   shouldOpenResultViewer,
   matchTestResults,
@@ -87,71 +86,6 @@ describe("shouldOpenResultViewer", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildArgs
-// ---------------------------------------------------------------------------
-
-describe("buildArgs", () => {
-  it("returns base args for file path only", () => {
-    const args = buildArgs("/path/to/test.ts");
-    assert.deepEqual(args, [
-      "run",
-      "/path/to/test.ts",
-      "--verbose",
-      "--pretty",
-      "--result-json",
-      "--emit-full-trace",
-    ]);
-  });
-
-  it("includes --filter when filterId is provided", () => {
-    const args = buildArgs("/path/to/test.ts", "list-products");
-    assert.ok(args.includes("--filter"));
-    assert.equal(args[args.indexOf("--filter") + 1], "list-products");
-  });
-
-  it("includes --pick when pickKey is provided", () => {
-    const args = buildArgs("/path/to/test.ts", "search-", "by-name");
-    assert.ok(args.includes("--pick"));
-    assert.equal(args[args.indexOf("--pick") + 1], "by-name");
-  });
-
-  it("includes --env-file when envFile is provided", () => {
-    const args = buildArgs("/path/to/test.ts", undefined, undefined, ".env.staging");
-    assert.ok(args.includes("--env-file"));
-    assert.equal(args[args.indexOf("--env-file") + 1], ".env.staging");
-  });
-
-  it("includes all options when everything is provided", () => {
-    const args = buildArgs("/test.ts", "my-test", "example-1", ".env.prod");
-    assert.deepEqual(args, [
-      "run",
-      "/test.ts",
-      "--verbose",
-      "--pretty",
-      "--result-json",
-      "--emit-full-trace",
-      "--filter",
-      "my-test",
-      "--pick",
-      "example-1",
-      "--env-file",
-      ".env.prod",
-    ]);
-  });
-
-  it("omits optional flags when values are undefined", () => {
-    const args = buildArgs("/test.ts", undefined, undefined, undefined);
-    assert.ok(!args.includes("--filter"));
-    assert.ok(!args.includes("--pick"));
-    assert.ok(!args.includes("--env-file"));
-  });
-
-  it("omits --filter for empty string", () => {
-    const args = buildArgs("/test.ts", "");
-    assert.ok(!args.includes("--filter"));
-  });
-});
 
 // ---------------------------------------------------------------------------
 // formatJson
