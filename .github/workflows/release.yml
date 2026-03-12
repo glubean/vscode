@@ -9,7 +9,26 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: darwin-arm64
+            npm_os: darwin
+            npm_cpu: arm64
+          - target: darwin-x64
+            npm_os: darwin
+            npm_cpu: x64
+          - target: linux-x64
+            npm_os: linux
+            npm_cpu: x64
+          - target: linux-arm64
+            npm_os: linux
+            npm_cpu: arm64
+          - target: win32-x64
+            npm_os: win32
+            npm_cpu: x64
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,11 +42,57 @@ jobs:
 
       - run: npm run lint
 
-      - run: npm run package
+      - name: Build extension + webview
+        run: npm run build:extension && npm run build:webview
+
+      - name: Vendor runner for ${{ matrix.target }}
+        run: node scripts/vendor-runner.mjs --os=${{ matrix.npm_os }} --cpu=${{ matrix.npm_cpu }}
+
+      - name: Package vsix
+        run: npx @vscode/vsce package --no-dependencies --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: "*.vsix"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Get version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          npm install -g @vscode/vsce
+          for vsix in *.vsix; do
+            echo "Publishing $vsix..."
+            vsce publish --packagePath "$vsix"
+          done
+        env:
+          VSCE_PAT: ${{ secrets.AZURE_TOKEN }}
+
+      - name: Publish to Open VSX
+        run: |
+          npm install -g ovsx
+          for vsix in *.vsix; do
+            echo "Publishing $vsix to Open VSX..."
+            ovsx publish "$vsix"
+          done
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
+        continue-on-error: true  # Don't fail release if Open VSX is down
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -41,5 +106,5 @@ jobs:
             Install **Glubean** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=glubean.glubean).
 
             ### Manual install (Cursor, VSCodium, other forks)
-            1. Download `glubean-${{ steps.version.outputs.version }}.vsix` below
+            1. Download the `.vsix` for your platform below
             2. In your editor: `Cmd+Shift+P` → **Extensions: Install from VSIX...** → select the downloaded file

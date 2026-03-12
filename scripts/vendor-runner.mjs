@@ -24,8 +24,20 @@ writeFileSync(
   JSON.stringify({ name: "glubean-vendor", private: true })
 );
 
-console.log("Installing @glubean/runner from npm...");
-execSync("npm install --omit=dev @glubean/runner", {
+// Parse --os and --cpu flags for cross-platform builds
+const args = process.argv.slice(2);
+const getFlag = (name) => args.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+const targetOs = getFlag("os");
+const targetCpu = getFlag("cpu");
+
+const platformFlags = [
+  targetOs && `--os=${targetOs}`,
+  targetCpu && `--cpu=${targetCpu}`,
+].filter(Boolean).join(" ");
+
+const target = platformFlags ? ` (${targetOs}-${targetCpu})` : "";
+console.log(`Installing @glubean/runner from npm...${target}`);
+execSync(`npm install --omit=dev @glubean/runner ${platformFlags}`, {
   cwd: tmp,
   stdio: "inherit",
 });
