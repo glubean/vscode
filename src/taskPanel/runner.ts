@@ -212,7 +212,7 @@ export class TaskRunner {
     if (total === 0) {
       void vscode.window
         .showInformationMessage(
-          "No tests found — make sure *.test.ts files exist in your test directory and export tests using test().",
+          "No tests found — make sure *.test.ts or *.test.js files exist in your test directory and export tests using test().",
           "Learn more",
         )
         .then((choice) => {

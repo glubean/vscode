@@ -224,6 +224,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const hoverSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.test.ts" },
     { language: "typescript", pattern: "**/*.explore.ts" },
+    { language: "javascript", pattern: "**/*.test.{js,mjs}" },
   ];
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
@@ -236,6 +237,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const codeLensSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.test.ts" },
     { language: "typescript", pattern: "**/*.explore.ts" },
+    { language: "javascript", pattern: "**/*.test.{js,mjs}" },
   ];
 
   // Trace history buttons (shown on all tests)
@@ -427,10 +429,10 @@ export function activate(context: vscode.ExtensionContext): void {
         const fileName = uri?.fsPath ?? "";
         if (
           !uri ||
-          (!fileName.endsWith(".test.ts") && !fileName.endsWith(".explore.ts"))
+          (!/\.test\.(ts|js|mjs)$/.test(fileName) && !fileName.endsWith(".explore.ts"))
         ) {
           vscode.window.showWarningMessage(
-            "Open a .test.ts or .explore.ts file to run.",
+            "Open a .test.ts, .test.js, or .explore.ts file to run.",
           );
           return;
         }
