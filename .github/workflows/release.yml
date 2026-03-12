@@ -40,6 +40,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Install platform-specific optional deps
+        run: npm install @parcel/watcher-linux-x64-glibc --no-save
+
       - run: npm run lint
 
       - name: Build extension + webview
