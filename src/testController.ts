@@ -405,8 +405,8 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push(aliasWatcher);
 
-  // ── File watcher for auto-discovery (*.test.ts only) ────────────────────
-  const testWatcher = vscode.workspace.createFileSystemWatcher("**/*.test.ts");
+  // ── File watcher for auto-discovery (*.test.{ts,js,mjs}) ───────────────
+  const testWatcher = vscode.workspace.createFileSystemWatcher("**/*.test.{ts,js,mjs}");
 
   const onFileChange = (uri: vscode.Uri) => debouncedParse(uri);
   const onFileDelete = (uri: vscode.Uri) => {
@@ -461,9 +461,9 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-/** Check if a file name is a Glubean test file (*.test.ts). */
+/** Check if a file name is a Glubean test file (*.test.ts, *.test.js, *.test.mjs). */
 function isGlubeanFileName(fileName: string): boolean {
-  return fileName.endsWith(".test.ts");
+  return /\.test\.(ts|js|mjs)$/.test(fileName);
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ async function discoverAllTests(): Promise<void> {
   }
 
   const testFiles = await vscode.workspace.findFiles(
-    "**/*.test.ts",
+    "**/*.test.{ts,js,mjs}",
     "**/node_modules/**",
   );
 
@@ -547,7 +547,7 @@ async function discoverAllTests(): Promise<void> {
 async function discoverTestsInFolder(
   folder: vscode.WorkspaceFolder,
 ): Promise<void> {
-  const pattern = new vscode.RelativePattern(folder, "**/*.test.ts");
+  const pattern = new vscode.RelativePattern(folder, "**/*.test.{ts,js,mjs}");
   const testFiles = await vscode.workspace.findFiles(
     pattern,
     "**/node_modules/**",
