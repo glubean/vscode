@@ -38,10 +38,8 @@ jobs:
           node-version: 20
           cache: npm
 
-      - run: npm ci
-
-      - name: Install platform-specific optional deps
-        run: npm install @parcel/watcher-linux-x64-glibc --no-save
+      - name: Install dependencies (not ci — lock file lacks linux optional deps)
+        run: npm install
 
       - run: npm run lint
 
