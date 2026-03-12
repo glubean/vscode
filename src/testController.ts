@@ -8,16 +8,14 @@
  * - Test Results panel
  *
  * Discovery: uses static regex parsing (parser.ts) on file open/save.
- * Execution: spawns `glubean run <file> --filter <id> --result-json --emit-full-trace`.
+ * Execution: uses @glubean/runner directly via executor.ts.
  */
 
 import * as vscode from "vscode";
-import * as cp from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import {
   findFreePort,
-  killProcessGroup,
   pollInspectorReady,
 } from "./testController/debug-utils";
 import { extractAliasesFromSource, extractTests, type TestMeta } from "./parser";
