@@ -11,6 +11,8 @@ ISSUES.md
 AGENTS.md
 package-lock.json
 .gitignore
+scripts/**
+.VSCodeCounter/**
 .cursor/**
 .github/**
 icon-128.png

@@ -52,6 +52,11 @@ export async function executeTest(
 ): Promise<GlubeanResult> {
   const runner = await getRunner();
 
+  // DEBUG: trace path resolution
+  console.log("[glubean-debug] executeTest called:", { filePath, cwd, testIds, options });
+  console.log("[glubean-debug] runner keys:", Object.keys(runner));
+  console.log("[glubean-debug] TestExecutor type:", typeof runner.TestExecutor);
+
   // Build execution context from .env files
   const { vars, secrets } = await loadProjectEnv(cwd, options.envFile);
 

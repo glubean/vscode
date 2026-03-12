@@ -642,7 +642,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Log activation
   const outputChannel = vscode.window.createOutputChannel("Glubean");
-  outputChannel.appendLine("Glubean extension activated");
+  outputChannel.appendLine("Glubean extension activated — DEV BUILD " + new Date().toLocaleString());
   context.subscriptions.push(outputChannel);
 }
 
