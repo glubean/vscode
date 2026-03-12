@@ -22,5 +22,8 @@ jobs:
       - name: Lint (type-check)
         run: npm run lint
 
-      - name: Build
-        run: npm run build:extension && npm run build:webview
+      - name: Build extension
+        run: npm run build:extension
+
+      - name: Build webview (JS only, skip Tailwind CSS)
+        run: npx esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --minify --sourcemap --jsx=automatic --jsx-import-source=preact
