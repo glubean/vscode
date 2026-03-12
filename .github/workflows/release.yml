@@ -91,7 +91,7 @@ jobs:
             ovsx publish "$vsix"
           done
         env:
-          OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
+          OVSX_PAT: ${{ secrets.OPEN_VSX_TOKEN }}
         continue-on-error: true  # Don't fail release if Open VSX is down
 
       - name: Create GitHub Release
@@ -99,6 +99,7 @@ jobs:
         with:
           files: "*.vsix"
           generate_release_notes: true
+          append_body: true
           body: |
             ## Install
 

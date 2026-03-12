@@ -378,8 +378,8 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // ── Debug profile ──────────────────────────────────────────────────────
-  // Uses --inspect-brk to pause the Deno harness subprocess, then
-  // attaches VSCode's Deno debug adapter so breakpoints in .test.ts work.
+  // Uses --inspect-brk to pause the harness subprocess, then
+  // attaches VSCode's debugger so breakpoints in .test.ts work.
   controller.createRunProfile(
     "Debug",
     vscode.TestRunProfileKind.Debug,

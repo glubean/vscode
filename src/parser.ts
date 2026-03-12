@@ -172,7 +172,7 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
   // Build a map of JSON imports: variable name → file path
   // Matches: import X from "./path.json" with { type: "json" }
   // Also matches: import X from "./path.json" assert { type: "json" }
-  // Also matches: import X from "./path.json" (bare, Deno supports it)
+  // Also matches: import X from "./path.json" (bare, no assertion)
   const jsonImports = new Map<string, string>();
   const importPattern = /import\s+(\w+)\s+from\s+["']([^"']+\.json)["']/g;
   let importMatch: RegExpExecArray | null;
