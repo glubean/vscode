@@ -258,11 +258,13 @@ export async function runWithPick(
       { envFile: envFileProvider?.(), pick: pickKey },
     );
 
+    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
     if (parsed.tests.length > 0) {
-      lastResultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+      lastResultJsonPath = resultJsonPath;
     }
 
-    await openPostRunViewer(filePath, filePath.replace(/\.ts$/, ".result.json"), parsed, `pick:${testId}`);
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed, `pick:${testId}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     outputChannel.appendLine(`Error: ${message}`);
