@@ -30,6 +30,7 @@ import {
   diffWithPrevious as diffWithPreviousTrace,
   openLatestTrace as openLatestTraceFile,
 } from "./testController/trace";
+import { writeRunArtifacts } from "./testController/artifacts";
 import {
   findPairIndexAtLine,
   normalizeFilterId,
@@ -1027,7 +1028,9 @@ async function debugHandler(
 
     applyResults([{ item, meta }], parsed, run);
 
-    await openPostRunViewer(filePath, filePath.replace(/\.ts$/, ".result.json"), parsed);
+    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     run.errored(item, new vscode.TestMessage(`Debug error: ${message}`));
@@ -1085,9 +1088,11 @@ async function runFile(
     );
 
     applyResults(tests, parsed, run);
-    lastResultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    lastResultJsonPath = resultJsonPath;
 
-    await openPostRunViewer(filePath, filePath.replace(/\.ts$/, ".result.json"), parsed);
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     for (const { item } of tests) {
@@ -1122,9 +1127,11 @@ async function runSingleTest(
     );
 
     applyResults([test], parsed, run);
-    lastResultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    lastResultJsonPath = resultJsonPath;
 
-    await openPostRunViewer(filePath, filePath.replace(/\.ts$/, ".result.json"), parsed, test.meta.id);
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed, test.meta.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     run.errored(
