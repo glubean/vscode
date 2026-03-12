@@ -38,8 +38,10 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies (not ci — lock file lacks linux optional deps)
-        run: npm install
+      - run: npm ci
+
+      - name: Install linux native binaries (lock file from macOS lacks them)
+        run: npm install @parcel/watcher-linux-x64-glibc lightningcss-linux-x64-gnu --no-save
 
       - run: npm run lint
 
