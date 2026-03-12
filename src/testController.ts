@@ -8,20 +8,18 @@
  * - Test Results panel
  *
  * Discovery: uses static regex parsing (parser.ts) on file open/save.
- * Execution: spawns `glubean run <file> --filter <id> --result-json --emit-full-trace`.
+ * Execution: uses @glubean/runner directly via executor.ts.
  */
 
 import * as vscode from "vscode";
-import * as cp from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import {
   findFreePort,
-  killProcessGroup,
   pollInspectorReady,
 } from "./testController/debug-utils";
 import { extractAliasesFromSource, extractTests, type TestMeta } from "./parser";
-import { execGlubean } from "./testController/exec";
+import { executeTest } from "./testController/executor";
 import {
   applyResults,
   readResultJson,
@@ -30,8 +28,8 @@ import {
   diffWithPrevious as diffWithPreviousTrace,
   openLatestTrace as openLatestTraceFile,
 } from "./testController/trace";
+import { writeRunArtifacts } from "./testController/artifacts";
 import {
-  buildArgs,
   findPairIndexAtLine,
   normalizeFilterId,
   shouldOpenResultViewer,
@@ -165,16 +163,6 @@ async function openPostRunViewer(
   }
 }
 
-/**
- * Optional pre-run check. When set, this function is called before test execution.
- * If it returns false, the run is aborted (e.g. missing dependencies).
- */
-let preRunCheck: (() => Promise<boolean>) | undefined;
-
-/** Register a pre-run check function (called by extension.ts to wire up dep check). */
-export function setPreRunCheck(fn: () => Promise<boolean>): void {
-  preRunCheck = fn;
-}
 
 /**
  * Optional env file provider. When set, returns the selected .env file path
@@ -187,17 +175,7 @@ export function setEnvFileProvider(fn: () => string | undefined): void {
   envFileProvider = fn;
 }
 
-/**
- * Optional glubean path provider. When set, returns the resolved path to the
- * glubean CLI binary (checking well-known install locations as fallback).
- * Falls back to the config setting if no provider is registered.
- */
-let glubeanPathProvider: (() => string) | undefined;
-
-/** Register a glubean path provider (called by extension.ts). */
-export function setGlubeanPathProvider(fn: () => string): void {
-  glubeanPathProvider = fn;
-}
+// CLI path provider removed — tests are now executed via @glubean/runner directly.
 
 // ---------------------------------------------------------------------------
 // Run complete listener
@@ -230,15 +208,6 @@ function classifyRunLocation(filePaths: string[]): RunSummary["location"] {
   return "other";
 }
 
-/** Resolve the glubean CLI path using the provider or config fallback. */
-function getGlubeanPath(): string {
-  if (glubeanPathProvider) {
-    return glubeanPathProvider();
-  }
-  const config = vscode.workspace.getConfiguration("glubean");
-  return config.get<string>("glubeanPath", "glubean");
-}
-
 /** Read the trace history limit from VS Code settings. */
 function getTraceLimit(): number | undefined {
   const config = vscode.workspace.getConfiguration("glubean");
@@ -263,22 +232,10 @@ export async function runWithPick(
   testId: string,
   pickKey?: string,
 ): Promise<void> {
-  // Pre-run dependency check
-  if (preRunCheck) {
-    const ok = await preRunCheck();
-    if (!ok) {
-      return;
-    }
-  }
 
-  const glubeanPath = getGlubeanPath();
+
   const cwd = workspaceRootFor(filePath);
-
-  // Normalize to a stable prefix filter
-  // e.g. "search-products-$_pick" → "search-products-"
   const filterId = normalizeFilterId(testId);
-
-  const args = buildArgs(filePath, filterId, pickKey, envFileProvider?.(), getTraceLimit());
 
   // Create a TestRun so output goes to the Test Results panel
   const run = controller.createTestRun(
@@ -288,29 +245,26 @@ export async function runWithPick(
   );
 
   outputChannel.appendLine(
-    `\n▶ ${glubeanPath} ${args.join(" ")} (pick: ${pickKey ?? "random"})`,
+    `\n▶ run ${filePath} (pick: ${pickKey ?? "random"})`,
   );
 
   try {
-    const result = await execGlubean(glubeanPath, args, cwd, run.token, run);
+    const parsed = await executeTest(
+      filePath,
+      [filterId],
+      cwd,
+      run.token,
+      run,
+      { envFile: envFileProvider?.(), pick: pickKey },
+    );
 
-    // Try to read result JSON and show in Test Results
     const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
-    const parsed = readResultJson(resultJsonPath);
-
-    if (parsed) {
+    if (parsed.tests.length > 0) {
       lastResultJsonPath = resultJsonPath;
-      run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
     }
 
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
     await openPostRunViewer(filePath, resultJsonPath, parsed, `pick:${testId}`);
-
-    if (result.stdout) {
-      outputChannel.appendLine(result.stdout);
-    }
-    if (result.stderr) {
-      outputChannel.appendLine(result.stderr);
-    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     outputChannel.appendLine(`Error: ${message}`);
@@ -424,8 +378,8 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // ── Debug profile ──────────────────────────────────────────────────────
-  // Uses --inspect-brk to pause the Deno harness subprocess, then
-  // attaches VSCode's Deno debug adapter so breakpoints in .test.ts work.
+  // Uses --inspect-brk to pause the harness subprocess, then
+  // attaches VSCode's debugger so breakpoints in .test.ts work.
   controller.createRunProfile(
     "Debug",
     vscode.TestRunProfileKind.Debug,
@@ -772,13 +726,7 @@ async function runHandler(
   request: vscode.TestRunRequest,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  // Pre-run dependency check
-  if (preRunCheck) {
-    const ok = await preRunCheck();
-    if (!ok) {
-      return;
-    }
-  }
+
 
   const runStartTime = Date.now();
   const run = controller.createTestRun(request);
@@ -899,13 +847,7 @@ async function debugHandler(
   request: vscode.TestRunRequest,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  // Pre-run dependency check
-  if (preRunCheck) {
-    const ok = await preRunCheck();
-    if (!ok) {
-      return;
-    }
-  }
+
 
   // Collect tests to debug (only the first test — debug one at a time)
   const testsToRun: Array<{
@@ -937,7 +879,6 @@ async function debugHandler(
   const { item, meta, filePath } = filtered[0];
   run.started(item);
 
-  const glubeanPath = getGlubeanPath();
   const cwd = workspaceRootFor(filePath);
 
   let port: number;
@@ -952,75 +893,51 @@ async function debugHandler(
     return;
   }
 
-  // Build args (no --inspect-brk here — it's passed via env var to the inner harness)
-  // Normalize the filter ID so data-driven tests (each:/pick:) resolve correctly.
-  const args = buildArgs(filePath, normalizeFilterId(meta.id), undefined, envFileProvider?.(), getTraceLimit());
+  const filterId = normalizeFilterId(meta.id);
 
   outputChannel.appendLine(
-    `\n[debug] ${glubeanPath} ${args.join(" ")} (debug port ${port})`,
+    `\n[debug] run ${filePath} --filter ${filterId} (debug port ${port})`,
   );
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
-  // Spawn the CLI process as a detached process group so we can kill
-  // the entire tree (CLI + harness) reliably.
-  // No shell: true — args array is passed directly to the binary, avoiding
-  // any shell interpolation of paths with spaces or special characters.
-  const proc = cp.spawn(glubeanPath, args, {
-    cwd,
-    detached: true, // create new process group for reliable cleanup
-    env: {
-      ...process.env,
-      FORCE_COLOR: "0",
-      GLUBEAN_INSPECT_BRK: String(port),
-    },
-  });
-
-  // Don't let the detached process keep the extension host alive
-  proc.unref();
-
-  // Ensure process-group kill happens at most once.
-  let processTerminated = false;
-  const terminateProcessGroup = (): void => {
-    if (processTerminated) return;
-    processTerminated = true;
-    killProcessGroup(proc);
-  };
-
-  // Handle cancellation
-  const cancelDisposable = cancellation.onCancellationRequested(() => {
-    terminateProcessGroup();
-  });
-
-  // Capture stdout for test results panel
-  proc.stdout?.on("data", (data: Buffer) => {
-    run.appendOutput(data.toString().replace(/\n/g, "\r\n"));
-  });
-
-  // Log stderr for debugging
-  proc.stderr?.on("data", (data: Buffer) => {
-    outputChannel.appendLine(`[stderr] ${data.toString().trimEnd()}`);
-  });
-
-  // Track process exit (may never fire if inspector keeps process alive)
-  const processExited = new Promise<number>((resolve) => {
-    proc.on("close", (code) => resolve(code ?? 1));
-  });
+  // Use the runner's inspectBrk option — it passes --inspect-brk to the
+  // harness subprocess directly (no CLI wrapper needed).
+  const ac = new AbortController();
+  const cancelDisposable = cancellation.onCancellationRequested(() => ac.abort());
 
   let debugEndedDisposable: vscode.Disposable | undefined;
   let safetyTimeoutHandle: NodeJS.Timeout | undefined;
 
+  // Run the test in a background task so we can attach the debugger
+  const runner = await import("@glubean/runner");
+  const { loadProjectEnv } = await import("./envLoader");
+  const { vars, secrets } = await loadProjectEnv(cwd, envFileProvider?.());
+  const { pathToFileURL } = await import("node:url");
+  const { resolve } = await import("node:path");
+
+  const executor = new runner.TestExecutor({
+    cwd,
+    emitFullTrace: true,
+    inspectBrk: port,
+  });
+
+  const fileUrl = pathToFileURL(resolve(cwd, filePath)).href;
+  const context: import("@glubean/runner").ExecutionContext = { vars, secrets };
+
+  // Start the test execution (it will pause at --inspect-brk)
+  const runIterator = executor.run(fileUrl, filterId, context, {
+    signal: ac.signal,
+  });
+
   try {
-    // Poll the inspector HTTP endpoint instead of parsing stderr.
-    // This works reliably even when stderr is inherited/buffered across
-    // multiple process layers (shell → node shim → deno CLI → deno harness).
+    // Poll the inspector HTTP endpoint
     outputChannel.appendLine(
       `[debug] Polling http://127.0.0.1:${port}/json ...`,
     );
     const wsUrl = await pollInspectorReady(port);
     outputChannel.appendLine(`[debug] Inspector ready: ${wsUrl}`);
 
-    // Attach VSCode debugger with continueOnAttach so it auto-continues
-    // past the --inspect-brk pause point.
+    // Attach VSCode debugger
     const debugSessionName = `Glubean Debug: ${meta.name || meta.id}`;
     const debugFolder = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(filePath),
@@ -1056,11 +973,7 @@ async function debugHandler(
       "[debug] Debugger attached, waiting for completion...",
     );
 
-    // With --inspect-brk, the process may stay alive after the test finishes
-    // because the V8 inspector keeps it running. We race three signals:
-    // 1. Process exits naturally (unlikely with --inspect-brk)
-    // 2. Debug session ends (user stops, debugger disconnects, etc.)
-    // 3. Safety timeout (5 min)
+    // Consume events from the runner while debug session is active
     const debugSessionEnded = new Promise<void>((resolve) => {
       debugEndedDisposable = vscode.debug.onDidTerminateDebugSession((session) => {
         if (session.name === debugSessionName) {
@@ -1074,50 +987,50 @@ async function debugHandler(
     const safetyTimeout = new Promise<void>((resolve) => {
       safetyTimeoutHandle = setTimeout(() => {
         outputChannel.appendLine(
-          "[debug] Safety timeout reached (5min), killing process",
+          "[debug] Safety timeout reached (5min), aborting",
         );
         resolve();
       }, SAFETY_TIMEOUT_MS);
     });
 
-    // Wait for any of the three signals
-    await Promise.race([processExited, debugSessionEnded, safetyTimeout]);
+    // Collect events while waiting for debug to end
+    const events: import("@glubean/runner").ExecutionEvent[] = [];
+    const eventCollector = (async () => {
+      for await (const event of runIterator) {
+        events.push(event);
+        // Stream output to Test Results panel
+        if (event.type === "log") {
+          run.appendOutput(`  ${event.message}\r\n`);
+        } else if (event.type === "assertion") {
+          run.appendOutput(`  ${event.passed ? "✓" : "✗"} ${event.message}\r\n`);
+        }
+      }
+    })();
 
-    // Give the CLI a grace period to write result JSON before killing.
-    // With --inspect-brk the harness stays alive after test completion;
-    // once the debugger disconnects, the process should exit naturally
-    // and the CLI writes results. Kill only if it doesn't exit in time.
-    const GRACE_MS = 1000;
-    const exitedInTime = await Promise.race([
-      processExited.then(() => true),
-      new Promise<false>((r) => setTimeout(() => r(false), GRACE_MS)),
-    ]);
+    // Wait for any signal
+    await Promise.race([eventCollector, debugSessionEnded, safetyTimeout]);
 
-    if (!exitedInTime) {
-      outputChannel.appendLine(
-        "[debug] Process still alive after debug session ended, killing",
-      );
-      terminateProcessGroup();
-      await new Promise((r) => setTimeout(r, 300));
+    // Abort if still running
+    ac.abort();
+
+    // Build result from collected events
+    let success = false;
+    let testName = filterId;
+    for (const event of events) {
+      if (event.type === "start") testName = event.name || filterId;
+      if (event.type === "status") success = event.status === "completed";
     }
 
-    // Try to read result JSON
+    const parsed = {
+      summary: { total: 1, passed: success ? 1 : 0, failed: success ? 0 : 1, skipped: 0, durationMs: 0 },
+      tests: [{ testId: filterId, testName, success, durationMs: 0, events: [] as any[] }],
+    };
+
+    applyResults([{ item, meta }], parsed, run);
+
     const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
-    const parsed = readResultJson(resultJsonPath);
-
-    if (parsed) {
-      applyResults([{ item, meta }], parsed, run);
-      lastResultJsonPath = resultJsonPath;
-
-      await openPostRunViewer(filePath, resultJsonPath, parsed);
-    } else {
-      run.errored(
-        item,
-        new vscode.TestMessage(
-          "No result JSON produced. The test may not have completed — check the output for errors.",
-        ),
-      );
-    }
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     run.errored(item, new vscode.TestMessage(`Debug error: ${message}`));
@@ -1128,7 +1041,7 @@ async function debugHandler(
     if (safetyTimeoutHandle) {
       clearTimeout(safetyTimeoutHandle);
     }
-    terminateProcessGroup();
+    ac.abort(); // ensure cleanup
     run.end();
   }
 }
@@ -1149,7 +1062,6 @@ function collectTests(
   }
 }
 
-// buildArgs is imported from ./testController.utils
 
 /**
  * Run all tests in a file (no --filter).
@@ -1160,50 +1072,27 @@ async function runFile(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const glubeanPath = getGlubeanPath();
-
-  const args = buildArgs(filePath, undefined, undefined, envFileProvider?.(), getTraceLimit());
   const cwd = workspaceRootFor(filePath);
 
-  outputChannel.appendLine(`\n▶ ${glubeanPath} ${args.join(" ")}`);
+  outputChannel.appendLine(`\n▶ run ${filePath}`);
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
   try {
-    const result = await execGlubean(glubeanPath, args, cwd, cancellation, run);
+    const parsed = await executeTest(
+      filePath,
+      undefined, // run all tests in file
+      cwd,
+      cancellation,
+      run,
+      { envFile: envFileProvider?.() },
+    );
 
-    // Try to read result JSON
+    applyResults(tests, parsed, run);
     const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
-    const parsed = readResultJson(resultJsonPath);
+    lastResultJsonPath = resultJsonPath;
 
-    if (parsed) {
-      applyResults(tests, parsed, run);
-      lastResultJsonPath = resultJsonPath;
-      run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
-    } else {
-      // Fallback to exit code
-      for (const { item } of tests) {
-        if (result.exitCode === 0) {
-          run.passed(item);
-        } else {
-          run.failed(
-            item,
-            new vscode.TestMessage(
-              result.stderr || "Test failed (no result details available)",
-            ),
-          );
-        }
-      }
-    }
-
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
     await openPostRunViewer(filePath, resultJsonPath, parsed);
-
-    // Also log to Output Channel for persistent reference
-    if (result.stdout) {
-      outputChannel.appendLine(result.stdout);
-    }
-    if (result.stderr) {
-      outputChannel.appendLine(result.stderr);
-    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     for (const { item } of tests) {
@@ -1222,49 +1111,27 @@ async function runSingleTest(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const glubeanPath = getGlubeanPath();
-
-  // For data-driven tests (each: / pick:), the parser ID is a synthetic
-  // template like "pick:search-products-$_pick" or "each:user-crud-$name".
-  // The runtime test IDs are e.g. "search-products-by-name".
-  // normalizeFilterId strips the prefix and template variables to get a
-  // substring filter that matches all expanded variants.
   const filterId = normalizeFilterId(test.meta.id);
-  const args = buildArgs(filePath, filterId, undefined, envFileProvider?.(), getTraceLimit());
   const cwd = workspaceRootFor(filePath);
 
-  outputChannel.appendLine(`\n▶ ${glubeanPath} ${args.join(" ")}`);
+  outputChannel.appendLine(`\n▶ run ${filePath} --filter ${filterId}`);
 
   try {
-    const result = await execGlubean(glubeanPath, args, cwd, cancellation, run);
+    const parsed = await executeTest(
+      filePath,
+      [filterId],
+      cwd,
+      cancellation,
+      run,
+      { envFile: envFileProvider?.() },
+    );
 
-    // Try to read result JSON
+    applyResults([test], parsed, run);
     const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
-    const parsed = readResultJson(resultJsonPath);
+    lastResultJsonPath = resultJsonPath;
 
-    if (parsed) {
-      applyResults([test], parsed, run);
-      lastResultJsonPath = resultJsonPath;
-      run.appendOutput(`\r\n📄 Result JSON: ${resultJsonPath}\r\n`);
-    } else {
-      if (result.exitCode === 0) {
-        run.passed(test.item);
-      } else {
-        run.failed(
-          test.item,
-          new vscode.TestMessage(result.stderr || "Test failed"),
-        );
-      }
-    }
-
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
     await openPostRunViewer(filePath, resultJsonPath, parsed, test.meta.id);
-
-    if (result.stdout) {
-      outputChannel.appendLine(result.stdout);
-    }
-    if (result.stderr) {
-      outputChannel.appendLine(result.stderr);
-    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     run.errored(

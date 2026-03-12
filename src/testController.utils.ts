@@ -175,45 +175,6 @@ export function shouldOpenResultViewer(
 // CLI argument builder
 // ---------------------------------------------------------------------------
 
-/**
- * Build CLI args for `glubean run`.
- * Always includes --verbose --pretty --result-json --emit-full-trace
- * for maximum output in the Test Results panel.
- *
- * @param filePath   Path to the test file
- * @param filterId   Optional test ID filter (--filter)
- * @param pickKey    Optional test.pick example key (--pick)
- * @param envFile    Optional env file path (--env-file)
- */
-export function buildArgs(
-  filePath: string,
-  filterId?: string,
-  pickKey?: string,
-  envFile?: string,
-  traceLimit?: number,
-): string[] {
-  const args = [
-    "run",
-    filePath,
-    "--verbose",
-    "--pretty",
-    "--result-json",
-    "--emit-full-trace",
-  ];
-  if (filterId) {
-    args.push("--filter", filterId);
-  }
-  if (pickKey) {
-    args.push("--pick", pickKey);
-  }
-  if (envFile) {
-    args.push("--env-file", envFile);
-  }
-  if (traceLimit && traceLimit !== 20) {
-    args.push("--trace-limit", String(traceLimit));
-  }
-  return args;
-}
 
 // ---------------------------------------------------------------------------
 // Formatting helpers

@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.12.10",
+  "version": "0.12.15",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -53,9 +53,7 @@
     "theme": "dark"
   },
   "activationEvents": [
-    "workspaceContains:**/*.test.ts",
-    "workspaceContains:**/deno.json",
-    "workspaceContains:**/deno.jsonc"
+    "workspaceContains:**/*.test.ts"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -70,12 +68,7 @@
     "configuration": {
       "title": "Glubean",
       "properties": {
-        "glubean.glubeanPath": {
-          "type": "string",
-          "default": "glubean",
-          "description": "Path to the glubean CLI executable"
-        },
-        "glubean.autoDiscover": {
+"glubean.autoDiscover": {
           "type": "boolean",
           "default": true,
           "description": "Automatically discover tests when files are opened or changed"
@@ -327,17 +320,18 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "npm run build:extension && npm run build:webview",
-    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify --sourcemap",
+    "build": "npm run build:extension && npm run build:webview && npm run build:vendor",
+    "build:vendor": "node scripts/vendor-runner.mjs",
+    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@glubean/runner --format=cjs --platform=node --minify --sourcemap",
     "build:webview": "esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --minify --sourcemap --jsx=automatic --jsx-import-source=preact && npx @tailwindcss/cli -i ./src/webview/styles.css -o ./dist/webview/styles.css -m",
     "watch": "concurrently \"npm:watch:*\"",
-    "watch:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch --sourcemap",
+    "watch:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@glubean/runner --format=cjs --platform=node --watch --sourcemap",
     "watch:webview": "esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --watch --sourcemap --jsx=automatic --jsx-import-source=preact",
     "watch:css": "npx @tailwindcss/cli -i ./src/webview/styles.css -o ./dist/webview/styles.css -w",
     "lint": "npm run lint:types && npm run lint:eslint",
     "lint:types": "tsc --noEmit",
     "lint:eslint": "eslint \"src/**/*.ts\"",
-    "package": "npx @vscode/vsce package",
+    "package": "npx @vscode/vsce package --no-dependencies",
     "publish": "npx @vscode/vsce publish",
     "install:vscode": "npm install && npm run package -- --out glubean.vsix && code --install-extension glubean.vsix",
     "install:cursor": "npm install && npm run package -- --out glubean.vsix && cursor --install-extension glubean.vsix"
@@ -361,7 +355,8 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@glubean/scanner": "npm:@jsr/glubean__scanner@^0.12.0",
+    "@glubean/runner": "^0.1.2",
+    "@glubean/scanner": "^0.1.2",
     "posthog-node": "^5.24.17"
   }
 }
