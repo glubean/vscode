@@ -1,4 +1,20 @@
 {
+  "GB Scratch Test": {
+    "prefix": ["gb-scratch", "gbs"],
+    "body": [
+      "import { test } from \"@glubean/sdk\";",
+      "",
+      "export const ${1:getProducts} = test(\"${2:get-products}\", async (ctx) => {",
+      "  const res = await ctx.http.get(\"${3:https://dummyjson.com/products}\");",
+      "  ctx.expect(res).toHaveStatus(200);",
+      "",
+      "  const data = await res.json();",
+      "  ctx.expect(data).toHaveProperty(\"products\");",
+      "  ctx.log(\"total\", data.total);",
+      "});"
+    ],
+    "description": "Complete scratch test — just type gb-scratch and hit ▶"
+  },
   "GB Import Test": {
     "prefix": ["gb-i", "gbi"],
     "body": [

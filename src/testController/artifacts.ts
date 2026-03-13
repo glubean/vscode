@@ -67,7 +67,7 @@ function writeTraceFiles(
     `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}` +
     `T${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`;
 
-  const baseName = path.basename(filePath).replace(/\.ts$/, "");
+  const baseName = path.basename(filePath).replace(/\.(ts|js|mjs)$/, "");
 
   for (const test of result.tests) {
     const pairs = extractTracePairs(test.events);

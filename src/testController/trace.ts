@@ -24,7 +24,7 @@ export async function openLatestTrace(
 ): Promise<void> {
   const cwd = deps.workspaceRootFor(filePath);
 
-  const baseName = path.basename(filePath).replace(/\.ts$/, "");
+  const baseName = path.basename(filePath).replace(/\.(ts|js|mjs)$/, "");
   const fileTracesDir = path.join(cwd, ".glubean", "traces", baseName);
 
   try {
@@ -94,7 +94,7 @@ export async function diffWithPrevious(
 
   const baseName = path
     .basename(resolved)
-    .replace(/\.ts$/, "")
+    .replace(/\.(ts|js|mjs)$/, "")
     .replace(/\.trace\.jsonc$/, ""); // allow calling from an open trace file
 
   const fileTracesDir = path.join(cwd, ".glubean", "traces", baseName);
