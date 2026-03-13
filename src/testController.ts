@@ -43,7 +43,8 @@ import {
 
 /**
  * Resolve the workspace folder that contains the given file path.
- * Falls back to the first workspace folder, then to the file's directory.
+ * Falls back to the file's own directory — this enables zero-project mode
+ * for standalone test files that aren't inside any workspace folder.
  */
 function workspaceRootFor(filePath: string): string {
   const fileUri = vscode.Uri.file(filePath);
@@ -51,13 +52,42 @@ function workspaceRootFor(filePath: string): string {
   if (folder) {
     return folder.uri.fsPath;
   }
-  return (
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-    path.dirname(filePath)
-  );
+  return path.dirname(filePath);
 }
 
 const traceModuleDeps = { workspaceRootFor };
+
+/**
+ * Detect scratch mode: file is not in any workspace folder, or cwd has no
+ * node_modules/@glubean/sdk (runner will inject its own).
+ */
+function isScratchMode(filePath: string): boolean {
+  const fileUri = vscode.Uri.file(filePath);
+  const folder = vscode.workspace.getWorkspaceFolder(fileUri);
+  if (!folder) return true;
+  return !fs.existsSync(path.join(folder.uri.fsPath, "node_modules", "@glubean", "sdk"));
+}
+
+let scratchModeHintShown = false;
+
+function showScratchModeHint(): void {
+  if (scratchModeHintShown) return;
+  scratchModeHintShown = true;
+
+  vscode.window
+    .showInformationMessage(
+      "Running in scratch mode — great for trying things out! Run `npx @glubean/cli@latest init` to create a full project.",
+      "Open Terminal",
+      "Don't show again",
+    )
+    .then((choice) => {
+      if (choice === "Open Terminal") {
+        const terminal = vscode.window.createTerminal("Glubean");
+        terminal.show();
+        terminal.sendText("# Run: npx @glubean/cli@latest init", false);
+      }
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Controller setup
@@ -258,7 +288,7 @@ export async function runWithPick(
       { envFile: envFileProvider?.(), pick: pickKey },
     );
 
-    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
     if (parsed.tests.length > 0) {
       lastResultJsonPath = resultJsonPath;
     }
@@ -1028,7 +1058,7 @@ async function debugHandler(
 
     applyResults([{ item, meta }], parsed, run);
 
-    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
     writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
     await openPostRunViewer(filePath, resultJsonPath, parsed);
   } catch (err) {
@@ -1077,6 +1107,8 @@ async function runFile(
   outputChannel.appendLine(`\n▶ run ${filePath}`);
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
+  if (isScratchMode(filePath)) showScratchModeHint();
+
   try {
     const parsed = await executeTest(
       filePath,
@@ -1088,7 +1120,7 @@ async function runFile(
     );
 
     applyResults(tests, parsed, run);
-    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
     lastResultJsonPath = resultJsonPath;
 
     writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
@@ -1116,6 +1148,8 @@ async function runSingleTest(
 
   outputChannel.appendLine(`\n▶ run ${filePath} --filter ${filterId}`);
 
+  if (isScratchMode(filePath)) showScratchModeHint();
+
   try {
     const parsed = await executeTest(
       filePath,
@@ -1127,7 +1161,7 @@ async function runSingleTest(
     );
 
     applyResults([test], parsed, run);
-    const resultJsonPath = filePath.replace(/\.ts$/, ".result.json");
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
     lastResultJsonPath = resultJsonPath;
 
     writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);

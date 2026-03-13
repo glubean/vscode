@@ -22,41 +22,32 @@
   <a href="https://chatgpt.com/g/g-699e31ce19bc8191b748165f46449039-glubean"><img alt="💬 Ask AI about Glubean" src="https://img.shields.io/badge/%F0%9F%92%AC%20Ask%20AI%20about%20Glubean-ChatGPT-10a37f?style=for-the-badge" /></a>
 </p>
 
-## Show me the code
-
-```typescript
-import { test } from "@glubean/sdk";
-
-export const getProduct = test("get-product", async (ctx) => {
-  const res = await ctx.http.get("https://dummyjson.com/products/1");
-  ctx.expect(res).toHaveStatus(200);
-
-  const body = await res.json();
-  ctx.expect(body).toHaveProperties(["title", "brand"]);
-});
-```
-
-Click the **▶** button next to `test(` to run it. The response opens in the Trace Viewer right beside your code.
-
-## Why Glubean?
-
-- **Native editor DX** — run API tests from the gutter, see results in the Test Explorer, debug with breakpoints. No browser tabs.
-- **Self-contained** — the extension ships with everything it needs. No external runtime or CLI to install. Just install and go.
-- **AI-friendly SDK** — rich JSDoc, `@example` tags, and explicit types mean any AI assistant can generate correct tests from a spec or a natural language prompt.
-- **Trace & Diff** — inspect runs in the Trace Viewer, keep history, and diff against the last run instantly.
-- **Git-friendly** — your collections are `.ts` files. Review them like code, version them like code.
-
 ## Quick Start
 
 **1. Install** — from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Glubean.glubean), [Open VSX](https://open-vsx.org/extension/Glubean/glubean), or download a [VSIX](https://github.com/glubean/vscode/releases) for Cursor / VSCodium.
 
-**2. Scaffold** — run **Glubean: Initialize Project** from the Command Palette (`Cmd+Shift+P`).
+**2. Try it** — create a `.test.js` file, type `gb-scratch` to insert a starter test, and click **▶**:
 
-**3. Explore first** — start in `explore/`, run fast checks with **▶**, inspect Trace Viewer output.
+```javascript
+import { test } from "@glubean/sdk";
 
-**4. Promote to regression** — move stable checks into `tests/` and run them in CI.
+export const getProducts = test("get-products", async (ctx) => {
+  const res = await ctx.http.get("https://dummyjson.com/products");
+  ctx.expect(res).toHaveStatus(200);
+
+  const data = await res.json();
+  ctx.expect(data).toHaveProperty("products");
+  ctx.log("total", data.total);
+});
+```
+
+No `npm install`, no `package.json`, no setup. The response opens in the Trace Viewer right beside your code.
+
+**3. Create a project** — when you're ready for the full experience, run `npx @glubean/cli@latest init` in your terminal to scaffold a proper project with environments, secrets, CI config, and more.
 
 For the full walkthrough, see the [Quick Start guide](https://docs.glubean.com/extension/quick-start).
+
+> **Scratch mode vs Project mode** — The single-file experience above is scratch mode: great for trying things out and quick API checks. It supports running tests, viewing traces, and seeing pass/fail results. For `.env` files, secrets, `test.each` / `test.pick`, CI upload, and project-level configuration, create a project with `npx @glubean/cli@latest init`.
 
 ## Features at a Glance
 
@@ -89,7 +80,7 @@ Each feature is documented in detail at **[docs.glubean.com](https://docs.glubea
 
 ## How It Works
 
-1. **Discovery** — static regex scans `*.test.ts` for `test()`, `test.each()`, `test.pick()` patterns.
+1. **Discovery** — static regex scans `*.test.{ts,js,mjs}` for `test()`, `test.each()`, `test.pick()` patterns.
 2. **Display** — each test becomes a `TestItem` with ▶ buttons in the gutter and Test Explorer.
 3. **Execution** — clicking ▶ runs the test via the bundled `@glubean/runner`. No external process needed.
 4. **Traces** — the runner streams events; the extension writes `.trace.jsonc` to `.glubean/traces/` and opens the latest in the Trace Viewer.
