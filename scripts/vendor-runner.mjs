@@ -42,6 +42,28 @@ execSync(`npm install --omit=dev @glubean/runner ${platformFlags}`, {
   stdio: "inherit",
 });
 
+// esbuild uses optionalDependencies per platform. npm's --os/--cpu flags
+// don't reliably cross-install them on a different host OS (e.g. linux CI
+// building for darwin). Force-install the correct platform package and
+// remove any wrong-platform ones.
+if (targetOs && targetCpu) {
+  const wantedPkg = `@esbuild/${targetOs}-${targetCpu}`;
+  console.log(`Force-installing ${wantedPkg} for cross-platform build...`);
+  execSync(`npm install ${wantedPkg}`, { cwd: tmp, stdio: "inherit" });
+
+  // Remove any other @esbuild/* platform packages
+  const esbuildDir = join(tmp, "node_modules", "@esbuild");
+  const wanted = `${targetOs}-${targetCpu}`;
+  try {
+    const { readdirSync } = await import("node:fs");
+    for (const entry of readdirSync(esbuildDir)) {
+      if (entry !== wanted) {
+        rmSync(join(esbuildDir, entry), { recursive: true, force: true });
+      }
+    }
+  } catch {}
+}
+
 // Copy resolved node_modules to dist/
 cpSync(join(tmp, "node_modules"), vendorRoot, { recursive: true });
 
