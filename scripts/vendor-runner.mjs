@@ -49,7 +49,7 @@ execSync(`npm install --omit=dev @glubean/runner ${platformFlags}`, {
 if (targetOs && targetCpu) {
   const wantedPkg = `@esbuild/${targetOs}-${targetCpu}`;
   console.log(`Force-installing ${wantedPkg} for cross-platform build...`);
-  execSync(`npm install ${wantedPkg}`, { cwd: tmp, stdio: "inherit" });
+  execSync(`npm install --force ${wantedPkg}`, { cwd: tmp, stdio: "inherit" });
 
   // Remove any other @esbuild/* platform packages
   const esbuildDir = join(tmp, "node_modules", "@esbuild");
