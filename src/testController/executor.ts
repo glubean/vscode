@@ -95,7 +95,7 @@ export async function executeTest(
         // Detect missing Node.js and show actionable notification
         if (event.type === "error" && typeof event.message === "string" && event.message.startsWith("NODE_NOT_FOUND:")) {
           vscode.window.showErrorMessage(
-            "Node.js 20+ is required to run Glubean tests. Please install Node.js first.",
+            "Node.js 20+ is required to run Glubean tests. Install Node.js, then restart VS Code (not just Reload Window).",
             "Download Node.js",
           ).then((choice) => {
             if (choice === "Download Node.js") {
