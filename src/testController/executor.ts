@@ -92,6 +92,18 @@ export async function executeTest(
         signal: ac.signal,
         exportName: options.exportName,
       })) {
+        // Detect missing Node.js and show actionable notification
+        if (event.type === "error" && typeof event.message === "string" && event.message.startsWith("NODE_NOT_FOUND:")) {
+          vscode.window.showErrorMessage(
+            "Node.js 20+ is required to run Glubean tests. Please install Node.js first.",
+            "Download Node.js",
+          ).then((choice) => {
+            if (choice === "Download Node.js") {
+              vscode.env.openExternal(vscode.Uri.parse("https://nodejs.org"));
+            }
+          });
+        }
+
         // Stream formatted output to Test Results panel
         const line = formatEvent(event);
         if (line) {

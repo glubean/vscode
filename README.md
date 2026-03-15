@@ -22,6 +22,10 @@
   <a href="https://chatgpt.com/g/g-699e31ce19bc8191b748165f46449039-glubean"><img alt="💬 Ask AI about Glubean" src="https://img.shields.io/badge/%F0%9F%92%AC%20Ask%20AI%20about%20Glubean-ChatGPT-10a37f?style=for-the-badge" /></a>
 </p>
 
+## Prerequisites
+
+- **Node.js 20+** — [download here](https://nodejs.org). The extension runs tests via Node.js subprocess.
+
 ## Quick Start
 
 **1. Install** — from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Glubean.glubean), [Open VSX](https://open-vsx.org/extension/Glubean/glubean), or download a [VSIX](https://github.com/glubean/vscode/releases) for Cursor / VSCodium.
