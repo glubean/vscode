@@ -4,7 +4,7 @@
  * Runner is published to npm, so we just `npm install` it in a temp dir
  * and copy the resolved node_modules. Clean and simple.
  */
-import { cpSync, rmSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, rmSync, mkdtempSync, writeFileSync, readdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -55,9 +55,9 @@ if (targetOs && targetCpu) {
   const esbuildDir = join(tmp, "node_modules", "@esbuild");
   const wanted = `${targetOs}-${targetCpu}`;
   try {
-    const { readdirSync } = await import("node:fs");
     for (const entry of readdirSync(esbuildDir)) {
       if (entry !== wanted) {
+        console.log(`  Removing wrong-platform @esbuild/${entry}`);
         rmSync(join(esbuildDir, entry), { recursive: true, force: true });
       }
     }
