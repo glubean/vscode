@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.12.25",
+  "version": "0.12.26",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -328,7 +328,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "npm run build:extension && npm run build:webview && npm run build:vendor",
+    "build": "npm run build:extension && npm run build:webview",
     "build:vendor": "node scripts/vendor-runner.mjs",
     "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@glubean/runner --format=cjs --platform=node --minify --sourcemap",
     "build:webview": "esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --minify --sourcemap --jsx=automatic --jsx-import-source=preact && npx @tailwindcss/cli -i ./src/webview/styles.css -o ./dist/webview/styles.css -m",
