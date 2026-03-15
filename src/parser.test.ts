@@ -24,20 +24,6 @@ describe("isGlubeanFile", () => {
     assert.equal(isGlubeanFile('import { test } from "@glubean/sdk";'), true);
   });
 
-  it("detects jsr:@glubean/sdk import", () => {
-    assert.equal(
-      isGlubeanFile('import { test } from "jsr:@glubean/sdk";'),
-      true,
-    );
-  });
-
-  it("detects jsr:@glubean/sdk@version import", () => {
-    assert.equal(
-      isGlubeanFile('import { test } from "jsr:@glubean/sdk@0.5.0";'),
-      true,
-    );
-  });
-
   it("rejects files without SDK import", () => {
     assert.equal(isGlubeanFile('import { test } from "vitest";'), false);
     assert.equal(isGlubeanFile("const x = 1;"), false);

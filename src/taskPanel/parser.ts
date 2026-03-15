@@ -8,8 +8,7 @@ export interface TaskDef {
   workspaceRoot: string;
 }
 
-const GLUBEAN_RUN_RE =
-  /(?:^glubean\s+run\b|gb\s+run\b|jsr:@glubean\/cli(?:@[^\s]*)?\s+run\b)/;
+const GLUBEAN_RUN_RE = /(?:^glubean\s+run\b)/;
 
 export function isGlubeanRunTask(cmd: string): boolean {
   return GLUBEAN_RUN_RE.test(cmd);
@@ -17,7 +16,7 @@ export function isGlubeanRunTask(cmd: string): boolean {
 
 /**
  * Read `package.json` from a workspace root and return every
- * script whose command invokes `glubean run` or `gb run`.
+ * script whose command invokes `glubean run`.
  */
 export function parseTasksFromRoot(workspaceRoot: string): TaskDef[] {
   const configPath = path.join(workspaceRoot, "package.json");
