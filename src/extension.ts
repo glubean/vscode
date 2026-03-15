@@ -483,10 +483,122 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("glubean.checkDependencies", () => {
-      vscode.window.showInformationMessage(
-        "Glubean runs on Node.js (bundled with VS Code). No additional setup needed.",
-      );
+    vscode.commands.registerCommand("glubean.initProject", async () => {
+      const doc = await vscode.workspace.openTextDocument({
+        language: "markdown",
+        content: `# Initialize a Glubean Project
+
+## Quick Start
+
+Run the following command in your terminal:
+
+\`\`\`bash
+npx @glubean/cli@latest init
+\`\`\`
+
+This will scaffold a project with:
+- \`package.json\` with \`@glubean/sdk\` dependency
+- \`tsconfig.json\` configured for TypeScript tests
+- \`.env\` and \`.env.secrets\` for environment variables
+- \`tests/\` directory with a starter test file
+- AI instruction files for Claude / ChatGPT / Copilot
+
+## Two Ways to Write Tests
+
+### 1. Quick Mode — simple, flat tests
+
+\`\`\`typescript
+import { test } from "@glubean/sdk";
+
+export const healthCheck = test("health-check", async (ctx) => {
+  const res = await ctx.http.get("https://api.example.com/health");
+  ctx.expect(res.status).toBe(200);
+});
+\`\`\`
+
+### 2. Builder Mode — multi-step workflows with setup/teardown
+
+\`\`\`typescript
+import { test } from "@glubean/sdk";
+
+export const userFlow = test("user-flow")
+  .setup(async (ctx) => {
+    const token = await login(ctx);
+    return { token };
+  })
+  .step("create user", async (ctx, { token }) => {
+    // ...
+  })
+  .step("verify user", async (ctx, state) => {
+    // ...
+  })
+  .teardown(async (ctx, state) => {
+    // cleanup
+  })
+  .build();
+\`\`\`
+
+## Cookbook & Examples
+
+Browse real-world examples at:
+https://github.com/glubean/cookbook
+
+Includes patterns for:
+- REST API testing (CRUD, auth, pagination)
+- GraphQL queries and mutations
+- Browser automation with Puppeteer
+- Data-driven tests (CSV, JSON)
+- Multi-step workflow verification
+
+## Next Steps
+
+1. Run \`npx @glubean/cli@latest init\` in your terminal
+2. Open the generated \`.test.ts\` file
+3. Click the ▶ button to run your first test
+`,
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+
+      // Also open terminal with the init command ready
+      const terminal = vscode.window.createTerminal("Glubean Init");
+      terminal.show();
+      terminal.sendText("npx @glubean/cli@latest init", false);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.checkDependencies", async () => {
+      try {
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const exec = promisify(execFile);
+        const { stdout } = await exec("node", ["--version"]);
+        const version = stdout.trim();
+        const major = parseInt(version.replace("v", ""), 10);
+        if (major >= 20) {
+          vscode.window.showInformationMessage(
+            `Node.js ${version} detected. You're all set!`,
+          );
+        } else {
+          vscode.window.showWarningMessage(
+            `Node.js ${version} detected but 20+ is required.`,
+            "Download Node.js",
+          ).then((choice) => {
+            if (choice === "Download Node.js") {
+              vscode.env.openExternal(vscode.Uri.parse("https://nodejs.org"));
+            }
+          });
+        }
+      } catch {
+        vscode.window.showErrorMessage(
+          "Node.js not found. Glubean requires Node.js 20+ to run tests.",
+          "Download Node.js",
+        ).then((choice) => {
+          if (choice === "Download Node.js") {
+            vscode.env.openExternal(vscode.Uri.parse("https://nodejs.org"));
+          }
+        });
+      }
     }),
   );
 
