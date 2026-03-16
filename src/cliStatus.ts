@@ -218,7 +218,7 @@ export function activateCliStatus(
   // Update on active editor change
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => {
-      updateForFolder(getActiveFolderPath(), context);
+      void updateForFolder(getActiveFolderPath(), context);
     }),
   );
 
@@ -226,7 +226,7 @@ export function activateCliStatus(
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       scanWorkspaceFolders();
-      updateForFolder(getActiveFolderPath(), context);
+      void updateForFolder(getActiveFolderPath(), context);
     }),
   );
 
@@ -236,7 +236,7 @@ export function activateCliStatus(
   );
   const onCliChange = () => {
     scanWorkspaceFolders();
-    updateForFolder(getActiveFolderPath(), context);
+    void updateForFolder(getActiveFolderPath(), context);
   };
   cliWatcher.onDidCreate(onCliChange);
   cliWatcher.onDidChange(onCliChange);
@@ -249,11 +249,11 @@ export function activateCliStatus(
   );
   const onPkgChange = () => {
     scanWorkspaceFolders();
-    updateForFolder(getActiveFolderPath(), context);
+    void updateForFolder(getActiveFolderPath(), context);
   };
   pkgWatcher.onDidChange(onPkgChange);
   context.subscriptions.push(pkgWatcher);
 
   // Initial update (async, non-blocking)
-  updateForFolder(getActiveFolderPath(), context);
+  void updateForFolder(getActiveFolderPath(), context);
 }
