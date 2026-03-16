@@ -49,17 +49,34 @@ function isGlubeanProject(folderPath: string): boolean {
 }
 
 function getInstalledCliVersion(folderPath: string): string | undefined {
+  // Check local node_modules first
   try {
-    const cliPkgPath = path.join(
+    const localPkgPath = path.join(
       folderPath,
       "node_modules",
       "@glubean",
       "cli",
       "package.json",
     );
-    if (!fs.existsSync(cliPkgPath)) return undefined;
-    const pkg = JSON.parse(fs.readFileSync(cliPkgPath, "utf-8"));
-    return pkg.version;
+    if (fs.existsSync(localPkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(localPkgPath, "utf-8"));
+      return pkg.version;
+    }
+  } catch {
+    // fall through to global check
+  }
+
+  // Check global — resolve from the glubean bin
+  try {
+    const { execSync } = require("node:child_process");
+    const output = execSync("glubean --version", {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    // Output format: "glubean/0.1.12" or just "0.1.12"
+    const match = output.match(/(\d+\.\d+\.\d+)/);
+    return match ? match[1] : undefined;
   } catch {
     return undefined;
   }
@@ -174,7 +191,7 @@ export function activateCliStatus(
   statusBarItem.command = "glubean.cliAction";
   context.subscriptions.push(statusBarItem);
 
-  // Register click command
+  // Register click command — install/upgrade locally
   context.subscriptions.push(
     vscode.commands.registerCommand("glubean.cliAction", () => {
       if (currentAction === "none") {
@@ -184,8 +201,8 @@ export function activateCliStatus(
 
       const cmd =
         currentAction === "install"
-          ? "npm install -g @glubean/cli"
-          : "npm update -g @glubean/cli";
+          ? "npm install --save-dev @glubean/cli"
+          : "npm update @glubean/cli";
 
       const terminal =
         vscode.window.activeTerminal ??
@@ -212,6 +229,30 @@ export function activateCliStatus(
       updateForFolder(getActiveFolderPath(), context);
     }),
   );
+
+  // Watch for CLI package changes (install/upgrade/remove)
+  const cliWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/node_modules/@glubean/cli/package.json",
+  );
+  const onCliChange = () => {
+    scanWorkspaceFolders();
+    updateForFolder(getActiveFolderPath(), context);
+  };
+  cliWatcher.onDidCreate(onCliChange);
+  cliWatcher.onDidChange(onCliChange);
+  cliWatcher.onDidDelete(onCliChange);
+  context.subscriptions.push(cliWatcher);
+
+  // Also watch for SDK dependency changes (project becomes/stops being glubean project)
+  const pkgWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/package.json",
+  );
+  const onPkgChange = () => {
+    scanWorkspaceFolders();
+    updateForFolder(getActiveFolderPath(), context);
+  };
+  pkgWatcher.onDidChange(onPkgChange);
+  context.subscriptions.push(pkgWatcher);
 
   // Initial update (async, non-blocking)
   updateForFolder(getActiveFolderPath(), context);
