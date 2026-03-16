@@ -8,6 +8,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as testController from "./testController";
+import { activateCliStatus } from "./cliStatus";
 import { createHoverProvider } from "./hoverProvider";
 import { createPickCodeLensProvider } from "./codeLensProvider";
 import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
@@ -218,6 +219,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── Environment switcher ───────────────────────────────────────────────
   activateEnvSwitcher(context);
+  activateCliStatus(context);
   testController.setEnvFileProvider(getSelectedEnvFile);
 
   // ── Hover provider (vars/secrets preview) ─────────────────────────────
