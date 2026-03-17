@@ -245,7 +245,7 @@
       "  vars: { baseUrl: \"${1:BASE_URL}\" },",
       "  secrets: { apiKey: \"${2:API_KEY}\" },",
       "  http: {",
-      "    prefixUrl: \"${3:BASE_URL}\",",
+      "    prefixUrl: \"{{${3:BASE_URL}}}\",",
       "    headers: { Authorization: \"Bearer {{${4:API_KEY}}}\" },",
       "  },",
       "});"
