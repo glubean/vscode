@@ -54,5 +54,33 @@ export async function loadProjectEnv(
   const secretsFile = envFile === ".env" ? ".env.secrets" : `${envFile}.secrets`;
   const secrets = await tryReadEnv(join(rootDir, secretsFile));
 
-  return { vars, secrets };
+  // Expand ${NAME} references: same-file values first, then process.env
+  const merged = { ...vars, ...secrets };
+  const expanded = expandVars(merged);
+
+  // Split back into vars and secrets based on original keys
+  const expandedVars: Record<string, string> = {};
+  const expandedSecrets: Record<string, string> = {};
+  for (const key of Object.keys(vars)) {
+    expandedVars[key] = expanded[key];
+  }
+  for (const key of Object.keys(secrets)) {
+    expandedSecrets[key] = expanded[key];
+  }
+
+  return { vars: expandedVars, secrets: expandedSecrets };
+}
+
+/**
+ * Expand `${NAME}` references in env values.
+ * Lookup: already-resolved values → process.env → empty string.
+ */
+export function expandVars(vars: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    result[key] = value.replace(/\$\{(\w+)\}/g, (_, name: string) => {
+      return result[name] ?? process.env[name] ?? "";
+    });
+  }
+  return result;
 }
