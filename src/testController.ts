@@ -102,6 +102,7 @@ const fileItems = new Map<string, vscode.TestItem>();
 /** Root group nodes for Test Explorer tree */
 let testsRoot: vscode.TestItem | undefined;
 let exploreRoot: vscode.TestItem | undefined;
+const projectNodes = new Map<string, vscode.TestItem>(); // "explore:root" or "tests:root" → project node
 
 // ---------------------------------------------------------------------------
 // Alias registry — auto-detected test.extend() / task.extend() function names
@@ -666,18 +667,60 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
 
   // Route to the appropriate root group node based on directory
   // Explore is listed first (primary use case in IDE)
+  //
+  // Tree structure (multi-project):
+  //   Explore
+  //     └─ cookbook
+  //     │    └─ smoke.test.ts
+  //     └─ tests
+  //          └─ rp2-solution.test.ts
+  //   Tests
+  //     └─ tests
+  //          └─ api/health.test.ts
+  //
+  // Single project: skip the project layer.
+
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  const multiProject = folders.length > 1;
+  const folderObj = folders.find((f) => f.uri.fsPath === workspaceRoot);
+  const projectName = folderObj?.name ?? path.basename(workspaceRoot);
+
   if (isExplore) {
     if (!exploreRoot) {
       exploreRoot = controller.createTestItem("glubean-explore", "Explore");
       controller.items.add(exploreRoot);
     }
-    exploreRoot.children.add(fileItem);
+    if (multiProject) {
+      const projectKey = `explore:${workspaceRoot}`;
+      let projectNode = projectNodes.get(projectKey);
+      if (!projectNode) {
+        projectNode = controller.createTestItem(projectKey, projectName);
+        projectNode.iconPath = new vscode.ThemeIcon("root-folder");
+        projectNodes.set(projectKey, projectNode);
+        exploreRoot.children.add(projectNode);
+      }
+      projectNode.children.add(fileItem);
+    } else {
+      exploreRoot.children.add(fileItem);
+    }
   } else {
     if (!testsRoot) {
       testsRoot = controller.createTestItem("glubean-tests", "Tests");
       controller.items.add(testsRoot);
     }
-    testsRoot.children.add(fileItem);
+    if (multiProject) {
+      const projectKey = `tests:${workspaceRoot}`;
+      let projectNode = projectNodes.get(projectKey);
+      if (!projectNode) {
+        projectNode = controller.createTestItem(projectKey, projectName);
+        projectNode.iconPath = new vscode.ThemeIcon("root-folder");
+        projectNodes.set(projectKey, projectNode);
+        testsRoot.children.add(projectNode);
+      }
+      projectNode.children.add(fileItem);
+    } else {
+      testsRoot.children.add(fileItem);
+    }
   }
 }
 
