@@ -692,6 +692,7 @@ Includes patterns for:
             args.filePath,
             args.testId,
             args.pickKey,
+            args.exportName,
           );
         } finally {
           pickCodeLensProvider.clearRunning(args.filePath, args.testId);
@@ -748,6 +749,7 @@ Includes patterns for:
             args.filePath,
             args.testId,
             pickKey,
+            args.exportName,
           );
         } finally {
           pickCodeLensProvider.clearRunning(args.filePath, args.testId);

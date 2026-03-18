@@ -257,11 +257,13 @@ function getTraceLimit(): number | undefined {
  * @param filePath Path to the test file
  * @param testId The test ID template from parser (e.g. "pick:search-products-$_pick")
  * @param pickKey The example key to pass via --pick (undefined = random)
+ * @param exportName The JS export name (e.g. "directions") for fallback lookup
  */
 export async function runWithPick(
   filePath: string,
   testId: string,
   pickKey?: string,
+  exportName?: string,
 ): Promise<void> {
 
 
@@ -286,7 +288,7 @@ export async function runWithPick(
       cwd,
       run.token,
       run,
-      { envFile: envFileProvider?.(), pick: pickKey },
+      { envFile: envFileProvider?.(), pick: pickKey, exportName },
     );
 
     const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");

@@ -76,6 +76,16 @@ export async function executeTest(
 
   const testResults: GlubeanResult["tests"] = [];
 
+  // Set GLUBEAN_PICK env var for pick-based test selection.
+  // The runner copies process.env into the harness subprocess, so
+  // setting it here propagates to the SDK's pick resolution logic.
+  const previousPick = process.env["GLUBEAN_PICK"];
+  if (options.pick) {
+    process.env["GLUBEAN_PICK"] = options.pick;
+  } else {
+    delete process.env["GLUBEAN_PICK"];
+  }
+
   try {
     // Determine which test IDs to run
     const idsToRun = testIds ?? (await discoverTestIds(fileUrl));
@@ -132,6 +142,12 @@ export async function executeTest(
       });
     }
   } finally {
+    // Restore previous GLUBEAN_PICK value to avoid leaking across runs
+    if (previousPick !== undefined) {
+      process.env["GLUBEAN_PICK"] = previousPick;
+    } else {
+      delete process.env["GLUBEAN_PICK"];
+    }
     disposable.dispose();
   }
 
