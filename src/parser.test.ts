@@ -7,7 +7,8 @@
 
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { extractPickExamples, extractTests, isGlubeanFile } from "./parser";
+import { extractTests, isGlubeanFile } from "./parser";
+import { extractPickExamples } from "@glubean/scanner/static";
 
 // ---------------------------------------------------------------------------
 // Helpers

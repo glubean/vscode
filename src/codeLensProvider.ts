@@ -14,7 +14,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { extractPickExamples, type PickMeta } from "./parser";
+import { extractPickExamples, type PickMeta } from "@glubean/scanner/static";
 import { getAliases } from "./testController";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
@@ -93,7 +93,10 @@ class PickCodeLensProvider
     _token: vscode.CancellationToken
   ): vscode.CodeLens[] {
     const content = document.getText();
-    const pickMetas = extractPickExamples(content, getAliases());
+    const pickMetas = extractPickExamples(content, {
+      customFns: getAliases(),
+      filePath: document.uri.fsPath,
+    });
     if (pickMetas.length === 0) {
       return [];
     }

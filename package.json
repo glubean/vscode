@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.12.39",
+  "version": "0.12.40",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -364,7 +364,7 @@
   },
   "dependencies": {
     "@glubean/runner": "^0.1.20",
-    "@glubean/scanner": "^0.1.18",
+    "@glubean/scanner": "^0.1.20",
     "posthog-node": "^5.24.17"
   }
 }
