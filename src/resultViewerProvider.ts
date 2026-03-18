@@ -18,6 +18,8 @@ export interface TimelineEvent {
   type: string;
   message?: string;
   passed?: boolean;
+  actual?: unknown;
+  expected?: unknown;
   data?: { method?: string; url?: string; status?: number; duration?: number };
 }
 
@@ -221,6 +223,12 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
                 type: e.type,
                 message: e.message,
                 passed: e.passed,
+                ...(e.type === "assertion" && e.actual !== undefined
+                  ? { actual: e.actual }
+                  : {}),
+                ...(e.type === "assertion" && e.expected !== undefined
+                  ? { expected: e.expected }
+                  : {}),
                 data: e.data
                   ? {
                       method: e.data.method,

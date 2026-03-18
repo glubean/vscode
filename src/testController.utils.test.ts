@@ -57,12 +57,12 @@ describe("normalizeFilterId", () => {
 // ---------------------------------------------------------------------------
 
 describe("shouldOpenResultViewer", () => {
-  it("returns true for pick: prefix (data-driven)", () => {
-    assert.equal(shouldOpenResultViewer("pick:search-$_pick", 1), true);
+  it("returns false for pick: prefix with single test (opens trace viewer)", () => {
+    assert.equal(shouldOpenResultViewer("pick:search-$_pick", 1), false);
   });
 
-  it("returns true for each: prefix (data-driven)", () => {
-    assert.equal(shouldOpenResultViewer("each:get-user-$id", 1), true);
+  it("returns false for each: prefix with single test (opens trace viewer)", () => {
+    assert.equal(shouldOpenResultViewer("each:get-user-$id", 1), false);
   });
 
   it("returns true for multiple tests even without prefix", () => {
@@ -83,6 +83,14 @@ describe("shouldOpenResultViewer", () => {
 
   it("returns false for zero tests without prefix", () => {
     assert.equal(shouldOpenResultViewer("health-check", 0), false);
+  });
+
+  it("returns true for pick: prefix with multiple tests", () => {
+    assert.equal(shouldOpenResultViewer("pick:search-$_pick", 3), true);
+  });
+
+  it("returns true for each: prefix with multiple tests", () => {
+    assert.equal(shouldOpenResultViewer("each:get-user-$id", 5), true);
   });
 });
 

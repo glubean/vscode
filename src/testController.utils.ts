@@ -154,21 +154,18 @@ export function matchTestResults(
  * Determine whether the result viewer (data table) should open after a run,
  * as opposed to the trace viewer (single-test detail).
  *
- * Opens the result viewer when:
- * - The run is data-driven (test.each / test.pick) — metaId starts with "each:" or "pick:"
- * - The run produced multiple test results
+ * Opens the result viewer only when the run produced multiple test results.
+ * Single-test runs (including pick with a single case) always open the trace
+ * viewer for a more detailed view.
  *
- * @param metaId    The test meta ID (with variant prefix), or undefined
+ * @param _metaId   The test meta ID (unused, kept for API compat)
  * @param testCount Number of test entries in the result JSON
  */
 export function shouldOpenResultViewer(
-  metaId: string | undefined,
+  _metaId: string | undefined,
   testCount: number,
 ): boolean {
-  const isDataDriven =
-    metaId?.startsWith("each:") || metaId?.startsWith("pick:");
-  const isMultiTest = testCount > 1;
-  return !!(isDataDriven || isMultiTest);
+  return testCount > 1;
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@
 import { useState } from "preact/hooks";
 import { CodeViewer } from "./CodeViewer";
 import { EventTimeline } from "./EventTimeline";
+import { AssertionList } from "./AssertionList";
 import { RequestList } from "./RequestList";
 import { RequestDetail } from "./RequestDetail";
 import { Tabs } from "./Tabs";
@@ -270,6 +271,23 @@ export function ResultViewer({ data, onOpenFullViewer }: ResultViewerProps) {
               id: "trace",
               label: "Trace",
               content: <TraceTab tests={data.tests} />,
+            },
+            {
+              id: "assertions",
+              label: `Assertions${
+                data.summary.stats?.assertionTotal != null
+                  ? ` (${data.summary.stats.assertionTotal})`
+                  : ""
+              }`,
+              content: (
+                <div class="overflow-y-auto h-full">
+                  <AssertionList
+                    assertions={data.tests.flatMap((t) =>
+                      t.events.filter((e) => e.type === "assertion"),
+                    )}
+                  />
+                </div>
+              ),
             },
             {
               id: "events",

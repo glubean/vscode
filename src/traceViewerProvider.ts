@@ -8,12 +8,22 @@
 
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
 import { getWebviewHtml } from "./webviewUtils";
 import { tracePairToCurl } from "./testController.utils";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** Assertion event passed to the webview. */
+interface AssertionEvent {
+  type: "assertion";
+  message?: string;
+  passed?: boolean;
+  actual?: unknown;
+  expected?: unknown;
+}
 
 export interface TraceViewerData {
   meta: {
@@ -38,6 +48,7 @@ export interface TraceViewerData {
       body?: unknown;
     };
   }>;
+  assertions?: AssertionEvent[];
 }
 
 // ---------------------------------------------------------------------------
@@ -168,10 +179,65 @@ export class TraceViewerProvider implements vscode.CustomTextEditorProvider {
       // Malformed JSON — show empty state
     }
 
+    // Try to load assertions from the corresponding result JSON.
+    // Trace files live at .glubean/traces/{baseName}/{testId}/{ts}.trace.jsonc
+    // Result JSON lives at .glubean/last-run.result.json
+    const assertions = this.loadAssertions(document.uri.fsPath, meta.testId);
+
     return {
       meta: { ...meta, callCount: calls.length },
       calls,
+      ...(assertions.length > 0 ? { assertions } : {}),
     };
+  }
+
+  /**
+   * Load assertion events from the last-run result JSON for the given testId.
+   *
+   * The trace file path tells us the .glubean directory location:
+   *   .glubean/traces/{baseName}/{testId}/{ts}.trace.jsonc
+   * We walk up to .glubean/ and read last-run.result.json.
+   */
+  private loadAssertions(
+    traceFilePath: string,
+    testId: string,
+  ): AssertionEvent[] {
+    if (!testId) return [];
+
+    try {
+      // Walk up from the trace file to find .glubean/
+      // Path: .../.glubean/traces/{baseName}/{testId}/{ts}.trace.jsonc
+      const tracesDir = path.dirname(path.dirname(path.dirname(traceFilePath)));
+      const glubeanDir = path.dirname(tracesDir);
+      const resultPath = path.join(glubeanDir, "last-run.result.json");
+
+      if (!fs.existsSync(resultPath)) return [];
+
+      const raw = fs.readFileSync(resultPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.tests)) return [];
+
+      // Find the test entry matching our testId
+      const test = parsed.tests.find(
+        (t: { testId?: string }) => t.testId === testId,
+      );
+      if (!test || !Array.isArray(test.events)) return [];
+
+      const assertions: AssertionEvent[] = [];
+      for (const e of test.events) {
+        if (e.type !== "assertion") continue;
+        assertions.push({
+          type: "assertion",
+          message: e.message,
+          passed: e.passed,
+          ...(e.actual !== undefined ? { actual: e.actual } : {}),
+          ...(e.expected !== undefined ? { expected: e.expected } : {}),
+        });
+      }
+      return assertions;
+    } catch {
+      return [];
+    }
   }
 
   /**

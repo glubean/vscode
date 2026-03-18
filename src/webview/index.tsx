@@ -31,12 +31,15 @@ interface TraceData {
       body?: unknown;
     };
   }>;
+  assertions?: TimelineEvent[];
 }
 
 export interface TimelineEvent {
   type: string;
   message?: string;
   passed?: boolean;
+  actual?: unknown;
+  expected?: unknown;
   data?: { method?: string; url?: string; status?: number; duration?: number };
 }
 
