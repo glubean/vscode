@@ -695,7 +695,7 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
       let projectNode = projectNodes.get(projectKey);
       if (!projectNode) {
         projectNode = controller.createTestItem(projectKey, projectName);
-        projectNode.iconPath = new vscode.ThemeIcon("root-folder");
+
         projectNodes.set(projectKey, projectNode);
         exploreRoot.children.add(projectNode);
       }
@@ -713,7 +713,7 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
       let projectNode = projectNodes.get(projectKey);
       if (!projectNode) {
         projectNode = controller.createTestItem(projectKey, projectName);
-        projectNode.iconPath = new vscode.ThemeIcon("root-folder");
+
         projectNodes.set(projectKey, projectNode);
         testsRoot.children.add(projectNode);
       }
