@@ -394,4 +394,42 @@ export const prodTest = test.pick(data)(
       path: "./data/products/",
     });
   });
+
+  it("detects object ID form: test.pick(var)({ id: '...' }, ...)", () => {
+    const content =
+      SDK_IMPORT +
+      `const cases = await fromDir.merge("./data/directions/");
+
+export const directions = test.pick(cases)(
+  { id: "directions-$_pick", name: "Directions: $_pick", tags: ["geo"] },
+  async (ctx, { origin }) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].testId, "directions-$_pick");
+    assert.equal(picks[0].exportName, "directions");
+    assert.deepEqual(picks[0].dataSource, {
+      type: "dir-merge",
+      path: "./data/directions/",
+    });
+  });
+
+  it("detects inline pick with object ID form", () => {
+    const content =
+      SDK_IMPORT +
+      `export const search = test.pick({
+  "by-name": { q: "phone" },
+  "by-category": { q: "laptop" },
+})(
+  { id: "search-$_pick", name: "Search: $_pick" },
+  async (ctx, { q }) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].testId, "search-$_pick");
+    assert.deepEqual(picks[0].keys, ["by-name", "by-category"]);
+    assert.deepEqual(picks[0].dataSource, { type: "inline" });
+  });
 });

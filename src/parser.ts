@@ -193,9 +193,11 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
   }
 
   // ── Pattern 1: Inline object literal ────────────────────────────────────
-  // Matches: <fn>.pick({ "key1": ..., "key2": ... })("id-$_pick", ...)
+  // Matches both string ID and object ID forms:
+  //   <fn>.pick({ "key1": ..., "key2": ... })("id-$_pick", ...)
+  //   <fn>.pick({ "key1": ..., "key2": ... })({ id: "id-$_pick", ... }, ...)
   const inlinePickPattern = new RegExp(
-    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\s*\\.pick\\s*\\(\\s*\\{([\\s\\S]*?)\\}\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\s*\\.pick\\s*\\(\\s*\\{([\\s\\S]*?)\\}\\s*\\)\\s*\\(\\s*(?:["']([^"']+)["']|\\{\\s*id:\\s*["']([^"']+)["'])`,
     "g",
   );
 
@@ -203,7 +205,7 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
   while ((match = inlinePickPattern.exec(content)) !== null) {
     const exportName = match[1];
     const objectBody = match[2];
-    const testId = match[3];
+    const testId = match[3] ?? match[4]; // group 3: string form, group 4: object { id: "..." } form
     const line = getLineNumber(content, match.index);
 
     // Extract only top-level keys from the object body.
@@ -244,15 +246,18 @@ export function extractPickExamples(content: string, customFns?: string[]): Pick
   // ── Pattern 2: Variable reference (JSON import or other) ────────────────
   // Matches: <fn>.pick(variableName)("id-$_pick", ...)
   // Must NOT match the inline pattern (which has { after <fn>.pick( )
+  // Match both string ID and object ID forms:
+  //   test.pick(var)("id-$_pick", ...)
+  //   test.pick(var)({ id: "id-$_pick", ... }, ...)
   const varPickPattern = new RegExp(
-    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\s*\\.pick\\s*\\(\\s*(\\w+)\\s*\\)\\s*\\(\\s*["']([^"']+)["']`,
+    `export\\s+const\\s+(\\w+)\\s*=\\s*(?:${fnAlt})\\s*\\.pick\\s*\\(\\s*(\\w+)\\s*\\)\\s*\\(\\s*(?:["']([^"']+)["']|\\{\\s*id:\\s*["']([^"']+)["'])`,
     "g",
   );
 
   while ((match = varPickPattern.exec(content)) !== null) {
     const exportName = match[1];
     const varName = match[2];
-    const testId = match[3];
+    const testId = match[3] ?? match[4]; // group 3: string form, group 4: object { id: "..." } form
     const line = getLineNumber(content, match.index);
 
     // Check if the variable is a JSON import
