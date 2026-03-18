@@ -1,24 +1,23 @@
 /**
- * Write run artifacts (result JSON + trace JSONC files) after test execution.
+ * Write run artifacts (result JSON files) after test execution.
  *
  * Replaces the file-writing that the CLI used to do — now that VSCode
  * uses @glubean/runner directly, the extension must write these files
- * so that the result viewer and trace viewer have something to open.
+ * so that the result viewer has something to open.
  */
 
 import * as fs from "fs";
 import * as path from "path";
 import type { GlubeanResult } from "./results";
-import type { GlubeanEvent } from "../testController.utils";
 
-const TRACE_HISTORY_LIMIT = 20;
+const RESULT_HISTORY_LIMIT = 20;
 
 /**
  * Write all run artifacts for a completed test execution.
  *
  * 1. Result JSON at `resultJsonPath` (for resultViewer)
  * 2. Result JSON at `.glubean/last-run.result.json` (for task panel / tooling)
- * 3. Trace JSONC files at `.glubean/traces/{fileName}/{testId}/{ts}.trace.jsonc`
+ * 3. Per-test mini result files at `.glubean/results/{fileName}/{testId}/{ts}.result.json`
  */
 export function writeRunArtifacts(
   filePath: string,
@@ -48,16 +47,18 @@ export function writeRunArtifacts(
     // Non-critical
   }
 
-  // 3. Write trace files
-  writeTraceFiles(filePath, result, cwd);
+  // 3. Write per-test result files
+  writeResultFiles(filePath, result, cwd);
 }
 
 /**
- * Write .trace.jsonc files for each test that has trace events.
+ * Write per-test mini result files.
  *
- * Path: `.glubean/traces/{baseName}/{testId}/{timestamp}.trace.jsonc`
+ * Path: `.glubean/results/{baseName}/{testId}/{timestamp}.result.json`
+ *
+ * Each file is a self-contained mini GlubeanResult with a single test entry.
  */
-function writeTraceFiles(
+function writeResultFiles(
   filePath: string,
   result: GlubeanResult,
   cwd: string,
@@ -70,13 +71,10 @@ function writeTraceFiles(
   const baseName = path.basename(filePath).replace(/\.(ts|js|mjs)$/, "");
 
   for (const test of result.tests) {
-    const pairs = extractTracePairs(test.events);
-    if (pairs.length === 0) continue;
-
     const testDir = path.join(
       cwd,
       ".glubean",
-      "traces",
+      "results",
       baseName,
       sanitize(test.testId),
     );
@@ -87,70 +85,29 @@ function writeTraceFiles(
       continue;
     }
 
-    const relFile = path.relative(cwd, filePath);
-    const header = [
-      `// ${relFile} → ${test.testId} — ${pairs.length} HTTP call${pairs.length > 1 ? "s" : ""}`,
-      `// Run at: ${now.toLocaleString()}`,
-      "",
-    ].join("\n");
+    const miniResult = {
+      summary: {
+        total: 1,
+        passed: test.success ? 1 : 0,
+        failed: test.success ? 0 : 1,
+        durationMs: test.durationMs ?? 0,
+      },
+      tests: [test],
+      runAt: now.toISOString(),
+    };
 
-    const content = header + JSON.stringify(pairs, null, 2) + "\n";
-    const traceFile = path.join(testDir, `${ts}.trace.jsonc`);
+    const content = JSON.stringify(miniResult, null, 2) + "\n";
+    const resultFile = path.join(testDir, `${ts}.result.json`);
 
     try {
-      fs.writeFileSync(traceFile, content, "utf-8");
+      fs.writeFileSync(resultFile, content, "utf-8");
     } catch {
       // Non-critical
     }
 
     // Cleanup: keep only the most recent N files
-    cleanupTraceDir(testDir, TRACE_HISTORY_LIMIT);
+    cleanupResultDir(testDir, RESULT_HISTORY_LIMIT);
   }
-}
-
-/**
- * Extract {request, response} pairs from trace events.
- */
-function extractTracePairs(events: GlubeanEvent[]): TracePair[] {
-  const pairs: TracePair[] = [];
-  for (const event of events) {
-    if (event.type !== "trace" || !event.data) continue;
-    const d = event.data as Record<string, unknown>;
-    pairs.push({
-      request: {
-        method: (d.method as string) || "?",
-        url: (d.url as string) || "",
-        ...(d.requestHeaders && Object.keys(d.requestHeaders as object).length > 0
-          ? { headers: d.requestHeaders as Record<string, string> }
-          : {}),
-        ...(d.requestBody !== undefined ? { body: d.requestBody } : {}),
-      },
-      response: {
-        status: (d.status as number) || 0,
-        durationMs: (d.duration as number) || 0,
-        ...(d.responseHeaders && Object.keys(d.responseHeaders as object).length > 0
-          ? { headers: d.responseHeaders as Record<string, string> }
-          : {}),
-        ...(d.responseBody !== undefined ? { body: d.responseBody } : {}),
-      },
-    });
-  }
-  return pairs;
-}
-
-interface TracePair {
-  request: {
-    method: string;
-    url: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-  response: {
-    status: number;
-    durationMs: number;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
 }
 
 function p2(n: number): string {
@@ -161,11 +118,11 @@ function sanitize(s: string): string {
   return s.replace(/[<>:"/\\|?*]/g, "_");
 }
 
-function cleanupTraceDir(dir: string, limit: number): void {
+function cleanupResultDir(dir: string, limit: number): void {
   try {
     const files = fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith(".trace.jsonc"))
+      .filter((f) => f.endsWith(".result.json"))
       .sort();
     if (files.length <= limit) return;
     const toDelete = files.slice(0, files.length - limit);

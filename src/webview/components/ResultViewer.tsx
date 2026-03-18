@@ -1,5 +1,8 @@
 /**
  * Result viewer: summary bar + test list + trace details + events + raw JSON.
+ *
+ * Single-test results skip the test list and show Trace + Assertions directly.
+ * Multi-test results show the full test list with expandable details.
  */
 
 import { useState } from "preact/hooks";
@@ -45,6 +48,9 @@ interface ResultViewerData {
 interface ResultViewerProps {
   data: ResultViewerData;
   onOpenFullViewer?: () => void;
+  onNewer?: () => void;
+  onOlder?: () => void;
+  onCopyAsCurl?: (call: TraceCall) => void;
 }
 
 function formatDuration(ms: number): string {
@@ -158,7 +164,7 @@ function TestList({ tests }: { tests: ResultViewerData["tests"] }) {
   );
 }
 
-function TraceTab({ tests }: { tests: ResultViewerData["tests"] }) {
+function TraceTab({ tests, onCopyAsCurl }: { tests: ResultViewerData["tests"]; onCopyAsCurl?: (call: TraceCall) => void }) {
   const [selectedTest, setSelectedTest] = useState(0);
   const [selectedCall, setSelectedCall] = useState(0);
   const test = tests[selectedTest];
@@ -206,7 +212,14 @@ function TraceTab({ tests }: { tests: ResultViewerData["tests"] }) {
             </div>
           )}
           <div class="flex-1 overflow-hidden">
-            {call && <RequestDetail call={call} />}
+            {call && (
+              <RequestDetail
+                call={call}
+                onCopyAsCurl={
+                  onCopyAsCurl ? () => onCopyAsCurl(call) : undefined
+                }
+              />
+            )}
           </div>
         </div>
       )}
@@ -214,8 +227,9 @@ function TraceTab({ tests }: { tests: ResultViewerData["tests"] }) {
   );
 }
 
-export function ResultViewer({ data, onOpenFullViewer }: ResultViewerProps) {
+export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyAsCurl }: ResultViewerProps) {
   const allPassed = data.summary.failed === 0 && data.summary.skipped === 0;
+  const isSingleTest = data.tests.length === 1;
 
   return (
     <div class="flex flex-col h-screen">
@@ -227,7 +241,12 @@ export function ResultViewer({ data, onOpenFullViewer }: ResultViewerProps) {
         >
           {allPassed ? "PASSED" : "FAILED"}
         </span>
-        <span class="text-xs truncate muted">{data.fileName}</span>
+        <span class="text-xs truncate muted">
+          {isSingleTest ? data.tests[0].testName : data.fileName}
+        </span>
+        {isSingleTest && (
+          <span class="text-xs muted">{formatDuration(data.tests[0].durationMs)}</span>
+        )}
         <div class="ml-auto flex items-center gap-2">
           {onOpenFullViewer && (
             <button
@@ -246,69 +265,181 @@ export function ResultViewer({ data, onOpenFullViewer }: ResultViewerProps) {
               Open Full Viewer ↗
             </button>
           )}
+          <span class="flex items-center gap-1 border-l border-panel pl-3 ml-1">
+            <button class="nav-btn" onClick={onNewer} title="Newer result (Cmd+Alt+])">&#x2039;</button>
+            <button class="nav-btn" onClick={onOlder} title="Older result (Cmd+Alt+[)">&#x203a;</button>
+          </span>
         </div>
       </div>
 
-      {/* Summary bar */}
-      <div class="px-3 py-2 border-b border-panel shrink-0 text-xs">
-        <SummaryBar summary={data.summary} runAt={data.runAt} />
-      </div>
+      {/* Summary bar (multi-test only) */}
+      {!isSingleTest && (
+        <div class="px-3 py-2 border-b border-panel shrink-0 text-xs">
+          <SummaryBar summary={data.summary} runAt={data.runAt} />
+        </div>
+      )}
 
-      {/* Tabbed content */}
-      <div class="flex-1 overflow-hidden">
-        <Tabs
-          tabs={[
-            {
-              id: "tests",
-              label: `Tests (${data.summary.total})`,
-              content: (
-                <div class="overflow-y-auto h-full">
-                  <TestList tests={data.tests} />
+      {/* Content — single test vs multi test */}
+      {isSingleTest ? (
+        <SingleTestView test={data.tests[0]} rawJson={data.rawJson} onOpenCloud={onOpenFullViewer} onCopyAsCurl={onCopyAsCurl} />
+      ) : (
+        <MultiTestView data={data} onOpenFullViewer={onOpenFullViewer} onCopyAsCurl={onCopyAsCurl} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Single-test view: skip the test list, show Trace + Assertions tabs directly.
+ */
+function SingleTestView({
+  test,
+  rawJson,
+  onOpenCloud,
+  onCopyAsCurl,
+}: {
+  test: ResultViewerData["tests"][0];
+  rawJson: string;
+  onOpenCloud?: () => void;
+  onCopyAsCurl?: (call: TraceCall) => void;
+}) {
+  const [selectedCall, setSelectedCall] = useState(0);
+  const calls = test.calls;
+  const call = calls[selectedCall];
+
+  const assertions = test.events.filter((e) => e.type === "assertion");
+
+  return (
+    <div class="flex-1 overflow-hidden">
+      <Tabs
+        tabs={[
+          {
+            id: "trace",
+            label: `Trace (${calls.length})`,
+            content: calls.length === 0 ? (
+              <div class="text-xs muted italic p-4">No HTTP traces recorded.</div>
+            ) : (
+              <div class="flex flex-1 overflow-hidden h-full">
+                {calls.length > 1 && (
+                  <div class="w-56 shrink-0 overflow-y-auto border-r border-panel">
+                    <RequestList
+                      calls={calls}
+                      selected={selectedCall}
+                      onSelect={setSelectedCall}
+                    />
+                  </div>
+                )}
+                <div class="flex-1 overflow-hidden">
+                  {call && (
+                    <RequestDetail
+                      call={call}
+                      onCopyAsCurl={
+                        onCopyAsCurl ? () => onCopyAsCurl(call) : undefined
+                      }
+                    />
+                  )}
                 </div>
-              ),
-            },
-            {
-              id: "trace",
-              label: "Trace",
-              content: <TraceTab tests={data.tests} />,
-            },
-            {
-              id: "assertions",
-              label: `Assertions${
-                data.summary.stats?.assertionTotal != null
-                  ? ` (${data.summary.stats.assertionTotal})`
-                  : ""
-              }`,
-              content: (
-                <div class="overflow-y-auto h-full">
-                  <AssertionList
-                    assertions={data.tests.flatMap((t) =>
-                      t.events.filter((e) => e.type === "assertion"),
-                    )}
-                  />
-                </div>
-              ),
-            },
-            {
-              id: "events",
-              label: "Events",
-              content: (
-                <div class="overflow-y-auto h-full">
-                  <EventTimeline
-                    tests={data.tests}
-                    onOpenCloud={onOpenFullViewer}
-                  />
-                </div>
-              ),
-            },
-            {
-              id: "json",
-              label: "Raw JSON",
-              content: <CodeViewer data={data.rawJson} />,
-            },
-          ]}
-        />
-      </div>
+              </div>
+            ),
+          },
+          {
+            id: "assertions",
+            label: `Assertions (${assertions.length})`,
+            content: (
+              <div class="overflow-y-auto h-full">
+                <AssertionList assertions={assertions} />
+              </div>
+            ),
+          },
+          {
+            id: "events",
+            label: "Events",
+            content: (
+              <div class="overflow-y-auto h-full">
+                <EventTimeline
+                  tests={[test]}
+                  onOpenCloud={onOpenCloud}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "json",
+            label: "Raw JSON",
+            content: <CodeViewer data={rawJson} />,
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+/**
+ * Multi-test view: full test list + trace/assertions/events/json tabs.
+ */
+function MultiTestView({
+  data,
+  onOpenFullViewer,
+  onCopyAsCurl,
+}: {
+  data: ResultViewerData;
+  onOpenFullViewer?: () => void;
+  onCopyAsCurl?: (call: TraceCall) => void;
+}) {
+  return (
+    <div class="flex-1 overflow-hidden">
+      <Tabs
+        tabs={[
+          {
+            id: "tests",
+            label: `Tests (${data.summary.total})`,
+            content: (
+              <div class="overflow-y-auto h-full">
+                <TestList tests={data.tests} />
+              </div>
+            ),
+          },
+          {
+            id: "trace",
+            label: "Trace",
+            content: <TraceTab tests={data.tests} onCopyAsCurl={onCopyAsCurl} />,
+          },
+          {
+            id: "assertions",
+            label: `Assertions${
+              data.summary.stats?.assertionTotal != null
+                ? ` (${data.summary.stats.assertionTotal})`
+                : ""
+            }`,
+            content: (
+              <div class="overflow-y-auto h-full">
+                <AssertionList
+                  assertions={data.tests.flatMap((t) =>
+                    t.events.filter((e) => e.type === "assertion"),
+                  )}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "events",
+            label: "Events",
+            content: (
+              <div class="overflow-y-auto h-full">
+                <EventTimeline
+                  tests={data.tests}
+                  onOpenCloud={onOpenFullViewer}
+                />
+              </div>
+            ),
+          },
+          {
+            id: "json",
+            label: "Raw JSON",
+            content: <CodeViewer data={data.rawJson} />,
+          },
+        ]}
+      />
     </div>
   );
 }

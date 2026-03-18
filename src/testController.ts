@@ -26,13 +26,10 @@ import {
 } from "./testController/results";
 import {
   diffWithPrevious as diffWithPreviousTrace,
-  openLatestTrace as openLatestTraceFile,
 } from "./testController/trace";
 import { writeRunArtifacts } from "./testController/artifacts";
 import {
-  findPairIndexAtLine,
   normalizeFilterId,
-  shouldOpenResultViewer,
   tracePairToCurl,
   type TracePair,
 } from "./testController.utils";
@@ -55,7 +52,7 @@ function workspaceRootFor(filePath: string): string {
   return path.dirname(filePath);
 }
 
-const traceModuleDeps = { workspaceRootFor };
+const resultModuleDeps = { workspaceRootFor };
 
 /**
  * Detect scratch mode: file is not in any workspace folder, or cwd has no
@@ -171,27 +168,21 @@ export function getLastResultJsonPath(): string | undefined {
 }
 
 /**
- * After a test run, open the appropriate viewer in a side editor:
- * - Data-driven runs (test.each / test.pick): result viewer (consistent UX even with 1 row)
- * - Multi-test runs (run file / run all): result viewer (overview of all tests)
- * - Single simple test: trace viewer
+ * After a test run, open the result viewer in a side editor.
+ * Always uses the result viewer — trace data is embedded in the result.
  */
 async function openPostRunViewer(
   filePath: string,
   resultJsonPath: string,
-  parsed: import("./testController/results").GlubeanResult | null,
-  metaId?: string,
+  _parsed: import("./testController/results").GlubeanResult | null,
+  _metaId?: string,
 ): Promise<void> {
-  if (parsed && shouldOpenResultViewer(metaId, parsed.tests.length)) {
-    await vscode.commands.executeCommand(
-      "vscode.openWith",
-      vscode.Uri.file(resultJsonPath),
-      "glubean.resultViewer",
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-    );
-  } else {
-    await openLatestTraceFile(filePath, metaId, traceModuleDeps);
-  }
+  await vscode.commands.executeCommand(
+    "vscode.openWith",
+    vscode.Uri.file(resultJsonPath),
+    "glubean.resultViewer",
+    { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+  );
 }
 
 
@@ -239,10 +230,10 @@ function classifyRunLocation(filePaths: string[]): RunSummary["location"] {
   return "other";
 }
 
-/** Read the trace history limit from VS Code settings. */
-function getTraceLimit(): number | undefined {
+/** Read the result history limit from VS Code settings. */
+function getResultLimit(): number | undefined {
   const config = vscode.workspace.getConfiguration("glubean");
-  return config.get<number>("traceHistoryLimit");
+  return config.get<number>("resultHistoryLimit");
 }
 
 /**
@@ -734,11 +725,11 @@ const testItemMeta = new WeakMap<vscode.TestItem, TestMeta>();
 // ---------------------------------------------------------------------------
 
 /**
- * Diff the two latest trace files for a test file.
+ * Diff the two latest result files for a test file.
  * Delegates the filesystem + editor operations to testController/trace.ts.
  */
 export async function diffWithPrevious(filePath?: string): Promise<boolean> {
-  return await diffWithPreviousTrace(filePath, traceModuleDeps);
+  return await diffWithPreviousTrace(filePath, resultModuleDeps);
 }
 
 // ---------------------------------------------------------------------------
@@ -746,45 +737,44 @@ export async function diffWithPrevious(filePath?: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 /**
- * Read the active editor (if it's a .trace.jsonc file), parse the
- * requests, and copy them as cURL commands to the clipboard.
+ * Read the active editor (if it's a .result.json file), extract trace
+ * data and copy the first request as a cURL command to the clipboard.
  *
- * If the trace contains multiple requests, all are joined with newlines.
- * Returns false if the active editor is not a trace file or parsing fails.
+ * Returns false if the active editor is not a result file or parsing fails.
  */
 export async function copyAsCurl(): Promise<boolean> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return false;
 
   const filePath = editor.document.fileName;
-  if (!filePath.endsWith(".trace.jsonc")) return false;
+  if (!filePath.endsWith(".result.json")) return false;
 
   const text = editor.document.getText();
 
-  // Strip only leading JSONC comment lines (the file header).
-  // Replacing only the leading block avoids corrupting JSON string values
-  // that happen to contain "//".
-  const jsonText = text.replace(/^(\s*\/\/[^\n]*\n)+/, "");
-
-  let pairs: TracePair[];
   try {
-    const parsed = JSON.parse(jsonText);
-    pairs = Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
+    const parsed = JSON.parse(text);
+    if (!parsed || !Array.isArray(parsed.tests)) return false;
+
+    // Find the first trace event with request data
+    for (const test of parsed.tests) {
+      if (!Array.isArray(test.events)) continue;
+      for (const event of test.events) {
+        if (event.type !== "trace" || !event.data) continue;
+        const d = event.data as Record<string, unknown>;
+        const pair: TracePair = {
+          request: {
+            method: (d.method as string) || "GET",
+            url: (d.url as string) || "",
+            headers: d.requestHeaders as Record<string, string> | undefined,
+            body: d.requestBody as unknown,
+          },
+        };
+        const curl = tracePairToCurl(pair);
+        await vscode.env.clipboard.writeText(curl);
+        return true;
+      }
+    }
     return false;
-  }
-
-  if (pairs.length === 0) return false;
-  const rawIndex =
-    pairs.length > 1
-      ? findPairIndexAtLine(text, editor.selection.active.line)
-      : 0;
-  const targetIndex = Math.min(rawIndex, pairs.length - 1);
-
-  try {
-    const curl = tracePairToCurl(pairs[targetIndex]);
-    await vscode.env.clipboard.writeText(curl);
-    return true;
   } catch {
     return false;
   }

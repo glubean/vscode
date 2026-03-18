@@ -8,6 +8,7 @@
 
 import * as vscode from "vscode";
 import { getWebviewHtml } from "./webviewUtils";
+import { tracePairToCurl } from "./testController.utils";
 
 // ---------------------------------------------------------------------------
 // Types — passed to the webview
@@ -23,7 +24,7 @@ export interface TimelineEvent {
   data?: { method?: string; url?: string; status?: number; duration?: number };
 }
 
-/** Full HTTP call data for the Trace tab — mirrors the TraceViewer Call format. */
+/** Full HTTP call data for the Trace tab. */
 export interface TraceCall {
   request: {
     method: string;
@@ -109,7 +110,7 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
     };
 
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage(
-      (msg: { type: string }) => {
+      async (msg: { type: string; request?: unknown }) => {
         if (msg.type === "ready") {
           updateWebview();
         } else if (msg.type === "viewSource") {
@@ -122,6 +123,31 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
           void vscode.window.showInformationMessage(
             "Full cloud viewer is coming soon! Stay tuned.",
           );
+        } else if (msg.type === "resultPrev") {
+          await vscode.commands.executeCommand("glubean.resultPrev");
+        } else if (msg.type === "resultNext") {
+          await vscode.commands.executeCommand("glubean.resultNext");
+        } else if (msg.type === "copyAsCurl" && msg.request) {
+          const req = msg.request as Record<string, unknown>;
+          if (
+            typeof req.url !== "string" ||
+            typeof req.method !== "string" ||
+            (req.headers != null && typeof req.headers !== "object")
+          ) return;
+          try {
+            const curl = tracePairToCurl({
+              request: req as { method: string; url: string; headers?: Record<string, string>; body?: unknown },
+            });
+            await vscode.env.clipboard.writeText(curl);
+            await vscode.window.showInformationMessage(
+              "cURL command copied to clipboard.",
+            );
+          } catch (err) {
+            console.error("[Glubean] Failed to generate cURL from result viewer:", err);
+            await vscode.window.showWarningMessage(
+              "Could not generate cURL — the request contains invalid data.",
+            );
+          }
         }
       },
     );

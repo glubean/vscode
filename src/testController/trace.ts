@@ -7,17 +7,17 @@ export interface TraceModuleDeps {
 }
 
 /**
- * Find and open the latest .trace.jsonc file for a given test file.
+ * Find and open the latest .result.json file for a given test file.
  *
- * Traces live at `.glubean/traces/{fileName}/{dirId}/{filename}.trace.jsonc`.
+ * Results live at `.glubean/results/{fileName}/{dirId}/{filename}.result.json`.
  * For simple/each tests: dirId = testId, filename = `{timestamp}`.
  * For pick tests: dirId = groupId (template), filename = `{timestamp}--{testId}`.
  *
  * When `testId` is provided, looks in that specific subdirectory.
  * When omitted (e.g. "run all" or pick/CodeLens without a known ID),
- * scans all test subdirectories and opens the globally newest trace.
+ * scans all test subdirectories and opens the globally newest result.
  */
-export async function openLatestTrace(
+export async function openLatestResult(
   filePath: string,
   testId: string | undefined,
   deps: TraceModuleDeps,
@@ -25,36 +25,36 @@ export async function openLatestTrace(
   const cwd = deps.workspaceRootFor(filePath);
 
   const baseName = path.basename(filePath).replace(/\.(ts|js|mjs)$/, "");
-  const fileTracesDir = path.join(cwd, ".glubean", "traces", baseName);
+  const fileResultsDir = path.join(cwd, ".glubean", "results", baseName);
 
   try {
     let latestPath: string | undefined;
 
     if (testId) {
       // Look in the specific test subdirectory
-      const testDir = path.join(fileTracesDir, testId);
+      const testDir = path.join(fileResultsDir, testId);
       const entries = fs
         .readdirSync(testDir)
-        .filter((f) => f.endsWith(".trace.jsonc"));
+        .filter((f) => f.endsWith(".result.json"));
       if (entries.length === 0) return;
       entries.sort().reverse();
       latestPath = path.join(testDir, entries[0]);
     } else {
-      // Scan all test subdirectories for the newest trace
+      // Scan all test subdirectories for the newest result
       const subdirs = fs
-        .readdirSync(fileTracesDir, { withFileTypes: true })
+        .readdirSync(fileResultsDir, { withFileTypes: true })
         .filter((d) => d.isDirectory());
 
       let newest: { file: string; dir: string } | undefined;
       for (const sub of subdirs) {
-        const subPath = path.join(fileTracesDir, sub.name);
-        const traces = fs
+        const subPath = path.join(fileResultsDir, sub.name);
+        const results = fs
           .readdirSync(subPath)
-          .filter((f) => f.endsWith(".trace.jsonc"));
-        if (traces.length === 0) continue;
-        traces.sort().reverse();
-        if (!newest || traces[0] > newest.file) {
-          newest = { file: traces[0], dir: subPath };
+          .filter((f) => f.endsWith(".result.json"));
+        if (results.length === 0) continue;
+        results.sort().reverse();
+        if (!newest || results[0] > newest.file) {
+          newest = { file: results[0], dir: subPath };
         }
       }
       if (!newest) return;
@@ -66,16 +66,16 @@ export async function openLatestTrace(
     await vscode.commands.executeCommand(
       "vscode.openWith",
       vscode.Uri.file(latestPath),
-      "glubean.traceViewer",
+      "glubean.resultViewer",
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, preview: true },
     );
   } catch {
-    // Trace dir doesn't exist yet or read failed — silently skip
+    // Result dir doesn't exist yet or read failed — silently skip
   }
 }
 
 /**
- * Open a VSCode diff view comparing the two most recent trace files
+ * Open a VSCode diff view comparing the two most recent result files
  * for the given test file. If called without a filePath,
  * tries to infer from the active editor.
  */
@@ -95,47 +95,47 @@ export async function diffWithPrevious(
   const baseName = path
     .basename(resolved)
     .replace(/\.(ts|js|mjs)$/, "")
-    .replace(/\.trace\.jsonc$/, ""); // allow calling from an open trace file
+    .replace(/\.result\.json$/, ""); // allow calling from an open result file
 
-  const fileTracesDir = path.join(cwd, ".glubean", "traces", baseName);
+  const fileResultsDir = path.join(cwd, ".glubean", "results", baseName);
 
   try {
-    // If the resolved file is itself a trace file, its parent dir is the
-    // per-test trace directory — diff within that directory.
-    if (resolved.endsWith(".trace.jsonc")) {
-      const traceDir = path.dirname(resolved);
-      return await diffInDir(traceDir, baseName);
+    // If the resolved file is itself a result file, its parent dir is the
+    // per-test result directory — diff within that directory.
+    if (resolved.endsWith(".result.json")) {
+      const resultDir = path.dirname(resolved);
+      return await diffInDir(resultDir, baseName);
     }
 
-    // Otherwise scan all test subdirectories and collect every trace with
+    // Otherwise scan all test subdirectories and collect every result with
     // its full path, then pick the two newest globally.
     const subdirs = fs
-      .readdirSync(fileTracesDir, { withFileTypes: true })
+      .readdirSync(fileResultsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory());
 
-    const allTraces: { name: string; fullPath: string }[] = [];
+    const allResults: { name: string; fullPath: string }[] = [];
     for (const sub of subdirs) {
-      const subPath = path.join(fileTracesDir, sub.name);
-      const traces = fs
+      const subPath = path.join(fileResultsDir, sub.name);
+      const results = fs
         .readdirSync(subPath)
-        .filter((f) => f.endsWith(".trace.jsonc"));
-      for (const t of traces) {
-        allTraces.push({ name: t, fullPath: path.join(subPath, t) });
+        .filter((f) => f.endsWith(".result.json"));
+      for (const t of results) {
+        allResults.push({ name: t, fullPath: path.join(subPath, t) });
       }
     }
 
-    if (allTraces.length < 2) {
+    if (allResults.length < 2) {
       return false;
     }
 
-    allTraces.sort((a, b) => b.name.localeCompare(a.name));
-    const newestUri = vscode.Uri.file(allTraces[0].fullPath);
-    const previousUri = vscode.Uri.file(allTraces[1].fullPath);
+    allResults.sort((a, b) => b.name.localeCompare(a.name));
+    const newestUri = vscode.Uri.file(allResults[0].fullPath);
+    const previousUri = vscode.Uri.file(allResults[1].fullPath);
 
     const diffLabel = buildDiffLabel(
       baseName,
-      allTraces[1].name,
-      allTraces[0].name,
+      allResults[1].name,
+      allResults[0].name,
     );
     await vscode.commands.executeCommand(
       "vscode.diff",
@@ -150,12 +150,12 @@ export async function diffWithPrevious(
 }
 
 /**
- * Diff the two most recent traces within a single directory.
+ * Diff the two most recent results within a single directory.
  */
 async function diffInDir(dir: string, label: string): Promise<boolean> {
   const entries = fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".trace.jsonc"));
+    .filter((f) => f.endsWith(".result.json"));
   if (entries.length < 2) return false;
 
   entries.sort().reverse();
@@ -173,8 +173,8 @@ async function diffInDir(dir: string, label: string): Promise<boolean> {
 }
 
 /**
- * Build a human-readable diff label. For pick traces with variant-encoded
- * filenames (e.g. `20260220T1200--search-by-name.trace.jsonc`), shows the
+ * Build a human-readable diff label. For pick results with variant-encoded
+ * filenames (e.g. `20260220T1200--search-by-name.result.json`), shows the
  * variant names. Falls back to "previous / latest" for plain timestamps.
  */
 function buildDiffLabel(
@@ -183,7 +183,7 @@ function buildDiffLabel(
   newerFile: string,
 ): string {
   const extractVariant = (f: string): string | undefined => {
-    const stem = f.replace(/\.trace\.jsonc$/, "");
+    const stem = f.replace(/\.result\.json$/, "");
     const idx = stem.indexOf("--");
     return idx >= 0 ? stem.slice(idx + 2) : undefined;
   };

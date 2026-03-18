@@ -147,26 +147,8 @@ export function matchTestResults(
 }
 
 // ---------------------------------------------------------------------------
-// Post-run viewer decision
+// Post-run viewer decision (deprecated — always use result viewer now)
 // ---------------------------------------------------------------------------
-
-/**
- * Determine whether the result viewer (data table) should open after a run,
- * as opposed to the trace viewer (single-test detail).
- *
- * Opens the result viewer only when the run produced multiple test results.
- * Single-test runs (including pick with a single case) always open the trace
- * viewer for a more detailed view.
- *
- * @param _metaId   The test meta ID (unused, kept for API compat)
- * @param testCount Number of test entries in the result JSON
- */
-export function shouldOpenResultViewer(
-  _metaId: string | undefined,
-  testCount: number,
-): boolean {
-  return testCount > 1;
-}
 
 // ---------------------------------------------------------------------------
 // CLI argument builder

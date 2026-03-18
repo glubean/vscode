@@ -1,5 +1,5 @@
 /**
- * Shared utilities for webview providers (TraceViewerProvider, ResultViewerProvider).
+ * Shared utilities for webview providers (ResultViewerProvider).
  */
 
 import * as vscode from "vscode";
@@ -21,7 +21,7 @@ export function getNonce(): string {
 /**
  * Build the HTML shell for a webview panel that loads the shared Preact bundle.
  *
- * Both TraceViewerProvider and ResultViewerProvider use the same bundle —
+ * ResultViewerProvider uses a single webview bundle —
  * the `viewerType` discriminator in the postMessage payload selects which
  * component to render.
  */

@@ -1,5 +1,5 @@
 /**
- * Shared Assertions list component used by both TraceViewer and ResultViewer.
+ * Shared Assertions list component used by ResultViewer.
  *
  * Displays assertion events with pass/fail status, message, and
  * expected/actual values for failures.

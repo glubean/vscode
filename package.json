@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.12.41",
+  "version": "0.12.42",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -77,12 +77,12 @@
           "default": true,
           "description": "Automatically discover tests when files are opened or changed"
         },
-        "glubean.traceHistoryLimit": {
+        "glubean.resultHistoryLimit": {
           "type": "number",
           "default": 20,
           "minimum": 1,
           "maximum": 100,
-          "description": "Max trace files to keep per test (older traces are auto-deleted)"
+          "description": "Max result files to keep per test (older results are auto-deleted)"
         },
         "glubean.telemetry.enabled": {
           "type": "boolean",
@@ -166,30 +166,20 @@
         "title": "Glubean: Initialize Project"
       },
       {
-        "command": "glubean.cleanTraces",
-        "title": "Glubean: Clean All Traces"
+        "command": "glubean.cleanResults",
+        "title": "Glubean: Clean All Results"
       },
       {
-        "command": "glubean.openTrace",
-        "title": "Glubean: Open Latest Trace"
+        "command": "glubean.openResult",
+        "title": "Glubean: Open Latest Result"
       },
       {
-        "command": "glubean.tracePrev",
-        "title": "Glubean: Previous Trace"
+        "command": "glubean.resultPrev",
+        "title": "Glubean: Previous Result"
       },
       {
-        "command": "glubean.traceNext",
-        "title": "Glubean: Next Trace"
-      },
-      {
-        "command": "glubean.traceViewSource",
-        "title": "View Source",
-        "icon": "$(go-to-file)"
-      },
-      {
-        "command": "glubean.traceViewRich",
-        "title": "View as Trace",
-        "icon": "$(open-preview)"
+        "command": "glubean.resultNext",
+        "title": "Glubean: Next Result"
       },
       {
         "command": "glubean.resultViewSource",
@@ -222,16 +212,6 @@
         {
           "command": "glubean.runFile",
           "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
-          "group": "navigation"
-        },
-        {
-          "command": "glubean.traceViewSource",
-          "when": "glubean.traceViewerActive",
-          "group": "navigation"
-        },
-        {
-          "command": "glubean.traceViewRich",
-          "when": "!glubean.traceViewerActive && resourceFilename =~ /\\.trace\\.jsonc$/",
           "group": "navigation"
         },
         {
@@ -279,16 +259,6 @@
     },
     "customEditors": [
       {
-        "viewType": "glubean.traceViewer",
-        "displayName": "Glubean Trace Viewer",
-        "selector": [
-          {
-            "filenamePattern": "*.trace.jsonc"
-          }
-        ],
-        "priority": "option"
-      },
-      {
         "viewType": "glubean.resultViewer",
         "displayName": "Glubean Result Viewer",
         "selector": [
@@ -307,16 +277,16 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "glubean.tracePrev",
+        "command": "glubean.resultPrev",
         "key": "ctrl+alt+[",
         "mac": "cmd+alt+[",
-        "when": "editorTextFocus && resourceExtname == .jsonc"
+        "when": "editorTextFocus && resourceExtname == .json"
       },
       {
-        "command": "glubean.traceNext",
+        "command": "glubean.resultNext",
         "key": "ctrl+alt+]",
         "mac": "cmd+alt+]",
-        "when": "editorTextFocus && resourceExtname == .jsonc"
+        "when": "editorTextFocus && resourceExtname == .json"
       },
       {
         "command": "glubean.runFile",

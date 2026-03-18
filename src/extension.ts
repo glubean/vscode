@@ -11,9 +11,8 @@ import * as testController from "./testController";
 import { activateCliStatus } from "./cliStatus";
 import { createHoverProvider } from "./hoverProvider";
 import { createPickCodeLensProvider } from "./codeLensProvider";
-import { createTraceCodeLensProvider } from "./traceCodeLensProvider";
-import { activateTraceNavigator } from "./traceNavigator";
-import { TraceViewerProvider } from "./traceViewerProvider";
+import { createResultCodeLensProvider } from "./resultCodeLensProvider";
+import { activateResultNavigator } from "./resultNavigator";
 import { ResultViewerProvider } from "./resultViewerProvider";
 import {
   initTelemetry,
@@ -242,11 +241,11 @@ export function activate(context: vscode.ExtensionContext): void {
     { language: "javascript", pattern: "**/*.test.{js,mjs}" },
   ];
 
-  // Trace history buttons (shown on all tests)
+  // Result history buttons (shown on all tests)
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       codeLensSelector,
-      createTraceCodeLensProvider(),
+      createResultCodeLensProvider(),
     ),
   );
 
@@ -261,87 +260,6 @@ export function activate(context: vscode.ExtensionContext): void {
       pickCodeLensProvider,
     ),
     pickCodeLensProvider,
-  );
-
-  // ── Trace viewer (custom editor for .trace.jsonc) ──────────────────────
-  // Track whether the next open is triggered by the user ("manual") or
-  // programmatically after a test run ("auto"). The flag is set to "manual"
-  // by the traceViewRich command before calling openWith, then consumed and
-  // reset inside the onOpen callback.
-  let nextTraceOpenVia: "auto" | "manual" = "auto";
-
-  context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider(
-      TraceViewerProvider.viewType,
-      new TraceViewerProvider(context.extensionUri, () => {
-        const via = nextTraceOpenVia;
-        nextTraceOpenVia = "auto";
-        track("trace_opened", { via });
-      }),
-      { supportsMultipleEditorsPerDocument: false },
-    ),
-  );
-
-  // Auto-redirect: when a .trace.jsonc file is opened as plain text (e.g. via
-  // the file explorer), switch to the rich viewer automatically — unless it was
-  // opened as part of a diff/compare operation or already open in the rich viewer.
-  context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument((doc) => {
-      if (!doc.uri.fsPath.endsWith(".trace.jsonc")) return;
-      // Delay one event-loop tick so VS Code can finish wiring up the tab.
-      setTimeout(() => {
-        const docUriStr = doc.uri.toString();
-
-        // If this file is already open in a custom editor anywhere, skip.
-        // This prevents duplicates when openLatestTrace() already opened it.
-        for (const group of vscode.window.tabGroups.all) {
-          for (const tab of group.tabs) {
-            const input = tab.input;
-            if (
-              input && typeof input === "object" &&
-              "viewType" in input && "uri" in input &&
-              (input as { uri: vscode.Uri }).uri.toString() === docUriStr
-            ) {
-              return;
-            }
-          }
-        }
-
-        // Not in a custom editor — find the plain text tab and redirect it.
-        for (const group of vscode.window.tabGroups.all) {
-          for (const tab of group.tabs) {
-            const input = tab.input;
-            if (!input || typeof input !== "object") continue;
-            if ("original" in input && "modified" in input) continue;
-            if ("uri" in input && (input as { uri: vscode.Uri }).uri.toString() === docUriStr) {
-              void vscode.commands.executeCommand("vscode.openWith", doc.uri, TraceViewerProvider.viewType);
-              return;
-            }
-          }
-        }
-      }, 50);
-    }),
-  );
-
-  // Toggle buttons: switch between custom viewer and text editor
-  context.subscriptions.push(
-    vscode.commands.registerCommand("glubean.traceViewSource", () => {
-      const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-      const input = tab?.input;
-      const uri = input && typeof input === "object" && "uri" in input
-        ? (input as { uri: vscode.Uri }).uri
-        : undefined;
-      if (uri) {
-        void vscode.commands.executeCommand("vscode.openWith", uri, "default");
-      }
-    }),
-    vscode.commands.registerCommand("glubean.traceViewRich", () => {
-      const uri = vscode.window.activeTextEditor?.document.uri;
-      if (uri) {
-        nextTraceOpenVia = "manual";
-        void vscode.commands.executeCommand("vscode.openWith", uri, TraceViewerProvider.viewType);
-      }
-    }),
   );
 
   // ── Result viewer (custom editor for .result.json) ───────────────────
@@ -372,8 +290,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // ── Trace navigator (StatusBar + prev/next) ────────────────────────────
-  activateTraceNavigator(context);
+  // ── Result navigator (StatusBar + prev/next) ────────────────────────────
+  activateResultNavigator(context);
 
   // ── Tasks panel (Activity Bar view for QA) ─────────────────────────────
   initStorage(context.workspaceState);
@@ -627,7 +545,7 @@ Includes patterns for:
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("glubean.cleanTraces", async () => {
+    vscode.commands.registerCommand("glubean.cleanResults", async () => {
       const folder = await pickWorkspaceFolder();
       if (!folder) {
         vscode.window.showWarningMessage("No workspace folder open.");
@@ -635,25 +553,25 @@ Includes patterns for:
       }
       const workspaceRoot = folder.uri.fsPath;
 
-      const tracesDir = `${workspaceRoot}/.glubean/traces`;
-      if (!fs.existsSync(tracesDir)) {
-        vscode.window.showInformationMessage("No trace files to clean.");
+      const resultsDir = `${workspaceRoot}/.glubean/results`;
+      if (!fs.existsSync(resultsDir)) {
+        vscode.window.showInformationMessage("No result files to clean.");
         return;
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        "Delete all trace history in .glubean/traces/?",
+        "Delete all result history in .glubean/results/?",
         { modal: true },
         "Delete",
       );
       if (confirm !== "Delete") return;
 
       try {
-        fs.rmSync(tracesDir, { recursive: true, force: true });
-        vscode.window.showInformationMessage("All trace files cleaned.");
+        fs.rmSync(resultsDir, { recursive: true, force: true });
+        vscode.window.showInformationMessage("All result files cleaned.");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Failed to clean traces: ${msg}`);
+        vscode.window.showErrorMessage(`Failed to clean results: ${msg}`);
       }
     }),
   );
@@ -667,7 +585,7 @@ Includes patterns for:
         );
       } else {
         vscode.window.showWarningMessage(
-          "Open a .trace.jsonc file to copy as cURL.",
+          "Open a .result.json file to copy as cURL.",
         );
       }
     }),
