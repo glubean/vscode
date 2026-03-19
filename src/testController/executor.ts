@@ -128,10 +128,11 @@ export async function executeTest(
         if (event.type === "start") {
           testName = event.name || testId;
         }
-        if (event.type === "status") {
-          success = event.status === "completed";
-        }
       }
+
+      // Use runner's generateSummary for per-test success + stats
+      const testSummary = (await getRunner()).generateSummary(events as any);
+      success = testSummary.success;
 
       testResults.push({
         testId,
@@ -151,7 +152,10 @@ export async function executeTest(
     disposable.dispose();
   }
 
-  // Build summary
+  // Build summary — aggregate all test events through generateSummary
+  const allEvents = testResults.flatMap((t) => t.events);
+  const { generateSummary } = await getRunner();
+  const stats = generateSummary(allEvents as any);
   const passed = testResults.filter((t) => t.success).length;
   const failed = testResults.filter((t) => !t.success).length;
   const totalDuration = testResults.reduce((sum, t) => sum + t.durationMs, 0);
@@ -163,6 +167,7 @@ export async function executeTest(
       failed,
       skipped: 0,
       durationMs: totalDuration,
+      stats,
     },
     tests: testResults,
   };

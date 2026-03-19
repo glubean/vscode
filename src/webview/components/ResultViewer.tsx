@@ -14,6 +14,12 @@ import { RequestDetail } from "./RequestDetail";
 import { Tabs } from "./Tabs";
 import type { ResultData, TimelineEvent, TraceCall } from "../index";
 
+/** Derive success from events — soft assertion failures override test.success */
+function deriveSuccess(test: { success: boolean; events: TimelineEvent[] }): boolean {
+  if (!test.success) return false;
+  return !test.events.some(e => e.type === "assertion" && e.passed === false);
+}
+
 interface ResultViewerProps {
   data: ResultData;
   onOpenFullViewer?: () => void;
@@ -114,7 +120,7 @@ function TestList({ tests }: { tests: ResultData["tests"] }) {
           key={test.testId}
           class="sidebar-item flex items-start gap-2 px-3 py-2 text-xs"
         >
-          <StatusIcon success={test.success} />
+          <StatusIcon success={deriveSuccess(test)} />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
               <span class="truncate">{test.testName}</span>
@@ -168,7 +174,7 @@ function TraceCaseSidebar({
               }`}
               onClick={() => onSelect(i)}
             >
-              <StatusIcon success={test.success} />
+              <StatusIcon success={deriveSuccess(test)} />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
                   <span class="text-xs truncate">{test.testName}</span>
@@ -224,7 +230,7 @@ function TraceTab({ tests, onCopyAsCurl }: { tests: ResultData["tests"]; onCopyA
 
       <div class="flex-1 min-w-0 min-h-0 flex flex-col">
         <div class="flex items-center gap-2 px-3 py-2 border-b border-panel surface-slate">
-          <StatusIcon success={test.success} />
+          <StatusIcon success={deriveSuccess(test)} />
           <span class="text-xs truncate">{test?.testName}</span>
           <span class="muted text-[10px] ml-auto">{calls.length} calls</span>
         </div>
@@ -260,7 +266,7 @@ function TraceTab({ tests, onCopyAsCurl }: { tests: ResultData["tests"]; onCopyA
 }
 
 export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyAsCurl }: ResultViewerProps) {
-  const allPassed = data.summary.failed === 0 && data.summary.skipped === 0;
+  const allPassed = data.tests.every(t => deriveSuccess(t));
   const isSingleTest = data.tests.length === 1;
 
   return (

@@ -15,6 +15,23 @@ export interface GlubeanResult {
     failed: number;
     skipped: number;
     durationMs: number;
+    stats?: {
+      assertionTotal: number;
+      assertionFailed: number;
+      httpRequestTotal: number;
+      httpErrorTotal: number;
+      httpErrorRate: number;
+      stepTotal: number;
+      stepPassed: number;
+      stepFailed: number;
+      stepSkipped: number;
+      warningTotal: number;
+      warningTriggered: number;
+      schemaValidationTotal: number;
+      schemaValidationFailed: number;
+      schemaValidationWarnings: number;
+      success: boolean;
+    };
   };
   tests: Array<{
     testId: string;

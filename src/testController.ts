@@ -1086,6 +1086,7 @@ async function debugHandler(
       if (event.type === "status") success = event.status === "completed";
     }
 
+
     const parsed = {
       summary: { total: 1, passed: success ? 1 : 0, failed: success ? 0 : 1, skipped: 0, durationMs: 0 },
       tests: [{ testId: filterId, testName, success, durationMs: 0, events: [] as any[] }],
