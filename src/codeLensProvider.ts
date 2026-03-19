@@ -15,6 +15,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { extractPickExamples, type PickMeta } from "@glubean/scanner/static";
+import { parse as parseYaml } from "yaml";
 import { getAliases } from "./testController";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
@@ -234,10 +235,11 @@ class PickCodeLensProvider
           command: "",
         });
       }
-      const files = fs.readdirSync(dirPath).filter(f => f.endsWith(".json")).sort();
+      const DATA_EXTS = [".json", ".yaml", ".yml", ".csv", ".jsonl"];
+      const files = fs.readdirSync(dirPath).filter(f => DATA_EXTS.some(ext => f.endsWith(ext))).sort();
       if (files.length === 0) {
         return new vscode.CodeLens(dataRange, {
-          title: "$(warning) No JSON files in data folder",
+          title: "$(warning) No data files in folder",
           command: "",
         });
       }
@@ -337,7 +339,7 @@ class PickCodeLensProvider
   }
 
   /**
-   * Read all JSON files in a directory, merge their top-level keys
+   * Read all data files in a directory, merge their top-level keys
    * in alphabetical order (matching SDK's _collectAndSort + Object.assign).
    *
    * The test file may use a CWD-relative path (e.g. "./data/add-product/").
@@ -349,6 +351,7 @@ class PickCodeLensProvider
     document: vscode.TextDocument,
   ): string[] | null {
     try {
+      const DATA_EXTS = [".json", ".yaml", ".yml", ".csv", ".jsonl"];
       const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
       const baseDir = workspaceFolder
         ? workspaceFolder.uri.fsPath
@@ -360,20 +363,32 @@ class PickCodeLensProvider
       }
 
       const LOCAL_SUFFIX = ".local.";
-      const allJson = fs
+      const allFiles = fs
         .readdirSync(resolvedDir)
-        .filter((f) => f.endsWith(".json"));
-      const shared = allJson.filter((f) => !f.includes(LOCAL_SUFFIX)).sort();
-      const local = allJson.filter((f) => f.includes(LOCAL_SUFFIX)).sort();
+        .filter((f) => DATA_EXTS.some(ext => f.endsWith(ext)));
+      const shared = allFiles.filter((f) => !f.includes(LOCAL_SUFFIX)).sort();
+      const local = allFiles.filter((f) => f.includes(LOCAL_SUFFIX)).sort();
       const files = [...shared, ...local];
 
       const merged: Record<string, unknown> = {};
       for (const file of files) {
         const filePath = path.join(resolvedDir, file);
-        const content = fs.readFileSync(filePath, "utf-8");
-        const data = JSON.parse(content);
-        if (data && typeof data === "object" && !Array.isArray(data)) {
-          Object.assign(merged, data);
+        try {
+          const content = fs.readFileSync(filePath, "utf-8");
+          let data: unknown;
+          if (file.endsWith(".json")) {
+            data = JSON.parse(content);
+          } else if (file.endsWith(".yaml") || file.endsWith(".yml")) {
+            data = parseYaml(content);
+          } else {
+            // CSV/JSONL: array-like, no named keys for merge — skip
+            continue;
+          }
+          if (data && typeof data === "object" && !Array.isArray(data)) {
+            Object.assign(merged, data as Record<string, unknown>);
+          }
+        } catch {
+          // Skip files that can't be parsed
         }
       }
 
