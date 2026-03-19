@@ -59,7 +59,7 @@ function buildDataLoaderLens(
     }
     return new vscode.CodeLens(range, {
       title: "$(file) Open data",
-      command: "vscode.open",
+      command: "glubean.openDataFile",
       arguments: [vscode.Uri.file(call.resolvedPath)],
     });
   }
@@ -91,7 +91,7 @@ function buildDataLoaderLens(
   const firstFile = path.join(dirPath, files[0]);
   return new vscode.CodeLens(range, {
     title: `$(folder) Open data (${files.length} files)`,
-    command: "vscode.open",
+    command: "glubean.openDataFile",
     arguments: [vscode.Uri.file(firstFile)],
   });
 }

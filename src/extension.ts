@@ -576,6 +576,44 @@ Includes patterns for:
     }),
   );
 
+  // Open data file below the current editor (split down)
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "glubean.openDataFile",
+      async (uri: vscode.Uri) => {
+        if (!uri) return;
+
+        const currentEditor = vscode.window.activeTextEditor;
+        const totalGroups = vscode.window.tabGroups.all.length;
+
+        if (totalGroups <= 1) {
+          // No bottom group yet — create one
+          await vscode.commands.executeCommand(
+            "workbench.action.newGroupBelow",
+          );
+        } else {
+          // Focus the last group (bottom)
+          await vscode.commands.executeCommand(
+            "workbench.action.focusLastEditorGroup",
+          );
+        }
+
+        // Open data file in the now-active bottom group
+        await vscode.window.showTextDocument(uri, {
+          viewColumn: vscode.ViewColumn.Active,
+          preview: true,
+        });
+
+        // Restore focus to the source editor above
+        if (currentEditor?.viewColumn) {
+          await vscode.commands.executeCommand(
+            "workbench.action.focusFirstEditorGroup",
+          );
+        }
+      },
+    ),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand("glubean.copyAsCurl", async () => {
       const ok = await testController.copyAsCurl();
