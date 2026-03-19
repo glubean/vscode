@@ -266,7 +266,7 @@
             "filenamePattern": "*.result.json"
           }
         ],
-        "priority": "option"
+        "priority": "default"
       }
     ],
     "keybindings": [
