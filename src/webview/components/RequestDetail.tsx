@@ -101,12 +101,12 @@ export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
             {
               id: "response-body",
               label: "Response",
-              content: <div class="p-3"><BodyView body={response.body} /></div>,
+              content: <div class="p-3 h-full overflow-auto"><BodyView body={response.body} /></div>,
             },
             {
               id: "request-body",
               label: "Request",
-              content: <div class="p-3"><BodyView body={request.body} /></div>,
+              content: <div class="p-3 h-full overflow-auto"><BodyView body={request.body} /></div>,
             },
             {
               id: "response-headers",
@@ -115,7 +115,7 @@ export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
                   ? ` (${Object.keys(response.headers).length})`
                   : ""
               }`,
-              content: <div class="p-3"><HeadersTable headers={response.headers} /></div>,
+              content: <div class="p-3 h-full overflow-auto"><HeadersTable headers={response.headers} /></div>,
             },
             {
               id: "request-headers",
@@ -124,7 +124,7 @@ export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
                   ? ` (${Object.keys(request.headers).length})`
                   : ""
               }`,
-              content: <div class="p-3"><HeadersTable headers={request.headers} /></div>,
+              content: <div class="p-3 h-full overflow-auto"><HeadersTable headers={request.headers} /></div>,
             },
           ]}
         />
