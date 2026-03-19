@@ -583,31 +583,33 @@ Includes patterns for:
       async (uri: vscode.Uri) => {
         if (!uri) return;
 
-        const currentEditor = vscode.window.activeTextEditor;
-        const totalGroups = vscode.window.tabGroups.all.length;
+        const sourceColumn = vscode.window.activeTextEditor?.viewColumn;
 
-        if (totalGroups <= 1) {
-          // No bottom group yet — create one
+        // Try to focus the group below
+        const groupsBefore = vscode.window.tabGroups.all.length;
+        await vscode.commands.executeCommand(
+          "workbench.action.focusBelowGroup",
+        );
+        const movedDown =
+          vscode.window.tabGroups.activeTabGroup.viewColumn !== sourceColumn;
+
+        if (!movedDown) {
+          // No group below — create one
           await vscode.commands.executeCommand(
             "workbench.action.newGroupBelow",
           );
-        } else {
-          // Focus the last group (bottom)
-          await vscode.commands.executeCommand(
-            "workbench.action.focusLastEditorGroup",
-          );
         }
 
-        // Open data file in the now-active bottom group
+        // Open data file in the now-active group (below source)
         await vscode.window.showTextDocument(uri, {
           viewColumn: vscode.ViewColumn.Active,
           preview: true,
         });
 
-        // Restore focus to the source editor above
-        if (currentEditor?.viewColumn) {
+        // Restore focus to source editor above
+        if (sourceColumn) {
           await vscode.commands.executeCommand(
-            "workbench.action.focusFirstEditorGroup",
+            "workbench.action.focusAboveGroup",
           );
         }
       },
