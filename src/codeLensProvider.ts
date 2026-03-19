@@ -1,14 +1,10 @@
 /**
- * CodeLens provider for test.pick() example selection.
+ * CodeLens provider for:
+ * 1. test.pick() example selection buttons
+ * 2. Data loader "Open data" buttons (fromDir, fromYaml, fromCsv, etc.)
  *
- * Displays clickable buttons above test.pick() calls:
- * - When example keys are resolved: "Run (random) | key1 | key2 | key3"
- * - When keys cannot be resolved: a hint about the expected format
- *
- * Keys are resolved from:
- * 1. Inline object literals in the source code
- * 2. JSON import files (read from disk at render time)
- * 3. Directory merge via fromDir.merge (reads all JSON files in a directory)
+ * Pick buttons appear above test.pick() calls.
+ * Data loader buttons appear above from*() / import ... .json calls.
  */
 
 import * as vscode from "vscode";
@@ -20,6 +16,9 @@ import { getAliases } from "./testController";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
 const QUICK_PICK_THRESHOLD = 5;
+
+/** Supported data file extensions */
+const DATA_EXTS = [".json", ".yaml", ".yml", ".csv", ".jsonl"];
 
 /**
  * Create a CodeLensProvider for test.pick() example buttons.
@@ -41,9 +40,126 @@ export function createPickCodeLensProvider(
   return new PickCodeLensProvider(runPickCommandId, pickAndRunCommandId);
 }
 
-class PickCodeLensProvider
-  implements PickCodeLens
-{
+// ---------------------------------------------------------------------------
+// Data loader call detection (independent of test.pick)
+// ---------------------------------------------------------------------------
+
+interface DataLoaderCall {
+  /** 0-based line number in the document */
+  line: number;
+  /** "file" for single-file loaders, "dir" for directory loaders */
+  target: "file" | "dir";
+  /** Resolved absolute path */
+  resolvedPath: string;
+}
+
+/**
+ * Scan source code for all data loader calls and JSON imports.
+ * Returns one entry per call with the resolved absolute path.
+ */
+function findDataLoaderCalls(document: vscode.TextDocument): DataLoaderCall[] {
+  const text = document.getText();
+  const filePath = document.uri.fsPath;
+  const fileDir = path.dirname(filePath);
+  const results: DataLoaderCall[] = [];
+
+  // Generic type params can be nested: <Record<string, T>> — match balanced <>
+  const GENERIC_RE = "(?:<(?:[^<>]|<[^<>]*>)*>)?";
+
+  // Pattern 1: fromDir / fromDir.merge / fromDir.concat — directory loaders
+  const dirPattern = new RegExp(
+    `(?:fromDir(?:\\.merge|\\.concat)?)\\s*${GENERIC_RE}\\s*\\(\\s*["']([^"']+)["']`,
+    "gs",
+  );
+  let match: RegExpExecArray | null;
+  while ((match = dirPattern.exec(text)) !== null) {
+    const rawPath = match[1];
+    const resolved = path.resolve(fileDir, rawPath);
+    const pos = document.positionAt(match.index);
+    results.push({ line: pos.line, target: "dir", resolvedPath: resolved });
+  }
+
+  // Pattern 2: fromYaml / fromCsv / fromJsonl — single-file loaders
+  const filePattern = new RegExp(
+    `(?:fromYaml|fromCsv|fromJsonl)\\s*${GENERIC_RE}\\s*\\(\\s*["']([^"']+)["']`,
+    "gs",
+  );
+  while ((match = filePattern.exec(text)) !== null) {
+    const rawPath = match[1];
+    const resolved = path.resolve(fileDir, rawPath);
+    const pos = document.positionAt(match.index);
+    results.push({ line: pos.line, target: "file", resolvedPath: resolved });
+  }
+
+  // Pattern 3: import X from "./path.json"
+  const importPattern = /import\s+\w+\s+from\s+["']([^"']+\.json)["']/g;
+  while ((match = importPattern.exec(text)) !== null) {
+    const rawPath = match[1];
+    const resolved = path.resolve(fileDir, rawPath);
+    const pos = document.positionAt(match.index);
+    results.push({ line: pos.line, target: "file", resolvedPath: resolved });
+  }
+
+  return results;
+}
+
+/**
+ * Build a CodeLens for a data loader call.
+ */
+function buildDataLoaderLens(call: DataLoaderCall): vscode.CodeLens {
+  const range = new vscode.Range(call.line, 0, call.line, 0);
+
+  if (call.target === "file") {
+    if (!fs.existsSync(call.resolvedPath)) {
+      return new vscode.CodeLens(range, {
+        title: "$(warning) Invalid data file path",
+        command: "",
+      });
+    }
+    return new vscode.CodeLens(range, {
+      title: "$(file) Open data",
+      command: "vscode.open",
+      arguments: [vscode.Uri.file(call.resolvedPath)],
+    });
+  }
+
+  // Directory target
+  const dirPath = call.resolvedPath.endsWith("/")
+    ? call.resolvedPath.slice(0, -1)
+    : call.resolvedPath;
+
+  if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+    return new vscode.CodeLens(range, {
+      title: "$(warning) Invalid data folder path",
+      command: "",
+    });
+  }
+
+  const files = fs
+    .readdirSync(dirPath)
+    .filter((f) => DATA_EXTS.some((ext) => f.endsWith(ext)))
+    .sort();
+
+  if (files.length === 0) {
+    return new vscode.CodeLens(range, {
+      title: "$(warning) No data files in folder",
+      command: "",
+    });
+  }
+
+  const firstFile = path.join(dirPath, files[0]);
+  return new vscode.CodeLens(range, {
+    title: `$(folder) Open data (${files.length} files)`,
+    command: "vscode.open",
+    arguments: [vscode.Uri.file(firstFile)],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main CodeLens provider
+// ---------------------------------------------------------------------------
+
+class PickCodeLensProvider implements PickCodeLens {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   private saveListener: vscode.Disposable;
   private dataWatcher: vscode.FileSystemWatcher;
@@ -59,10 +175,9 @@ class PickCodeLensProvider
       this._onDidChangeCodeLenses.fire();
     });
 
-    // Watch data directories for JSON file changes (create/delete/modify)
-    // so CodeLens updates when users add/remove *.local.json files
+    // Watch data directories for file changes (create/delete/modify)
     this.dataWatcher = vscode.workspace.createFileSystemWatcher(
-      "**/data/**/*.json",
+      "**/data/**/*.{json,yaml,yml,csv,jsonl}",
     );
     this.dataWatcher.onDidCreate(() => this._onDidChangeCodeLenses.fire());
     this.dataWatcher.onDidDelete(() => this._onDidChangeCodeLenses.fire());
@@ -91,28 +206,26 @@ class PickCodeLensProvider
 
   provideCodeLenses(
     document: vscode.TextDocument,
-    _token: vscode.CancellationToken
+    _token: vscode.CancellationToken,
   ): vscode.CodeLens[] {
+    const lenses: vscode.CodeLens[] = [];
+
+    // ── Data loader CodeLenses (independent of test.pick) ──────────────
+    const dataLoaderCalls = findDataLoaderCalls(document);
+    for (const call of dataLoaderCalls) {
+      lenses.push(buildDataLoaderLens(call));
+    }
+
+    // ── Pick example CodeLenses ────────────────────────────────────────
     const content = document.getText();
     const pickMetas = extractPickExamples(content, {
       customFns: getAliases(),
       filePath: document.uri.fsPath,
     });
-    if (pickMetas.length === 0) {
-      return [];
-    }
-
-    const lenses: vscode.CodeLens[] = [];
 
     for (const meta of pickMetas) {
       const line = meta.line - 1; // 0-based for VS Code
       const range = new vscode.Range(line, 0, line, 0);
-
-      // "Open data" button for external data sources (fromDir, JSON import)
-      const dataLens = this.buildDataSourceLens(meta, range, document);
-      if (dataLens) {
-        lenses.push(dataLens);
-      }
 
       // Show spinner if this test is currently running
       if (this.running.has(this.runKey(document.uri.fsPath, meta.testId))) {
@@ -120,12 +233,12 @@ class PickCodeLensProvider
           new vscode.CodeLens(range, {
             title: "$(sync~spin) Running\u2026",
             command: "",
-          })
+          }),
         );
         continue;
       }
 
-      // Resolve keys (may require reading JSON file from disk)
+      // Resolve keys (may require reading JSON/YAML file from disk)
       const keys = this.resolveKeys(meta, document);
 
       if (keys && keys.length > 0) {
@@ -141,28 +254,26 @@ class PickCodeLensProvider
             title: "\u25B6 Run (random)",
             command: this.runPickCommandId,
             arguments: [baseArgs],
-          })
+          }),
         );
 
         if (keys.length <= QUICK_PICK_THRESHOLD) {
-          // Few keys: one button per example
           for (const key of keys) {
             lenses.push(
               new vscode.CodeLens(range, {
                 title: `\u25B6 ${key}`,
                 command: this.runPickCommandId,
                 arguments: [{ ...baseArgs, pickKey: key }],
-              })
+              }),
             );
           }
         } else {
-          // Many keys: single button that opens a QuickPick
           lenses.push(
             new vscode.CodeLens(range, {
               title: `\u25B6 Pick example\u2026 (${keys.length})`,
               command: this.pickAndRunCommandId,
               arguments: [{ ...baseArgs, keys }],
-            })
+            }),
           );
         }
       } else {
@@ -172,7 +283,7 @@ class PickCodeLensProvider
             title:
               "test.pick: use inline object or JSON import for CodeLens buttons",
             command: "",
-          })
+          }),
         );
 
         // Still offer a "Run (random)" button
@@ -187,98 +298,12 @@ class PickCodeLensProvider
                 exportName: meta.exportName,
               },
             ],
-          })
+          }),
         );
       }
     }
 
     return lenses;
-  }
-
-  /**
-   * Build a CodeLens button for opening the data source file/directory.
-   *
-   * - dir / dir-merge / dir-concat → open first JSON file in directory
-   * - json-import → open the JSON file directly
-   * - inline / unknown → no button
-   */
-  private buildDataSourceLens(
-    meta: PickMeta,
-    range: vscode.Range,
-    document: vscode.TextDocument,
-  ): vscode.CodeLens | null {
-    const ds = meta.dataSource;
-    if (!ds) return null;
-
-    // Find the actual source line of the data loader call
-    const dataRange = this.findDataSourceLine(ds, document) ?? range;
-
-    if (ds.type === "json-import") {
-      if (!fs.existsSync(ds.path)) {
-        return new vscode.CodeLens(dataRange, {
-          title: "$(warning) Invalid data file path",
-          command: "",
-        });
-      }
-      return new vscode.CodeLens(dataRange, {
-        title: "$(file) Open data",
-        command: "vscode.open",
-        arguments: [vscode.Uri.file(ds.path)],
-      });
-    }
-
-    if (ds.type === "dir" || ds.type === "dir-merge" || ds.type === "dir-concat") {
-      const dirPath = ds.path.endsWith("/") ? ds.path.slice(0, -1) : ds.path;
-      if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
-        return new vscode.CodeLens(dataRange, {
-          title: "$(warning) Invalid data folder path",
-          command: "",
-        });
-      }
-      const DATA_EXTS = [".json", ".yaml", ".yml", ".csv", ".jsonl"];
-      const files = fs.readdirSync(dirPath).filter(f => DATA_EXTS.some(ext => f.endsWith(ext))).sort();
-      if (files.length === 0) {
-        return new vscode.CodeLens(dataRange, {
-          title: "$(warning) No data files in folder",
-          command: "",
-        });
-      }
-      const firstFile = path.join(dirPath, files[0]);
-      return new vscode.CodeLens(dataRange, {
-        title: `$(folder) Open data (${files.length} files)`,
-        command: "vscode.open",
-        arguments: [vscode.Uri.file(firstFile)],
-      });
-    }
-
-    return null;
-  }
-
-  /**
-   * Find the source line of a data loader call (fromDir, fromCsv, fromYaml, import ... .json).
-   * Returns a Range for the line, or null if not found.
-   */
-  private findDataSourceLine(
-    ds: NonNullable<PickMeta["dataSource"]>,
-    document: vscode.TextDocument,
-  ): vscode.Range | null {
-    const text = document.getText();
-    let pattern: RegExp;
-
-    if (ds.type === "json-import") {
-      // import X from "./path.json"
-      const escaped = path.basename(ds.path).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      pattern = new RegExp(`import\\s+\\w+\\s+from\\s+["'][^"']*${escaped}["']`);
-    } else {
-      // fromDir / fromDir.merge / fromDir.concat / fromCsv / fromYaml / fromJsonl
-      pattern = /(?:fromDir(?:\.merge|\.concat)?|fromCsv|fromYaml|fromJsonl)\s*(?:<[^>]*>)?\s*\(/;
-    }
-
-    const match = pattern.exec(text);
-    if (!match) return null;
-
-    const pos = document.positionAt(match.index);
-    return new vscode.Range(pos.line, 0, pos.line, 0);
   }
 
   /**
@@ -290,7 +315,7 @@ class PickCodeLensProvider
    */
   private resolveKeys(
     meta: PickMeta,
-    document: vscode.TextDocument
+    document: vscode.TextDocument,
   ): string[] | null {
     // Already resolved by parser (inline object literal)
     if (meta.keys) {
@@ -302,7 +327,7 @@ class PickCodeLensProvider
       return this.resolveJsonImportKeys(meta.dataSource.path, document);
     }
 
-    // Directory merge: read all JSON files in the directory, merge keys
+    // Directory merge: read all data files in the directory, merge keys
     if (meta.dataSource?.type === "dir-merge") {
       return this.resolveDirMergeKeys(meta.dataSource.path, document);
     }
@@ -316,10 +341,9 @@ class PickCodeLensProvider
    */
   private resolveJsonImportKeys(
     jsonPath: string,
-    document: vscode.TextDocument
+    document: vscode.TextDocument,
   ): string[] | null {
     try {
-      // Resolve relative path against the document's directory
       const docDir = path.dirname(document.uri.fsPath);
       const resolvedPath = path.resolve(docDir, jsonPath);
 
@@ -330,10 +354,8 @@ class PickCodeLensProvider
         return Object.keys(data);
       }
 
-      // JSON root is not an object (e.g. array) — can't extract named keys
       return null;
     } catch {
-      // File not found, parse error, etc.
       return null;
     }
   }
@@ -342,31 +364,33 @@ class PickCodeLensProvider
    * Read all data files in a directory, merge their top-level keys
    * in alphabetical order (matching SDK's _collectAndSort + Object.assign).
    *
-   * The test file may use a CWD-relative path (e.g. "./data/add-product/").
-   * Since tests run from the project root, we resolve relative to the
-   * workspace folder containing the document (not the document's own dir).
+   * Resolves the path relative to the workspace folder containing the document.
    */
   private resolveDirMergeKeys(
     dirPath: string,
     document: vscode.TextDocument,
   ): string[] | null {
     try {
-      const DATA_EXTS = [".json", ".yaml", ".yml", ".csv", ".jsonl"];
       const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
       const baseDir = workspaceFolder
         ? workspaceFolder.uri.fsPath
         : path.dirname(document.uri.fsPath);
       const resolvedDir = path.resolve(baseDir, dirPath);
 
-      if (!fs.existsSync(resolvedDir) || !fs.statSync(resolvedDir).isDirectory()) {
+      if (
+        !fs.existsSync(resolvedDir) ||
+        !fs.statSync(resolvedDir).isDirectory()
+      ) {
         return null;
       }
 
       const LOCAL_SUFFIX = ".local.";
       const allFiles = fs
         .readdirSync(resolvedDir)
-        .filter((f) => DATA_EXTS.some(ext => f.endsWith(ext)));
-      const shared = allFiles.filter((f) => !f.includes(LOCAL_SUFFIX)).sort();
+        .filter((f) => DATA_EXTS.some((ext) => f.endsWith(ext)));
+      const shared = allFiles
+        .filter((f) => !f.includes(LOCAL_SUFFIX))
+        .sort();
       const local = allFiles.filter((f) => f.includes(LOCAL_SUFFIX)).sort();
       const files = [...shared, ...local];
 
