@@ -35,9 +35,21 @@ export interface TestMeta {
   steps?: string[];
 }
 
-// Re-export so existing consumers (testController, codeLensProvider, etc.)
-// don't need to change their imports.
-export const isGlubeanFile = _isGlubeanFile;
+const DIRECT_SDK_IMPORT_PATTERN =
+  /from\s+["'](?:@glubean\/sdk(?:\/[^"']*)?|jsr:@glubean\/sdk(?:@[^"']+)?)["']/;
+
+// VSCode should be conservative here: only direct SDK imports count by
+// default. Alias-based detection remains opt-in via customFns.
+export function isGlubeanFile(content: string, customFns?: string[]): boolean {
+  if (DIRECT_SDK_IMPORT_PATTERN.test(content)) {
+    return true;
+  }
+  if (!customFns || customFns.length === 0) {
+    return false;
+  }
+  return _isGlubeanFile(content, customFns);
+}
+
 export { extractAliasesFromSource };
 
 // ---------------------------------------------------------------------------
@@ -91,6 +103,10 @@ function toTestMeta(e: ExportMeta): TestMeta {
  * @returns Array of discovered test metadata, or empty array if no tests found
  */
 export function extractTests(content: string, customFns?: string[]): TestMeta[] {
+  if (!isGlubeanFile(content, customFns)) {
+    return [];
+  }
+
   const all = extractFromSource(content, customFns).map(toTestMeta);
 
   // Deduplicate by id — keeps first occurrence when multiple exports share

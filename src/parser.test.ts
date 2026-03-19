@@ -25,9 +25,19 @@ describe("isGlubeanFile", () => {
     assert.equal(isGlubeanFile('import { test } from "@glubean/sdk";'), true);
   });
 
+  it("detects jsr and subpath SDK imports", () => {
+    assert.equal(isGlubeanFile('import { test } from "jsr:@glubean/sdk@0.10.0";'), true);
+    assert.equal(isGlubeanFile('import { getRegistry } from "@glubean/sdk/internal";'), true);
+  });
+
   it("rejects files without SDK import", () => {
     assert.equal(isGlubeanFile('import { test } from "vitest";'), false);
     assert.equal(isGlubeanFile("const x = 1;"), false);
+  });
+
+  it("allows alias-based detection only when customFns are provided", () => {
+    assert.equal(isGlubeanFile('import { browserTest } from "./configure.ts";'), false);
+    assert.equal(isGlubeanFile('import { browserTest } from "./configure.ts";', ["browserTest"]), true);
   });
 });
 

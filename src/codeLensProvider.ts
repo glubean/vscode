@@ -13,6 +13,8 @@ import * as path from "path";
 import { extractPickExamples, type PickMeta } from "@glubean/scanner/static";
 import { parse as parseYaml } from "yaml";
 import { getAliases } from "./testController";
+import { findDataLoaderCalls } from "./dataLoaderCalls";
+import { resolveDataPath } from "./data-path";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
 const QUICK_PICK_THRESHOLD = 5;
@@ -40,73 +42,12 @@ export function createPickCodeLensProvider(
   return new PickCodeLensProvider(runPickCommandId, pickAndRunCommandId);
 }
 
-// ---------------------------------------------------------------------------
-// Data loader call detection (independent of test.pick)
-// ---------------------------------------------------------------------------
-
-interface DataLoaderCall {
-  /** 0-based line number in the document */
-  line: number;
-  /** "file" for single-file loaders, "dir" for directory loaders */
-  target: "file" | "dir";
-  /** Resolved absolute path */
-  resolvedPath: string;
-}
-
-/**
- * Scan source code for all data loader calls and JSON imports.
- * Returns one entry per call with the resolved absolute path.
- */
-function findDataLoaderCalls(document: vscode.TextDocument): DataLoaderCall[] {
-  const text = document.getText();
-  const filePath = document.uri.fsPath;
-  const fileDir = path.dirname(filePath);
-  const results: DataLoaderCall[] = [];
-
-  // Generic type params can be nested: <Record<string, T>> — match balanced <>
-  const GENERIC_RE = "(?:<(?:[^<>]|<[^<>]*>)*>)?";
-
-  // Pattern 1: fromDir / fromDir.merge / fromDir.concat — directory loaders
-  const dirPattern = new RegExp(
-    `(?:fromDir(?:\\.merge|\\.concat)?)\\s*${GENERIC_RE}\\s*\\(\\s*["']([^"']+)["']`,
-    "gs",
-  );
-  let match: RegExpExecArray | null;
-  while ((match = dirPattern.exec(text)) !== null) {
-    const rawPath = match[1];
-    const resolved = path.resolve(fileDir, rawPath);
-    const pos = document.positionAt(match.index);
-    results.push({ line: pos.line, target: "dir", resolvedPath: resolved });
-  }
-
-  // Pattern 2: fromYaml / fromCsv / fromJsonl — single-file loaders
-  const filePattern = new RegExp(
-    `(?:fromYaml|fromCsv|fromJsonl)\\s*${GENERIC_RE}\\s*\\(\\s*["']([^"']+)["']`,
-    "gs",
-  );
-  while ((match = filePattern.exec(text)) !== null) {
-    const rawPath = match[1];
-    const resolved = path.resolve(fileDir, rawPath);
-    const pos = document.positionAt(match.index);
-    results.push({ line: pos.line, target: "file", resolvedPath: resolved });
-  }
-
-  // Pattern 3: import X from "./path.json"
-  const importPattern = /import\s+\w+\s+from\s+["']([^"']+\.json)["']/g;
-  while ((match = importPattern.exec(text)) !== null) {
-    const rawPath = match[1];
-    const resolved = path.resolve(fileDir, rawPath);
-    const pos = document.positionAt(match.index);
-    results.push({ line: pos.line, target: "file", resolvedPath: resolved });
-  }
-
-  return results;
-}
-
 /**
  * Build a CodeLens for a data loader call.
  */
-function buildDataLoaderLens(call: DataLoaderCall): vscode.CodeLens {
+function buildDataLoaderLens(
+  call: { line: number; target: "file" | "dir"; resolvedPath: string },
+): vscode.CodeLens {
   const range = new vscode.Range(call.line, 0, call.line, 0);
 
   if (call.target === "file") {
@@ -211,16 +152,21 @@ class PickCodeLensProvider implements PickCodeLens {
     const lenses: vscode.CodeLens[] = [];
 
     // ── Data loader CodeLenses (independent of test.pick) ──────────────
-    const dataLoaderCalls = findDataLoaderCalls(document);
+    const dataLoaderCalls = findDataLoaderCalls(document.getText(), {
+      filePath: document.uri.fsPath,
+      workspaceRoot: vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
+        path.dirname(document.uri.fsPath),
+    });
     for (const call of dataLoaderCalls) {
       lenses.push(buildDataLoaderLens(call));
     }
 
     // ── Pick example CodeLenses ────────────────────────────────────────
     const content = document.getText();
+    // Keep scanner output raw here. VSCode resolves file/project-root paths
+    // with its own workspace context before opening files or loading keys.
     const pickMetas = extractPickExamples(content, {
       customFns: getAliases(),
-      filePath: document.uri.fsPath,
     });
 
     for (const meta of pickMetas) {
@@ -344,8 +290,13 @@ class PickCodeLensProvider implements PickCodeLens {
     document: vscode.TextDocument,
   ): string[] | null {
     try {
-      const docDir = path.dirname(document.uri.fsPath);
-      const resolvedPath = path.resolve(docDir, jsonPath);
+      const filePath = document.uri.fsPath;
+      const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
+        path.dirname(filePath);
+      const resolvedPath = resolveDataPath(jsonPath, {
+        sourceFilePath: filePath,
+        workspaceRoot,
+      }).resolvedPath;
 
       const content = fs.readFileSync(resolvedPath, "utf-8");
       const data = JSON.parse(content);
@@ -375,7 +326,10 @@ class PickCodeLensProvider implements PickCodeLens {
       const baseDir = workspaceFolder
         ? workspaceFolder.uri.fsPath
         : path.dirname(document.uri.fsPath);
-      const resolvedDir = path.resolve(baseDir, dirPath);
+      const resolvedDir = resolveDataPath(dirPath, {
+        sourceFilePath: document.uri.fsPath,
+        workspaceRoot: baseDir,
+      }).resolvedPath;
 
       if (
         !fs.existsSync(resolvedDir) ||
