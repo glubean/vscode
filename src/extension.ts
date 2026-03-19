@@ -685,4 +685,3 @@ Includes patterns for:
 export function deactivate(): void {
   void shutdownTelemetry();
 }
-

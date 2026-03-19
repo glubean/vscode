@@ -8,6 +8,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { resultHistoryDir, resultHistoryFileName } from "../resultHistory";
 import type { GlubeanResult } from "./results";
 
 const RESULT_HISTORY_LIMIT = 20;
@@ -24,6 +25,7 @@ export function writeRunArtifacts(
   resultJsonPath: string,
   result: GlubeanResult,
   cwd: string,
+  pickKey?: string,
 ): void {
   const resultJson = JSON.stringify(result, null, 2);
 
@@ -48,13 +50,13 @@ export function writeRunArtifacts(
   }
 
   // 3. Write per-test result files
-  writeResultFiles(filePath, result, cwd);
+  writeResultFiles(filePath, result, cwd, pickKey);
 }
 
 /**
  * Write per-test mini result files.
  *
- * Path: `.glubean/results/{baseName}/{testId}/{timestamp}.result.json`
+ * Path: `.glubean/results/{baseName}/{normalizedTestId}/{timestamp}[pickKey].result.json`
  *
  * Each file is a self-contained mini GlubeanResult with a single test entry.
  */
@@ -62,22 +64,15 @@ function writeResultFiles(
   filePath: string,
   result: GlubeanResult,
   cwd: string,
+  pickKey?: string,
 ): void {
   const now = new Date();
   const ts =
     `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}` +
     `T${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`;
 
-  const baseName = path.basename(filePath).replace(/\.(ts|js|mjs)$/, "");
-
   for (const test of result.tests) {
-    const testDir = path.join(
-      cwd,
-      ".glubean",
-      "results",
-      baseName,
-      sanitize(test.testId),
-    );
+    const testDir = resultHistoryDir(cwd, filePath, test.testId);
 
     try {
       fs.mkdirSync(testDir, { recursive: true });
@@ -97,7 +92,7 @@ function writeResultFiles(
     };
 
     const content = JSON.stringify(miniResult, null, 2) + "\n";
-    const resultFile = path.join(testDir, `${ts}.result.json`);
+    const resultFile = path.join(testDir, resultHistoryFileName(ts, pickKey));
 
     try {
       fs.writeFileSync(resultFile, content, "utf-8");
@@ -112,10 +107,6 @@ function writeResultFiles(
 
 function p2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
-}
-
-function sanitize(s: string): string {
-  return s.replace(/[<>:"/\\|?*]/g, "_");
 }
 
 function cleanupResultDir(dir: string, limit: number): void {

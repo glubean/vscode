@@ -12,41 +12,10 @@ import { AssertionList } from "./AssertionList";
 import { RequestList } from "./RequestList";
 import { RequestDetail } from "./RequestDetail";
 import { Tabs } from "./Tabs";
-import type { TimelineEvent, TraceCall } from "../index";
-
-interface ResultViewerData {
-  fileName: string;
-  runAt: string;
-  target: string;
-  files: string[];
-  summary: {
-    total: number;
-    passed: number;
-    failed: number;
-    skipped: number;
-    durationMs: number;
-    stats?: {
-      httpRequestTotal?: number;
-      httpErrorTotal?: number;
-      assertionTotal?: number;
-      assertionFailed?: number;
-    };
-  };
-  tests: Array<{
-    testId: string;
-    testName: string;
-    success: boolean;
-    durationMs: number;
-    tags?: string[];
-    failureReason?: string;
-    events: TimelineEvent[];
-    calls: TraceCall[];
-  }>;
-  rawJson: string;
-}
+import type { ResultData, TimelineEvent, TraceCall } from "../index";
 
 interface ResultViewerProps {
-  data: ResultViewerData;
+  data: ResultData;
   onOpenFullViewer?: () => void;
   onNewer?: () => void;
   onOlder?: () => void;
@@ -66,9 +35,20 @@ function StatusIcon({ success }: { success: boolean }) {
   return <span class="text-xs" style="color: var(--vscode-testing-iconFailed, #f85149)">✗</span>;
 }
 
-function SummaryBar({ summary, runAt }: { summary: ResultViewerData["summary"]; runAt: string }) {
+function RunStatusChip({ success }: { success: boolean }) {
+  const label = success ? "PASSED" : "FAILED";
+  const className = success ? "run-status-chip-pass" : "run-status-chip-fail";
+
   return (
-    <div class="flex items-center gap-4 flex-wrap">
+    <span class={`run-status-chip ${className}`}>
+      {label}
+    </span>
+  );
+}
+
+function SummaryBar({ summary, runAt }: { summary: ResultData["summary"]; runAt: string }) {
+  return (
+    <div class="flex items-center gap-4 flex-wrap px-1 py-1">
       <div class="flex items-center gap-1.5">
         <span class="font-medium" style="color: var(--vscode-testing-iconPassed, #3fb950)">
           {summary.passed}
@@ -122,27 +102,26 @@ function SummaryBar({ summary, runAt }: { summary: ResultViewerData["summary"]; 
   );
 }
 
-function TestList({ tests }: { tests: ResultViewerData["tests"] }) {
+function TestList({ tests }: { tests: ResultData["tests"] }) {
   if (tests.length === 0) {
     return <div class="text-xs muted italic p-4">No tests found</div>;
   }
 
   return (
-    <div>
-      {tests.map((test, i) => (
+    <div class="p-2 flex flex-col gap-2">
+      {tests.map((test) => (
         <div
           key={test.testId}
-          class="flex items-start gap-2 px-3 py-2 text-xs"
-          style={i > 0 ? "border-top: 1px solid rgba(128,128,128,0.12)" : undefined}
+          class="sidebar-item flex items-start gap-2 px-3 py-2 text-xs"
         >
           <StatusIcon success={test.success} />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
-              <span class="code-font truncate">{test.testName}</span>
+              <span class="truncate">{test.testName}</span>
               {test.tags && test.tags.length > 0 && (
                 <div class="flex gap-1">
                   {test.tags.map((tag) => (
-                    <span key={tag} class="text-[9px] px-1 py-0.5 rounded bg-badge">{tag}</span>
+                    <span key={tag} class="text-[9px] px-1 py-0.5 rounded-full bg-badge">{tag}</span>
                   ))}
                 </div>
               )}
@@ -164,7 +143,61 @@ function TestList({ tests }: { tests: ResultViewerData["tests"] }) {
   );
 }
 
-function TraceTab({ tests, onCopyAsCurl }: { tests: ResultViewerData["tests"]; onCopyAsCurl?: (call: TraceCall) => void }) {
+function TraceCaseSidebar({
+  tests,
+  selected,
+  onSelect,
+}: {
+  tests: ResultData["tests"];
+  selected: number;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <aside class="w-72 shrink-0 min-h-0 border-r border-panel bg-sidebar overflow-y-auto">
+      <div class="px-3 pt-3 pb-2 text-[10px] font-medium uppercase tracking-[0.18em] muted">
+        Cases
+      </div>
+      <div class="px-2 pb-2 flex flex-col gap-2">
+        {tests.map((test, i) => {
+          const isSelected = i === selected;
+          return (
+            <button
+              key={test.testId}
+              class={`sidebar-item flex items-start gap-2 px-3 py-2 text-left cursor-pointer ${
+                isSelected ? "sidebar-item-selected" : ""
+              }`}
+              onClick={() => onSelect(i)}
+            >
+              <StatusIcon success={test.success} />
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs truncate">{test.testName}</span>
+                  {test.tags && test.tags.length > 0 && (
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-badge whitespace-nowrap">
+                      {test.tags[0]}
+                    </span>
+                  )}
+                </div>
+                <div class="mt-0.5 flex items-center gap-2 text-[10px] muted">
+                  <span>{test.calls.length} calls</span>
+                  <span>·</span>
+                  <span>{formatDuration(test.durationMs)}</span>
+                </div>
+                {test.failureReason && (
+                  <div class="mt-1 text-[10px] truncate" style="color: var(--vscode-testing-iconFailed, #f85149)">
+                    {test.failureReason}
+                  </div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}
+
+function TraceTab({ tests, onCopyAsCurl }: { tests: ResultData["tests"]; onCopyAsCurl?: (call: TraceCall) => void }) {
   const [selectedTest, setSelectedTest] = useState(0);
   const [selectedCall, setSelectedCall] = useState(0);
   const test = tests[selectedTest];
@@ -177,52 +210,51 @@ function TraceTab({ tests, onCopyAsCurl }: { tests: ResultViewerData["tests"]; o
   }
 
   return (
-    <div class="flex flex-col h-full">
-      {/* Test selector (only when >1 test) */}
+    <div class="flex h-full min-h-0 overflow-hidden">
       {tests.length > 1 && (
-        <div class="flex gap-0 border-b border-panel shrink-0 overflow-x-auto">
-          {tests.map((t, i) => (
-            <button
-              key={t.testId}
-              class={`px-3 py-1.5 text-[10px] whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
-                i === selectedTest
-                  ? "tab-active"
-                  : "border-transparent muted hover:text-(--vscode-editor-foreground)"
-              }`}
-              onClick={() => { setSelectedTest(i); setSelectedCall(0); }}
-            >
-              <StatusIcon success={t.success} />{" "}
-              {t.testName}
-            </button>
-          ))}
-        </div>
+        <TraceCaseSidebar
+          tests={tests}
+          selected={selectedTest}
+          onSelect={(index) => {
+            setSelectedTest(index);
+            setSelectedCall(0);
+          }}
+        />
       )}
 
-      {calls.length === 0 ? (
-        <div class="text-xs muted italic p-4">No HTTP calls in this test.</div>
-      ) : (
-        <div class="flex flex-1 overflow-hidden">
-          {calls.length > 1 && (
-            <div class="w-56 shrink-0 overflow-y-auto border-r border-panel">
-              <RequestList
-                calls={calls}
-                selected={selectedCall}
-                onSelect={setSelectedCall}
-              />
-            </div>
-          )}
-          <div class="flex-1 overflow-hidden">
-            {call && (
-              <RequestDetail
-                call={call}
-                onCopyAsCurl={
-                  onCopyAsCurl ? () => onCopyAsCurl(call) : undefined
-                }
-              />
-            )}
-          </div>
+      <div class="flex-1 min-w-0 min-h-0 flex flex-col">
+        <div class="flex items-center gap-2 px-3 py-2 border-b border-panel surface-slate">
+          <StatusIcon success={test.success} />
+          <span class="text-xs truncate">{test?.testName}</span>
+          <span class="muted text-[10px] ml-auto">{calls.length} calls</span>
         </div>
-      )}
+
+        {calls.length === 0 ? (
+          <div class="text-xs muted italic p-4">No HTTP calls in this test.</div>
+        ) : (
+          <div class="flex flex-1 min-h-0 overflow-hidden">
+            {calls.length > 1 && (
+              <div class="w-64 shrink-0 overflow-y-auto border-r border-panel bg-sidebar">
+                <RequestList
+                  calls={calls}
+                  selected={selectedCall}
+                  onSelect={setSelectedCall}
+                />
+              </div>
+            )}
+            <div class="flex-1 overflow-hidden">
+              {call && (
+                <RequestDetail
+                  call={call}
+                  onCopyAsCurl={
+                    onCopyAsCurl ? () => onCopyAsCurl(call) : undefined
+                  }
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -232,16 +264,11 @@ export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyA
   const isSingleTest = data.tests.length === 1;
 
   return (
-    <div class="flex flex-col h-screen">
+    <div class="flex flex-col h-full min-h-0">
       {/* Header */}
-      <div class="flex items-center gap-3 px-3 py-2 border-b border-panel shrink-0 bg-sidebar">
-        <span
-          class="text-xs font-semibold"
-          style={`color: var(${allPassed ? "--vscode-testing-iconPassed, #3fb950" : "--vscode-testing-iconFailed, #f85149"})`}
-        >
-          {allPassed ? "PASSED" : "FAILED"}
-        </span>
-        <span class="text-xs truncate muted">
+      <div class="flex items-center gap-3 px-4 py-3 border-b border-panel shrink-0 bg-sidebar">
+        <RunStatusChip success={allPassed} />
+        <span class="text-xs truncate muted min-w-0">
           {isSingleTest ? data.tests[0].testName : data.fileName}
         </span>
         {isSingleTest && (
@@ -249,18 +276,10 @@ export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyA
         )}
         <div class="ml-auto flex items-center gap-2">
           {onOpenFullViewer && (
-            <button
+              <button
               onClick={onOpenFullViewer}
-              class="text-[10px] px-2 py-1 rounded transition-colors cursor-pointer shrink-0"
-              style="background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #fff)"
-              onMouseEnter={(e) => {
-                (e.target as HTMLElement).style.background =
-                  "var(--vscode-button-hoverBackground, #1177bb)";
-              }}
-              onMouseLeave={(e) => {
-                (e.target as HTMLElement).style.background =
-                  "var(--vscode-button-background, #0e639c)";
-              }}
+              class="text-[10px] px-3 py-1.5 rounded-full transition-colors cursor-pointer shrink-0"
+              style="background: color-mix(in srgb, var(--vscode-editor-foreground) 6%, transparent); color: var(--vscode-descriptionForeground, #888)"
             >
               Open Full Viewer ↗
             </button>
@@ -274,7 +293,7 @@ export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyA
 
       {/* Summary bar (multi-test only) */}
       {!isSingleTest && (
-        <div class="px-3 py-2 border-b border-panel shrink-0 text-xs">
+        <div class="px-4 py-3 border-b border-panel shrink-0 text-xs">
           <SummaryBar summary={data.summary} runAt={data.runAt} />
         </div>
       )}
@@ -298,7 +317,7 @@ function SingleTestView({
   onOpenCloud,
   onCopyAsCurl,
 }: {
-  test: ResultViewerData["tests"][0];
+  test: ResultData["tests"][0];
   rawJson: string;
   onOpenCloud?: () => void;
   onCopyAsCurl?: (call: TraceCall) => void;
@@ -310,7 +329,7 @@ function SingleTestView({
   const assertions = test.events.filter((e) => e.type === "assertion");
 
   return (
-    <div class="flex-1 overflow-hidden">
+    <div class="flex-1 overflow-hidden min-h-0">
       <Tabs
         tabs={[
           {
@@ -319,9 +338,9 @@ function SingleTestView({
             content: calls.length === 0 ? (
               <div class="text-xs muted italic p-4">No HTTP traces recorded.</div>
             ) : (
-              <div class="flex flex-1 overflow-hidden h-full">
+              <div class="flex flex-1 overflow-hidden h-full min-h-0">
                 {calls.length > 1 && (
-                  <div class="w-56 shrink-0 overflow-y-auto border-r border-panel">
+                  <div class="w-56 shrink-0 overflow-y-auto border-r border-panel bg-sidebar">
                     <RequestList
                       calls={calls}
                       selected={selectedCall}
@@ -382,12 +401,12 @@ function MultiTestView({
   onOpenFullViewer,
   onCopyAsCurl,
 }: {
-  data: ResultViewerData;
+  data: ResultData;
   onOpenFullViewer?: () => void;
   onCopyAsCurl?: (call: TraceCall) => void;
 }) {
   return (
-    <div class="flex-1 overflow-hidden">
+    <div class="flex-1 overflow-hidden min-h-0">
       <Tabs
         tabs={[
           {

@@ -12,6 +12,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { extractTests, isGlubeanFile } from "./parser";
 import { countResultFiles } from "./resultNavigator";
+import { normalizeFilterId } from "./testController.utils";
 
 /**
  * Create a CodeLensProvider that shows "Results (N)" buttons on test definitions.
@@ -59,16 +60,8 @@ class ResultCodeLensProvider implements vscode.CodeLensProvider {
       const line = test.line - 1; // 0-based for VS Code
       const range = new vscode.Range(line, 0, line, 0);
 
-      // Resolve the testId used for result directory name.
-      // For test.each/test.pick, the parser prefixes with "each:" or "pick:" —
-      // but the runner uses the raw pattern as the testId in the result path.
-      // We need to strip that prefix.
-      let resultTestId = test.id;
-      if (resultTestId.startsWith("each:")) {
-        resultTestId = resultTestId.slice(5);
-      } else if (resultTestId.startsWith("pick:")) {
-        resultTestId = resultTestId.slice(5);
-      }
+      // Normalize data-driven IDs so the lookup matches the written history key.
+      const resultTestId = normalizeFilterId(test.id);
 
       const count = countResultFiles(workspaceRoot, fileName, resultTestId);
 

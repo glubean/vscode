@@ -35,7 +35,7 @@ function AssertionRow({ assertion }: { assertion: TimelineEvent }) {
         !passed
           ? {
               background:
-                "color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 8%, transparent)",
+                "color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 6%, transparent)",
             }
           : undefined
       }
@@ -50,7 +50,7 @@ function AssertionRow({ assertion }: { assertion: TimelineEvent }) {
       </div>
 
       {!passed && (assertion.expected !== undefined || assertion.actual !== undefined) && (
-        <div class="pl-5 flex flex-col gap-0.5 code-font text-[10px]">
+        <div class="pl-5 flex flex-col gap-0.5 text-[10px]">
           {assertion.expected !== undefined && (
             <div class="flex gap-1">
               <span class="muted shrink-0">Expected:</span>
@@ -91,7 +91,7 @@ export function AssertionList({ assertions }: AssertionListProps) {
   return (
     <div class="flex flex-col">
       {/* Summary line */}
-      <div class="flex items-center gap-3 px-3 py-2 border-b text-xs" style="border-color: rgba(128,128,128,0.12)">
+      <div class="flex items-center gap-3 px-3 py-2 border-b text-xs" style="border-color: color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent)">
         <span style="color: var(--vscode-testing-iconPassed, #3fb950)">{passed} passed</span>
         {failed > 0 && (
           <span style="color: var(--vscode-testing-iconFailed, #f85149)">{failed} failed</span>
@@ -103,7 +103,7 @@ export function AssertionList({ assertions }: AssertionListProps) {
       {assertions.map((a, i) => (
         <div
           key={i}
-          style={i > 0 ? { borderTop: "1px solid rgba(128,128,128,0.12)" } : undefined}
+          style={i > 0 ? { borderTop: "1px solid color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent)" } : undefined}
         >
           <AssertionRow assertion={a} />
         </div>

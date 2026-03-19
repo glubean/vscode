@@ -28,7 +28,7 @@ function HeadersTable({ headers }: { headers?: Record<string, string> }) {
   }
 
   return (
-    <table class="w-full text-xs code-font">
+    <table class="w-full text-xs">
       <tbody>
         {Object.entries(headers).map(([key, value]) => (
           <tr key={key} class="border-b border-panel">
@@ -50,7 +50,7 @@ function BodyView({ body }: { body?: unknown }) {
 
   if (typeof body === "string") {
     return (
-      <pre class="text-xs code-font whitespace-pre-wrap break-all">{body}</pre>
+      <pre class="text-xs whitespace-pre-wrap break-all">{body}</pre>
     );
   }
 
@@ -67,11 +67,15 @@ export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
   const { request, response } = call;
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full min-h-0">
       {/* URL bar */}
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-panel">
-        <span class="text-xs font-semibold">{request.method}</span>
-        <span class="text-xs code-font truncate flex-1" title={request.url}>
+      <div class="flex items-center gap-2 px-3 py-2 border-b border-panel surface-slate">
+        <span
+          class="px-2 py-0.5 text-[10px] font-semibold rounded-full surface-slate"
+        >
+          {request.method}
+        </span>
+        <span class="text-xs url-font truncate flex-1" title={request.url}>
           {request.url}
         </span>
         <span class={`text-xs font-semibold ${statusClass(response.status)}`}>
@@ -81,7 +85,7 @@ export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
         <span class="text-[10px] muted">{response.durationMs}ms</span>
         {onCopyAsCurl && (
           <button
-            class="text-[10px] muted hover:text-primary px-1 cursor-pointer"
+            class="text-[10px] px-2 py-1 rounded-full border border-panel muted hover:text-[var(--vscode-editor-foreground)] cursor-pointer transition-colors"
             onClick={onCopyAsCurl}
             title="Copy as cURL"
           >
@@ -91,7 +95,7 @@ export function RequestDetail({ call, onCopyAsCurl }: RequestDetailProps) {
       </div>
 
       {/* Tabbed content */}
-      <div class="flex-1 overflow-hidden">
+      <div class="flex-1 min-h-0 overflow-hidden">
         <Tabs
           tabs={[
             {

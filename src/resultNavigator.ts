@@ -8,12 +8,13 @@
  * - Webview buttons that trigger resultPrev/resultNext commands
  *
  * Result files live at:
- *   `.glubean/results/{fileName}/{testId}/{timestamp}.result.json`
+ *   `.glubean/results/{fileName}/{normalizedTestId}/{timestamp}[pickKey].result.json`
  */
 
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { resultHistoryDir } from "./resultHistory";
 
 // ---------------------------------------------------------------------------
 // State
@@ -64,7 +65,7 @@ export function countResultFiles(
   fileName: string,
   testId: string,
 ): number {
-  const dir = resultDir(workspaceRoot, fileName, testId);
+  const dir = resultHistoryDir(workspaceRoot, fileName, testId);
   return listResultFiles(dir).length;
 }
 
@@ -77,7 +78,7 @@ export async function openLatestResult(
   fileName: string,
   testId: string,
 ): Promise<void> {
-  const dir = resultDir(workspaceRoot, fileName, testId);
+  const dir = resultHistoryDir(workspaceRoot, fileName, testId);
   const files = listResultFiles(dir);
 
   if (files.length === 0) {
@@ -158,19 +159,6 @@ function syncFromPath(fsPath: string): void {
     resultFiles = files;
     currentIndex = idx;
   }
-}
-
-/**
- * Build the result directory path from workspace root, file name, and test ID.
- */
-function resultDir(
-  workspaceRoot: string,
-  fileName: string,
-  testId: string,
-): string {
-  // Strip .ts extension to match convention
-  const baseName = fileName.replace(/\.ts$/, "");
-  return path.join(workspaceRoot, ".glubean", "results", baseName, testId);
 }
 
 /**

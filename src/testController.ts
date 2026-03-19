@@ -287,7 +287,7 @@ export async function runWithPick(
       lastResultJsonPath = resultJsonPath;
     }
 
-    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd, pickKey);
     await openPostRunViewer(filePath, resultJsonPath, parsed, `pick:${testId}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1210,4 +1210,3 @@ async function runSingleTest(
     outputChannel.appendLine(`Error: ${message}`);
   }
 }
-
