@@ -17,15 +17,15 @@ export function Tabs({ tabs, defaultTab }: TabsProps) {
   const current = tabs.find((t) => t.id === active);
 
   return (
-    <div class="flex flex-col h-full">
-      <div class="flex gap-0 border-b border-panel">
+    <div class="flex flex-col h-full min-h-0">
+      <div class="flex items-center gap-1.5 px-3 py-2 shrink-0 border-b border-panel bg-sidebar">
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            class={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+            class={`tab-pill-base px-3 py-1.5 text-xs font-normal transition-colors cursor-pointer ${
               tab.id === active
-                ? "tab-active"
-                : "border-transparent muted hover:text-[var(--vscode-editor-foreground)]"
+                ? "tab-pill-active"
+                : "tab-pill-inactive"
             }`}
             onClick={() => setActive(tab.id)}
           >
@@ -33,7 +33,7 @@ export function Tabs({ tabs, defaultTab }: TabsProps) {
           </button>
         ))}
       </div>
-      <div class="flex-1 overflow-auto">{current?.content}</div>
+      <div class="flex-1 min-h-0 overflow-hidden">{current?.content}</div>
     </div>
   );
 }

@@ -87,7 +87,7 @@ function App() {
 
   if (state.type === "loading") {
     return (
-      <div class="flex items-center justify-center h-screen opacity-50">
+      <div class="flex items-center justify-center h-full opacity-50">
         Loading…
       </div>
     );

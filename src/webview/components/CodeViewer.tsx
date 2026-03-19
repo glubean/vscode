@@ -177,7 +177,7 @@ export function CodeViewer({ data }: CodeViewerProps) {
     <div class="code-viewer-wrapper">
       <div class="code-viewer-toolbar">
         <button
-          class="text-[10px] muted px-1.5 py-0.5 rounded hover:bg-hover transition-colors cursor-pointer"
+          class="text-[10px] muted px-2 py-1 rounded-full border border-panel hover:bg-hover transition-colors cursor-pointer"
           onClick={handleCopy}
         >
           {copied ? "Copied!" : "Copy"}

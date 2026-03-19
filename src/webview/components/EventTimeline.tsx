@@ -103,8 +103,8 @@ export function EventTimeline({ tests, onOpenCloud }: EventTimelineProps) {
         <div key={test.testId}>
           {/* Test group header */}
           <div
-            class="flex items-center gap-2 px-1 py-1.5 text-[10px] font-medium uppercase tracking-wide sticky top-0"
-            style="background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-descriptionForeground, #a1a1a1)"
+            class="flex items-center gap-2 px-3 py-2 text-[10px] font-medium uppercase tracking-wide sticky top-0 border-b border-panel"
+            style="background: color-mix(in srgb, var(--vscode-editor-foreground) 2%, transparent); color: var(--vscode-descriptionForeground, #a1a1a1)"
           >
             <span
               style={`color: var(${test.success ? "--vscode-testing-iconPassed, #3fb950" : "--vscode-testing-iconFailed, #f85149"})`}
@@ -127,7 +127,7 @@ export function EventTimeline({ tests, onOpenCloud }: EventTimelineProps) {
       {onOpenCloud && (
         <div
           class="flex items-center justify-center gap-2 px-3 py-3 mt-2 border-t text-xs"
-          style="border-color: var(--vscode-panel-border, var(--vscode-widget-border, #333))"
+          style="border-color: color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent)"
         >
           <span class="muted">
             Want filtering, search, and historical trends?
