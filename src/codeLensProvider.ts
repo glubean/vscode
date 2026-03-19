@@ -107,6 +107,12 @@ class PickCodeLensProvider
       const line = meta.line - 1; // 0-based for VS Code
       const range = new vscode.Range(line, 0, line, 0);
 
+      // "Open data" button for external data sources (fromDir, JSON import)
+      const dataLens = this.buildDataSourceLens(meta, range, document);
+      if (dataLens) {
+        lenses.push(dataLens);
+      }
+
       // Show spinner if this test is currently running
       if (this.running.has(this.runKey(document.uri.fsPath, meta.testId))) {
         lenses.push(
@@ -186,6 +192,91 @@ class PickCodeLensProvider
     }
 
     return lenses;
+  }
+
+  /**
+   * Build a CodeLens button for opening the data source file/directory.
+   *
+   * - dir / dir-merge / dir-concat → open first JSON file in directory
+   * - json-import → open the JSON file directly
+   * - inline / unknown → no button
+   */
+  private buildDataSourceLens(
+    meta: PickMeta,
+    range: vscode.Range,
+    document: vscode.TextDocument,
+  ): vscode.CodeLens | null {
+    const ds = meta.dataSource;
+    if (!ds) return null;
+
+    // Find the actual source line of the data loader call
+    const dataRange = this.findDataSourceLine(ds, document) ?? range;
+
+    if (ds.type === "json-import") {
+      if (!fs.existsSync(ds.path)) {
+        return new vscode.CodeLens(dataRange, {
+          title: "$(warning) Invalid data file path",
+          command: "",
+        });
+      }
+      return new vscode.CodeLens(dataRange, {
+        title: "$(file) Open data",
+        command: "vscode.open",
+        arguments: [vscode.Uri.file(ds.path)],
+      });
+    }
+
+    if (ds.type === "dir" || ds.type === "dir-merge" || ds.type === "dir-concat") {
+      const dirPath = ds.path.endsWith("/") ? ds.path.slice(0, -1) : ds.path;
+      if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+        return new vscode.CodeLens(dataRange, {
+          title: "$(warning) Invalid data folder path",
+          command: "",
+        });
+      }
+      const files = fs.readdirSync(dirPath).filter(f => f.endsWith(".json")).sort();
+      if (files.length === 0) {
+        return new vscode.CodeLens(dataRange, {
+          title: "$(warning) No JSON files in data folder",
+          command: "",
+        });
+      }
+      const firstFile = path.join(dirPath, files[0]);
+      return new vscode.CodeLens(dataRange, {
+        title: `$(folder) Open data (${files.length} files)`,
+        command: "vscode.open",
+        arguments: [vscode.Uri.file(firstFile)],
+      });
+    }
+
+    return null;
+  }
+
+  /**
+   * Find the source line of a data loader call (fromDir, fromCsv, fromYaml, import ... .json).
+   * Returns a Range for the line, or null if not found.
+   */
+  private findDataSourceLine(
+    ds: NonNullable<PickMeta["dataSource"]>,
+    document: vscode.TextDocument,
+  ): vscode.Range | null {
+    const text = document.getText();
+    let pattern: RegExp;
+
+    if (ds.type === "json-import") {
+      // import X from "./path.json"
+      const escaped = path.basename(ds.path).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      pattern = new RegExp(`import\\s+\\w+\\s+from\\s+["'][^"']*${escaped}["']`);
+    } else {
+      // fromDir / fromDir.merge / fromDir.concat / fromCsv / fromYaml / fromJsonl
+      pattern = /(?:fromDir(?:\.merge|\.concat)?|fromCsv|fromYaml|fromJsonl)\s*(?:<[^>]*>)?\s*\(/;
+    }
+
+    const match = pattern.exec(text);
+    if (!match) return null;
+
+    const pos = document.positionAt(match.index);
+    return new vscode.Range(pos.line, 0, pos.line, 0);
   }
 
   /**
