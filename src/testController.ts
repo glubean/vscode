@@ -1178,21 +1178,34 @@ async function runSingleTest(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
+  const isDataDriven = test.meta.id.startsWith("each:") || test.meta.id.startsWith("pick:");
   const filterId = normalizeFilterId(test.meta.id);
   const cwd = workspaceRootFor(filePath);
 
-  outputChannel.appendLine(`\n▶ run ${filePath} --filter ${filterId}`);
+  // For data-driven tests (test.each/test.pick), run by exportName
+  // instead of filterId — the template ID (e.g. "dj-yaml-$label") can't
+  // be matched as a literal testId by the runner.
+  const useExportName = isDataDriven && test.meta.exportName;
+
+  outputChannel.appendLine(
+    useExportName
+      ? `\n▶ run ${filePath} --export ${test.meta.exportName}`
+      : `\n▶ run ${filePath} --filter ${filterId}`,
+  );
 
   if (isScratchMode(filePath)) showScratchModeHint();
 
   try {
     const parsed = await executeTest(
       filePath,
-      [filterId],
+      useExportName ? undefined : [filterId],
       cwd,
       cancellation,
       run,
-      { envFile: envFileProvider?.() },
+      {
+        envFile: envFileProvider?.(),
+        exportName: useExportName ? test.meta.exportName : undefined,
+      },
     );
 
     applyResults([test], parsed, run);
