@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  extractHistoryLabel,
+  historyBaseName,
+  resultHistoryDir,
+  resultHistoryRoot,
+} from "../resultHistory";
 
 export interface TraceModuleDeps {
   workspaceRootFor(filePath: string): string;
@@ -9,9 +15,9 @@ export interface TraceModuleDeps {
 /**
  * Find and open the latest .result.json file for a given test file.
  *
- * Results live at `.glubean/results/{fileName}/{dirId}/{filename}.result.json`.
- * For simple/each tests: dirId = testId, filename = `{timestamp}`.
- * For pick tests: dirId = groupId (template), filename = `{timestamp}--{testId}`.
+ * Results live at `.glubean/results/{fileName}/{normalizedTestId}/{filename}.result.json`.
+ * For simple/each tests: filename = `{timestamp}`.
+ * For pick tests: filename = `{timestamp}[{pickKey}]`.
  *
  * When `testId` is provided, looks in that specific subdirectory.
  * When omitted (e.g. "run all" or pick/CodeLens without a known ID),
@@ -24,15 +30,14 @@ export async function openLatestResult(
 ): Promise<void> {
   const cwd = deps.workspaceRootFor(filePath);
 
-  const baseName = path.basename(filePath).replace(/\.(ts|js|mjs)$/, "");
-  const fileResultsDir = path.join(cwd, ".glubean", "results", baseName);
+  const fileResultsDir = resultHistoryRoot(cwd, filePath);
 
   try {
     let latestPath: string | undefined;
 
     if (testId) {
       // Look in the specific test subdirectory
-      const testDir = path.join(fileResultsDir, testId);
+      const testDir = resultHistoryDir(cwd, filePath, testId);
       const entries = fs
         .readdirSync(testDir)
         .filter((f) => f.endsWith(".result.json"));
@@ -92,10 +97,7 @@ export async function diffWithPrevious(
 
   const cwd = deps.workspaceRootFor(resolved);
 
-  const baseName = path
-    .basename(resolved)
-    .replace(/\.(ts|js|mjs)$/, "")
-    .replace(/\.result\.json$/, ""); // allow calling from an open result file
+  const baseName = historyBaseName(resolved);
 
   const fileResultsDir = path.join(cwd, ".glubean", "results", baseName);
 
@@ -173,22 +175,17 @@ async function diffInDir(dir: string, label: string): Promise<boolean> {
 }
 
 /**
- * Build a human-readable diff label. For pick results with variant-encoded
- * filenames (e.g. `20260220T1200--search-by-name.result.json`), shows the
- * variant names. Falls back to "previous / latest" for plain timestamps.
+ * Build a human-readable diff label. For pick results with readable suffixes
+ * (e.g. `20260220T1200[by-name].result.json`), shows the suffix. Falls back
+ * to "previous / latest" for plain timestamps.
  */
 function buildDiffLabel(
   base: string,
   olderFile: string,
   newerFile: string,
 ): string {
-  const extractVariant = (f: string): string | undefined => {
-    const stem = f.replace(/\.result\.json$/, "");
-    const idx = stem.indexOf("--");
-    return idx >= 0 ? stem.slice(idx + 2) : undefined;
-  };
-  const left = extractVariant(olderFile);
-  const right = extractVariant(newerFile);
+  const left = extractHistoryLabel(olderFile);
+  const right = extractHistoryLabel(newerFile);
   if (left && right) {
     return left === right
       ? `${base} (${left}): previous ↔ latest`
