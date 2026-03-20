@@ -33,6 +33,11 @@ import {
   tracePairToCurl,
   type TracePair,
 } from "./testController.utils";
+import {
+  resolveLayout,
+  buildDirSegments,
+  type LayoutMode,
+} from "./testController/layout";
 
 // ---------------------------------------------------------------------------
 // Workspace resolution
@@ -100,6 +105,7 @@ const fileItems = new Map<string, vscode.TestItem>();
 let testsRoot: vscode.TestItem | undefined;
 let exploreRoot: vscode.TestItem | undefined;
 const projectNodes = new Map<string, vscode.TestItem>(); // "explore:root" or "tests:root" → project node
+const dirNodes = new Map<string, vscode.TestItem>(); // "{baseId}:{dir1/dir2}" → directory node
 
 // ---------------------------------------------------------------------------
 // Alias registry — auto-detected test.extend() / task.extend() function names
@@ -442,6 +448,25 @@ export function activate(context: vscode.ExtensionContext): void {
       exploreRoot?.children.delete(item.id);
       controller.items.delete(item.id);
       fileItems.delete(key);
+
+      // Also remove the file from any dirNode parent
+      for (const [dirId, dirItem] of dirNodes) {
+        dirItem.children.delete(item.id);
+        // If directory is now empty, remove it from its parent and the cache
+        if (dirItem.children.size === 0) {
+          // Remove from all possible parents
+          testsRoot?.children.delete(dirId);
+          exploreRoot?.children.delete(dirId);
+          for (const pn of projectNodes.values()) {
+            pn.children.delete(dirId);
+          }
+          // Remove from sibling dir nodes (nested dirs)
+          for (const otherDir of dirNodes.values()) {
+            otherDir.children.delete(dirId);
+          }
+          dirNodes.delete(dirId);
+        }
+      }
     }
   };
 
@@ -450,6 +475,28 @@ export function activate(context: vscode.ExtensionContext): void {
   testWatcher.onDidDelete(onFileDelete);
 
   context.subscriptions.push(testWatcher);
+
+  // ── Layout config change listener ──────────────────────────────────────
+  // When testExplorerLayout changes, rebuild the entire tree.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("glubean.testExplorerLayout")) {
+        // Clear all tree state and rediscover
+        dirNodes.clear();
+        projectNodes.clear();
+        fileItems.clear();
+        if (testsRoot) {
+          controller.items.delete(testsRoot.id);
+          testsRoot = undefined;
+        }
+        if (exploreRoot) {
+          controller.items.delete(exploreRoot.id);
+          exploreRoot = undefined;
+        }
+        void discoverAllTests();
+      }
+    }),
+  );
 
   // ── Resolve handler (lazy discovery) ───────────────────────────────────
   controller.resolveHandler = async (item) => {
@@ -554,6 +601,9 @@ async function discoverAllTests(): Promise<void> {
     return;
   }
 
+  // Clear directory nodes — they will be recreated during parseFile
+  dirNodes.clear();
+
   const testFiles = await vscode.workspace.findFiles(
     "**/*.test.{ts,js,mjs}",
     "**/node_modules/**",
@@ -580,6 +630,37 @@ async function discoverTestsInFolder(
   for (const file of testFiles) {
     await parseFile(file);
   }
+}
+
+/**
+ * Get or create intermediate directory TestItem nodes for tree layout.
+ *
+ * Given segments like ["github", "smoke"], creates:
+ *   parent → github → smoke
+ * and returns the deepest node ("smoke").
+ */
+function getOrCreateDirNode(
+  parent: vscode.TestItem,
+  segments: string[],
+  baseId: string,
+): vscode.TestItem {
+  let current = parent;
+  let cumPath = "";
+  for (const seg of segments) {
+    cumPath = cumPath ? `${cumPath}/${seg}` : seg;
+    const nodeId = `${baseId}:${cumPath}`;
+    let child: vscode.TestItem | undefined;
+    current.children.forEach((c) => {
+      if (c.id === nodeId) child = c;
+    });
+    if (!child) {
+      child = controller.createTestItem(nodeId, seg);
+      dirNodes.set(nodeId, child);
+      current.children.add(child);
+    }
+    current = child;
+  }
+  return current;
 }
 
 /**
@@ -661,22 +742,40 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
   // Route to the appropriate root group node based on directory
   // Explore is listed first (primary use case in IDE)
   //
-  // Tree structure (multi-project):
-  //   Explore
-  //     └─ cookbook
-  //     │    └─ smoke.test.ts
-  //     └─ tests
-  //          └─ rp2-solution.test.ts
-  //   Tests
-  //     └─ tests
-  //          └─ api/health.test.ts
+  // Layout modes:
+  //   flat  — file items directly under root/project (original behaviour)
+  //   tree  — intermediate directory nodes between root/project and files
+  //   auto  — flat when ≤15 files, tree when >15
   //
-  // Single project: skip the project layer.
+  // Multi-project: an extra project layer sits between root and dirs/files.
 
   const folders = vscode.workspace.workspaceFolders ?? [];
   const multiProject = folders.length > 1;
   const folderObj = folders.find((f) => f.uri.fsPath === workspaceRoot);
   const projectName = folderObj?.name ?? path.basename(workspaceRoot);
+
+  // Determine effective layout
+  const layoutCfg = vscode.workspace
+    .getConfiguration("glubean")
+    .get<LayoutMode>("testExplorerLayout", "auto");
+  const fileCount = fileItems.size;
+  const effective = resolveLayout(layoutCfg, fileCount);
+
+  // Helper: attach fileItem to a parent, optionally via directory nodes
+  const attachToParent = (parent: vscode.TestItem, baseId: string) => {
+    if (effective === "tree") {
+      const prefix = isExplore ? "explore" : "tests";
+      const segments = buildDirSegments(relPath, prefix);
+      if (segments.length > 0) {
+        const dirParent = getOrCreateDirNode(parent, segments, baseId);
+        dirParent.children.add(fileItem);
+      } else {
+        parent.children.add(fileItem);
+      }
+    } else {
+      parent.children.add(fileItem);
+    }
+  };
 
   if (isExplore) {
     if (!exploreRoot) {
@@ -688,13 +787,12 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
       let projectNode = projectNodes.get(projectKey);
       if (!projectNode) {
         projectNode = controller.createTestItem(projectKey, projectName);
-
         projectNodes.set(projectKey, projectNode);
         exploreRoot.children.add(projectNode);
       }
-      projectNode.children.add(fileItem);
+      attachToParent(projectNode, projectKey);
     } else {
-      exploreRoot.children.add(fileItem);
+      attachToParent(exploreRoot, "glubean-explore");
     }
   } else {
     if (!testsRoot) {
@@ -706,13 +804,12 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
       let projectNode = projectNodes.get(projectKey);
       if (!projectNode) {
         projectNode = controller.createTestItem(projectKey, projectName);
-
         projectNodes.set(projectKey, projectNode);
         testsRoot.children.add(projectNode);
       }
-      projectNode.children.add(fileItem);
+      attachToParent(projectNode, projectKey);
     } else {
-      testsRoot.children.add(fileItem);
+      attachToParent(testsRoot, "glubean-tests");
     }
   }
 }

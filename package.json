@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.13.4",
+  "version": "0.14.0",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -88,6 +88,16 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Share anonymous usage data (run counts, errors, feature usage) to help improve Glubean. No code, file paths, or personal data is ever collected. [Learn what's collected](https://github.com/glubean/vscode/blob/main/docs/telemetry.md)"
+        },
+        "glubean.testExplorerLayout": {
+          "type": "string",
+          "enum": [
+            "flat",
+            "tree",
+            "auto"
+          ],
+          "default": "auto",
+          "description": "Test Explorer layout: 'flat' (files only), 'tree' (directory hierarchy), 'auto' (flat when ≤15 files, tree when >15)"
         },
         "glubean.taskTimeoutMs": {
           "type": "number",
