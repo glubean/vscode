@@ -444,3 +444,147 @@ export const directions = test.pick(cases)(
     assert.deepEqual(picks[0].dataSource, { type: "inline" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// test.each() with fromYaml / fromCsv data sources
+// ---------------------------------------------------------------------------
+
+describe("test.each() with data loaders", () => {
+  it("handles fromYaml data source in test.each", () => {
+    const content =
+      SDK_IMPORT +
+      `const rows = await fromYaml("./data/users.yaml");
+
+export const userTests = test.each(rows)(
+  {
+    id: "user-$id",
+    name: "User $name",
+    tags: ["api"],
+  },
+  async (ctx, row) => {},
+);`;
+
+    const tests = extractTests(content);
+    assert.equal(tests.length, 1);
+    assert.equal(tests[0].id, "each:user-$id");
+    assert.equal(tests[0].exportName, "userTests");
+  });
+
+  it("handles fromCsv data source in test.each", () => {
+    const content =
+      SDK_IMPORT +
+      `const cases = await fromCsv("./data/test-cases.csv");
+
+export const csvTests = test.each(cases)(
+  "csv-case-$id",
+  async (ctx, row) => {},
+);`;
+
+    const tests = extractTests(content);
+    assert.equal(tests.length, 1);
+    assert.equal(tests[0].id, "each:csv-case-$id");
+    assert.equal(tests[0].name, "csv-case-$id (data-driven)");
+    assert.equal(tests[0].exportName, "csvTests");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .test.js file content recognition
+// ---------------------------------------------------------------------------
+
+describe(".test.js file content", () => {
+  it("detects ES import syntax in .js files", () => {
+    const content = `import { test } from "@glubean/sdk";
+
+export const health = test(
+  { id: "health-check", name: "Health Check" },
+  async (ctx) => {},
+);`;
+
+    assert.equal(isGlubeanFile(content), true);
+    const tests = extractTests(content);
+    assert.equal(tests.length, 1);
+    assert.equal(tests[0].id, "health-check");
+  });
+
+  it("does not detect require() syntax (CJS not supported by static parser)", () => {
+    const content = `const { test } = require("@glubean/sdk");
+
+exports.health = test(
+  { id: "health-check", name: "Health Check" },
+  async (ctx) => {},
+);`;
+
+    // CJS require is not recognized by the static parser
+    assert.equal(isGlubeanFile(content), false);
+    const tests = extractTests(content);
+    assert.equal(tests.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multiline generic: fromDir.merge<Record<string, T>>(\n  "./data/"\n)
+// ---------------------------------------------------------------------------
+
+describe("multiline patterns", () => {
+  it("fromDir.merge with nested generic loses dataSource (known limitation)", () => {
+    // When a complex generic like Record<string, T> is present, the scanner
+    // regex cannot match the path — the nested angle brackets confuse the
+    // fromDir.merge pattern. The pick itself is still detected.
+    const content =
+      SDK_IMPORT +
+      `const data = await fromDir.merge<Record<string, unknown>>("./data/products/");
+
+export const prodTest = test.pick(data)(
+  "prod-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].testId, "prod-$_pick");
+    // dataSource is undefined because nested generic breaks the regex
+    assert.equal(picks[0].dataSource, undefined);
+  });
+
+  it("fromDir.merge with simple generic preserves dataSource", () => {
+    // Simple single-level generics like <MyType> work fine
+    const content =
+      SDK_IMPORT +
+      `const data = await fromDir.merge<ProductBody>("./data/products/");
+
+export const prodTest = test.pick(data)(
+  "prod-$_pick",
+  async (ctx, body) => {},
+);`;
+
+    const picks = extractPickExamples(content);
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].testId, "prod-$_pick");
+    assert.deepEqual(picks[0].dataSource, {
+      type: "dir-merge",
+      path: "./data/products/",
+    });
+  });
+
+  it("handles test.each chained across lines with generic", () => {
+    const content =
+      SDK_IMPORT +
+      `const scenarios = await fromYaml<Array<{
+  id: string;
+  description: string;
+}>>("./data/scenarios.yaml");
+
+export const scenarioTests = test
+  .each(scenarios)({
+    id: "scenario-$id",
+    name: "$description",
+  })
+  .step("execute", async (ctx, _state, row) => {});`;
+
+    const tests = extractTests(content);
+    assert.equal(tests.length, 1);
+    assert.equal(tests[0].id, "each:scenario-$id");
+    assert.equal(tests[0].exportName, "scenarioTests");
+  });
+});
