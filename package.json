@@ -215,6 +215,10 @@
         "command": "glubean.tasks.refresh",
         "title": "Refresh Tasks",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "glubean.diagnose",
+        "title": "Glubean: Diagnose"
       }
     ],
     "menus": {

@@ -23,6 +23,7 @@ import {
 import { TasksProvider, type TaskItem } from "./taskPanel/provider";
 import { TaskRunner } from "./taskPanel/runner";
 import { initStorage } from "./taskPanel/storage";
+import { runDiagnose } from "./diagnose";
 
 // ---------------------------------------------------------------------------
 // Shell quoting
@@ -718,6 +719,14 @@ Includes patterns for:
   const outputChannel = vscode.window.createOutputChannel("Glubean");
   outputChannel.appendLine("Glubean extension activated — DEV BUILD " + new Date().toLocaleString());
   context.subscriptions.push(outputChannel);
+
+  // ── Diagnose command ────────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand("glubean.diagnose", async () => {
+      await runDiagnose(outputChannel);
+      outputChannel.show();
+    }),
+  );
 }
 
 export function deactivate(): void {
