@@ -532,6 +532,50 @@ Includes patterns for:
     }),
   );
 
+  // Rerun failed tests — called from result viewer webview or command palette
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "glubean.rerunFailed",
+      async (args?: { filePath: string; testIds: string[] }) => {
+        if (args?.filePath && args?.testIds?.length) {
+          await testController.rerunFailed(args.filePath, args.testIds);
+          return;
+        }
+
+        // Command palette mode — read last result and extract failed IDs
+        const { readResultJson } = await import("./testController/results");
+        const { extractFailedTestIds, inferSourcePath } = await import("./resultViewerUtils");
+
+        const resultPath = testController.getLastResultJsonPath();
+        if (!resultPath || !fs.existsSync(resultPath)) {
+          vscode.window.showInformationMessage(
+            "No result available. Run tests first.",
+          );
+          return;
+        }
+
+        const result = readResultJson(resultPath);
+        const failedIds = extractFailedTestIds(result);
+        if (failedIds.length === 0) {
+          vscode.window.showInformationMessage(
+            "All tests passed — nothing to rerun.",
+          );
+          return;
+        }
+
+        const sourcePath = inferSourcePath(resultPath);
+        if (!sourcePath) {
+          vscode.window.showWarningMessage(
+            "Could not locate the source test file.",
+          );
+          return;
+        }
+
+        await testController.rerunFailed(sourcePath, failedIds);
+      },
+    ),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand("glubean.diffPrevious", async () => {
       const ok = await testController.diffWithPrevious();

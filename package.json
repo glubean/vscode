@@ -217,6 +217,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "glubean.rerunFailed",
+        "title": "Glubean: Rerun Failed Tests",
+        "icon": "$(debug-restart)"
+      },
+      {
         "command": "glubean.diagnose",
         "title": "Glubean: Diagnose"
       }

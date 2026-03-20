@@ -105,6 +105,9 @@ function App() {
       onJumpToSource={(testId) =>
         vscode.postMessage({ type: "jumpToSource", testId })
       }
+      onRerunFailed={(testIds) =>
+        vscode.postMessage({ type: "rerunFailed", testIds })
+      }
     />
   );
 }

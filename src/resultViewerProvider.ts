@@ -113,7 +113,7 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
     };
 
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage(
-      async (msg: { type: string; testId?: string; request?: unknown }) => {
+      async (msg: { type: string; testId?: string; testIds?: string[]; request?: unknown }) => {
         if (msg.type === "ready") {
           updateWebview();
         } else if (msg.type === "jumpToSource" && msg.testId) {
@@ -170,6 +170,18 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
           await vscode.commands.executeCommand("glubean.resultPrev");
         } else if (msg.type === "resultNext") {
           await vscode.commands.executeCommand("glubean.resultNext");
+        } else if (msg.type === "rerunFailed" && Array.isArray(msg.testIds) && msg.testIds.length > 0) {
+          const sourcePath = inferSourcePath(document.uri.fsPath);
+          if (!sourcePath) {
+            void vscode.window.showWarningMessage(
+              "Could not locate the source test file to rerun.",
+            );
+            return;
+          }
+          void vscode.commands.executeCommand("glubean.rerunFailed", {
+            filePath: sourcePath,
+            testIds: msg.testIds,
+          });
         } else if (msg.type === "copyAsCurl" && msg.request) {
           const req = msg.request as Record<string, unknown>;
           if (

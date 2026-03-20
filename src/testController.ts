@@ -304,6 +304,55 @@ export async function runWithPick(
 }
 
 /**
+ * Re-run only the failed tests from a previous result.
+ *
+ * @param filePath Path to the source test file (e.g. smoke.test.ts)
+ * @param testIds  Array of testIds that failed and should be re-run
+ */
+export async function rerunFailed(filePath: string, testIds: string[]): Promise<void> {
+  if (testIds.length === 0) return;
+
+  const cwd = workspaceRootFor(filePath);
+
+  outputChannel.appendLine(
+    `\n▶ rerun failed: ${filePath} [${testIds.join(", ")}]`,
+  );
+  outputChannel.appendLine(`  cwd: ${cwd}\n`);
+
+  const run = controller.createTestRun(
+    new vscode.TestRunRequest(),
+    `rerun failed (${testIds.length})`,
+    false,
+  );
+
+  vscode.commands.executeCommand("testing.showMostRecentOutput");
+
+  if (isScratchMode(filePath)) showScratchModeHint();
+
+  try {
+    const parsed = await executeTest(
+      filePath,
+      testIds,
+      cwd,
+      run.token,
+      run,
+      { envFile: envFileProvider?.() },
+    );
+
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
+    lastResultJsonPath = resultJsonPath;
+
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Error: ${message}`);
+  } finally {
+    run.end();
+  }
+}
+
+/**
  * Re-run the last executed test(s).
  * Returns false if there's nothing to re-run.
  */

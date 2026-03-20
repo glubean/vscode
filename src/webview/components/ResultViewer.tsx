@@ -22,6 +22,7 @@ interface ResultViewerProps {
   onOlder?: () => void;
   onCopyAsCurl?: (call: TraceCall) => void;
   onJumpToSource?: (testId: string) => void;
+  onRerunFailed?: (testIds: string[]) => void;
 }
 
 function formatDuration(ms: number): string {
@@ -271,9 +272,12 @@ function TraceTab({ tests, onCopyAsCurl }: { tests: ResultData["tests"]; onCopyA
   );
 }
 
-export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyAsCurl, onJumpToSource }: ResultViewerProps) {
+export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyAsCurl, onJumpToSource, onRerunFailed }: ResultViewerProps) {
   const allPassed = data.tests.every(t => deriveSuccess(t));
   const isSingleTest = data.tests.length === 1;
+  const failedTestIds = data.tests
+    .filter(t => !deriveSuccess(t))
+    .map(t => t.testId);
 
   return (
     <div class="flex flex-col h-full min-h-0">
@@ -318,7 +322,21 @@ export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyA
       {/* Summary bar (multi-test only) */}
       {!isSingleTest && (
         <div class="px-4 py-3 border-b border-panel shrink-0 text-xs">
-          <SummaryBar summary={data.summary} runAt={data.runAt} />
+          <div class="flex items-center gap-2">
+            <div class="flex-1 min-w-0">
+              <SummaryBar summary={data.summary} runAt={data.runAt} />
+            </div>
+            {failedTestIds.length > 0 && onRerunFailed && (
+              <button
+                onClick={() => onRerunFailed(failedTestIds)}
+                class="text-[10px] px-3 py-1.5 rounded-full transition-colors cursor-pointer shrink-0 font-medium"
+                style="background: color-mix(in srgb, var(--vscode-testing-iconFailed, #f85149) 15%, transparent); color: var(--vscode-testing-iconFailed, #f85149)"
+                title={`Rerun ${failedTestIds.length} failed test${failedTestIds.length > 1 ? "s" : ""}`}
+              >
+                ▶ Rerun Failed ({failedTestIds.length})
+              </button>
+            )}
+          </div>
         </div>
       )}
 

@@ -7,6 +7,26 @@
 import * as path from "path";
 import * as fs from "fs";
 
+// ---------------------------------------------------------------------------
+// Failed test ID extraction
+// ---------------------------------------------------------------------------
+
+/** Minimal shape of a result file for extracting failed test IDs. */
+export interface ResultForRerun {
+  tests?: Array<{ testId: string; success: boolean }>;
+}
+
+/**
+ * Extract testIds of failed tests from a GlubeanResult-shaped object.
+ * Returns an empty array when there are no failures or input is invalid.
+ */
+export function extractFailedTestIds(result: ResultForRerun | null | undefined): string[] {
+  if (!result || !Array.isArray(result.tests)) return [];
+  return result.tests
+    .filter((t) => !t.success)
+    .map((t) => t.testId);
+}
+
 const TEST_EXTS = [".ts", ".js", ".mjs"] as const;
 
 /**
