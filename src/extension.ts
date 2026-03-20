@@ -224,7 +224,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Hover provider (vars/secrets preview) ─────────────────────────────
   const hoverSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.test.ts" },
-    { language: "typescript", pattern: "**/*.explore.ts" },
     { language: "javascript", pattern: "**/*.test.{js,mjs}" },
   ];
   context.subscriptions.push(
@@ -237,7 +236,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── CodeLens providers ──────────────────────────────────────────────────
   const codeLensSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.test.ts" },
-    { language: "typescript", pattern: "**/*.explore.ts" },
     { language: "javascript", pattern: "**/*.test.{js,mjs}" },
   ];
 
@@ -349,10 +347,10 @@ export function activate(context: vscode.ExtensionContext): void {
         const fileName = uri?.fsPath ?? "";
         if (
           !uri ||
-          (!/\.test\.(ts|js|mjs)$/.test(fileName) && !fileName.endsWith(".explore.ts"))
+          !/\.test\.(ts|js|mjs)$/.test(fileName)
         ) {
           vscode.window.showWarningMessage(
-            "Open a .test.ts, .test.js, or .explore.ts file to run.",
+            "Open a .test.ts, .test.js, or .test.mjs file to run.",
           );
           return;
         }
