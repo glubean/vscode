@@ -12,13 +12,8 @@ import { AssertionList } from "./AssertionList";
 import { RequestList } from "./RequestList";
 import { RequestDetail } from "./RequestDetail";
 import { Tabs } from "./Tabs";
-import type { ResultData, TimelineEvent, TraceCall } from "../index";
-
-/** Derive success from events — soft assertion failures override test.success */
-function deriveSuccess(test: { success: boolean; events: TimelineEvent[] }): boolean {
-  if (!test.success) return false;
-  return !test.events.some(e => e.type === "assertion" && e.passed === false);
-}
+import type { ResultData, TraceCall } from "../index";
+import { deriveSuccess } from "../result-utils";
 
 interface ResultViewerProps {
   data: ResultData;

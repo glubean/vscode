@@ -35,6 +35,31 @@ Each step is tested as input→output, no subprocess spawning needed.
 - Location: `src/testController/executor.test.ts`
 - Verify: no env var leakage between runs
 
+### 5. Generate Summary (runner integration)
+- Input: timeline events array
+- Output: `Summary { success, assertionTotal, httpErrorTotal, ... }`
+- Location: `src/generate-summary.test.ts`
+- Verify: correct success derivation, assertion/HTTP/step counting, edge cases
+
+### 6. Environment Switcher
+- Input: directory entries, env file names
+- Output: filtered env file list, display names, parsed key-value pairs
+- Location: `src/env-switcher.test.ts`
+- Verify: .env.secrets/.env.local/.env.example exclusion, display name mapping
+
+### 7. Result Viewer Logic
+- Input: test objects with success flag and timeline events
+- Output: derived success, filtered assertions, filtered traces
+- Location: `src/result-viewer-logic.test.ts`
+- Source: `src/webview/result-utils.ts` (extracted from ResultViewer.tsx)
+- Verify: soft assertion failure overrides test.success, correct event filtering
+
+### 8. Scratch Mode Detection
+- Input: file paths, directory structure
+- Output: test file detection, zero-project detection
+- Location: `src/scratch-mode.test.ts`
+- Verify: .test.{ts,js,mjs} matching, node_modules/@glubean/sdk existence check
+
 ## Constraints
 
 `executor.ts` imports `vscode` which is unavailable in test. Tests replicate
