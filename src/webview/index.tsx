@@ -102,6 +102,9 @@ function App() {
       onCopyAsCurl={(call) =>
         vscode.postMessage({ type: "copyAsCurl", request: call.request })
       }
+      onJumpToSource={(testId) =>
+        vscode.postMessage({ type: "jumpToSource", testId })
+      }
     />
   );
 }

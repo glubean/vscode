@@ -21,6 +21,7 @@ interface ResultViewerProps {
   onNewer?: () => void;
   onOlder?: () => void;
   onCopyAsCurl?: (call: TraceCall) => void;
+  onJumpToSource?: (testId: string) => void;
 }
 
 function formatDuration(ms: number): string {
@@ -103,7 +104,7 @@ function SummaryBar({ summary, runAt }: { summary: ResultData["summary"]; runAt:
   );
 }
 
-function TestList({ tests }: { tests: ResultData["tests"] }) {
+function TestList({ tests, onJumpToSource }: { tests: ResultData["tests"]; onJumpToSource?: (testId: string) => void }) {
   if (tests.length === 0) {
     return <div class="text-xs muted italic p-4">No tests found</div>;
   }
@@ -118,7 +119,17 @@ function TestList({ tests }: { tests: ResultData["tests"] }) {
           <StatusIcon success={deriveSuccess(test)} />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
-              <span class="truncate">{test.testName}</span>
+              <a
+                class="truncate cursor-pointer"
+                style="color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none"
+                title="Jump to source definition"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onJumpToSource?.(test.testId);
+                }}
+              >
+                {test.testName}
+              </a>
               {test.tags && test.tags.length > 0 && (
                 <div class="flex gap-1">
                   {test.tags.map((tag) => (
@@ -260,7 +271,7 @@ function TraceTab({ tests, onCopyAsCurl }: { tests: ResultData["tests"]; onCopyA
   );
 }
 
-export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyAsCurl }: ResultViewerProps) {
+export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyAsCurl, onJumpToSource }: ResultViewerProps) {
   const allPassed = data.tests.every(t => deriveSuccess(t));
   const isSingleTest = data.tests.length === 1;
 
@@ -269,9 +280,21 @@ export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyA
       {/* Header */}
       <div class="flex items-center gap-3 px-4 py-3 border-b border-panel shrink-0 bg-sidebar">
         <RunStatusChip success={allPassed} />
-        <span class="text-xs truncate muted min-w-0">
-          {isSingleTest ? data.tests[0].testName : data.fileName}
-        </span>
+        {isSingleTest ? (
+          <a
+            class="text-xs truncate min-w-0 cursor-pointer"
+            style="color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none"
+            title="Jump to source definition"
+            onClick={(e) => {
+              e.preventDefault();
+              onJumpToSource?.(data.tests[0].testId);
+            }}
+          >
+            {data.tests[0].testName}
+          </a>
+        ) : (
+          <span class="text-xs truncate muted min-w-0">{data.fileName}</span>
+        )}
         {isSingleTest && (
           <span class="text-xs muted">{formatDuration(data.tests[0].durationMs)}</span>
         )}
@@ -303,7 +326,7 @@ export function ResultViewer({ data, onOpenFullViewer, onNewer, onOlder, onCopyA
       {isSingleTest ? (
         <SingleTestView test={data.tests[0]} rawJson={data.rawJson} onOpenCloud={onOpenFullViewer} onCopyAsCurl={onCopyAsCurl} />
       ) : (
-        <MultiTestView data={data} onOpenFullViewer={onOpenFullViewer} onCopyAsCurl={onCopyAsCurl} />
+        <MultiTestView data={data} onOpenFullViewer={onOpenFullViewer} onCopyAsCurl={onCopyAsCurl} onJumpToSource={onJumpToSource} />
       )}
     </div>
   );
@@ -401,10 +424,12 @@ function MultiTestView({
   data,
   onOpenFullViewer,
   onCopyAsCurl,
+  onJumpToSource,
 }: {
   data: ResultData;
   onOpenFullViewer?: () => void;
   onCopyAsCurl?: (call: TraceCall) => void;
+  onJumpToSource?: (testId: string) => void;
 }) {
   return (
     <div class="flex-1 overflow-hidden min-h-0">
@@ -415,7 +440,7 @@ function MultiTestView({
             label: `Tests (${data.summary.total})`,
             content: (
               <div class="overflow-y-auto h-full">
-                <TestList tests={data.tests} />
+                <TestList tests={data.tests} onJumpToSource={onJumpToSource} />
               </div>
             ),
           },

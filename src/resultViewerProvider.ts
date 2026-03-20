@@ -7,8 +7,11 @@
  */
 
 import * as vscode from "vscode";
+import * as fs from "fs";
 import { getWebviewHtml } from "./webviewUtils";
 import { tracePairToCurl } from "./testController.utils";
+import { extractTests } from "./parser";
+import { inferSourcePath } from "./resultViewerUtils";
 
 // ---------------------------------------------------------------------------
 // Types — passed to the webview
@@ -110,9 +113,49 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
     };
 
     const messageDisposable = webviewPanel.webview.onDidReceiveMessage(
-      async (msg: { type: string; request?: unknown }) => {
+      async (msg: { type: string; testId?: string; request?: unknown }) => {
         if (msg.type === "ready") {
           updateWebview();
+        } else if (msg.type === "jumpToSource" && msg.testId) {
+          const sourcePath = inferSourcePath(document.uri.fsPath);
+          if (!sourcePath) {
+            void vscode.window.showWarningMessage(
+              "Could not locate the source test file.",
+            );
+            return;
+          }
+          try {
+            const sourceContent = fs.readFileSync(sourcePath, "utf-8");
+            const tests = extractTests(sourceContent);
+            // Find the test by testId — try exact match first, then
+            // try without variant prefix (pick:/each:) since result testId
+            // won't have the prefix.
+            const match =
+              tests.find((t) => t.id === msg.testId) ??
+              tests.find((t) => t.id.replace(/^(each|pick):/, "") === msg.testId) ??
+              tests.find((t) => {
+                // Data-driven tests: result testId is an instantiated ID
+                // like "search-by-name", but source has the template "search-$_pick".
+                // Strip variant prefix and check if the template base matches.
+                const bare = t.id.replace(/^(each|pick):/, "");
+                // Simple heuristic: if the template (with $ placeholders removed up to
+                // next separator) is a prefix of the result testId, consider it a match.
+                const prefix = bare.replace(/\$[^-]*/g, "");
+                return prefix.length > 0 && msg.testId!.startsWith(prefix);
+              });
+            const line = match?.line ?? 1;
+            const uri = vscode.Uri.file(sourcePath);
+            const pos = new vscode.Position(line - 1, 0);
+            await vscode.window.showTextDocument(uri, {
+              selection: new vscode.Range(pos, pos),
+              viewColumn: vscode.ViewColumn.One,
+            });
+          } catch (err) {
+            console.error("[Glubean] Failed to jump to source:", err);
+            void vscode.window.showWarningMessage(
+              "Could not open the source test file.",
+            );
+          }
         } else if (msg.type === "viewSource") {
           void vscode.commands.executeCommand(
             "vscode.openWith",

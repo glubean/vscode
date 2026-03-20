@@ -9,7 +9,11 @@
 
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import { deriveSuccess, extractAssertions, extractTraceCalls } from "./webview/result-utils";
+import { inferSourcePath } from "./resultViewerUtils";
 import type { TimelineEvent } from "./webview/index";
 
 // ---------------------------------------------------------------------------
@@ -136,5 +140,135 @@ describe("extractTraceCalls", () => {
 
   it("returns empty for empty events", () => {
     assert.deepEqual(extractTraceCalls([]), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inferSourcePath
+// ---------------------------------------------------------------------------
+
+describe("inferSourcePath", () => {
+  let tempDir: string;
+
+  function setup() {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "glubean-infer-"));
+    return tempDir;
+  }
+
+  function cleanup() {
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  it("side-file: smoke.test.result.json → smoke.test.ts", () => {
+    const dir = setup();
+    try {
+      // Create the source file
+      fs.writeFileSync(path.join(dir, "smoke.test.ts"), "");
+      // Create the result file
+      fs.writeFileSync(path.join(dir, "smoke.test.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "smoke.test.result.json"));
+      assert.equal(result, path.join(dir, "smoke.test.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("side-file: prefers .ts over .js", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "api.test.ts"), "");
+      fs.writeFileSync(path.join(dir, "api.test.js"), "");
+      fs.writeFileSync(path.join(dir, "api.test.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "api.test.result.json"));
+      assert.equal(result, path.join(dir, "api.test.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("side-file: falls back to .js when no .ts", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "api.test.js"), "");
+      fs.writeFileSync(path.join(dir, "api.test.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "api.test.result.json"));
+      assert.equal(result, path.join(dir, "api.test.js"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("side-file: returns undefined when no source file exists", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "missing.test.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "missing.test.result.json"));
+      assert.equal(result, undefined);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("history: .glubean/results/smoke.test/dj-get/ts.result.json → smoke.test.ts", () => {
+    const dir = setup();
+    try {
+      // Create workspace structure
+      fs.writeFileSync(path.join(dir, "smoke.test.ts"), "");
+      const histDir = path.join(dir, ".glubean", "results", "smoke.test", "dj-get");
+      fs.mkdirSync(histDir, { recursive: true });
+      const resultPath = path.join(histDir, "20260318T231054.result.json");
+      fs.writeFileSync(resultPath, "{}");
+
+      const result = inferSourcePath(resultPath);
+      assert.equal(result, path.join(dir, "smoke.test.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("history: finds source file in subdirectory", () => {
+    const dir = setup();
+    try {
+      // Source file is in a tests/ subdirectory
+      const testsDir = path.join(dir, "tests");
+      fs.mkdirSync(testsDir, { recursive: true });
+      fs.writeFileSync(path.join(testsDir, "api.test.ts"), "");
+
+      const histDir = path.join(dir, ".glubean", "results", "api.test", "health-check");
+      fs.mkdirSync(histDir, { recursive: true });
+      const resultPath = path.join(histDir, "20260318T231054.result.json");
+      fs.writeFileSync(resultPath, "{}");
+
+      const result = inferSourcePath(resultPath);
+      assert.equal(result, path.join(testsDir, "api.test.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("history: returns undefined when source file doesn't exist", () => {
+    const dir = setup();
+    try {
+      const histDir = path.join(dir, ".glubean", "results", "gone.test", "some-test");
+      fs.mkdirSync(histDir, { recursive: true });
+      const resultPath = path.join(histDir, "20260318T231054.result.json");
+      fs.writeFileSync(resultPath, "{}");
+
+      const result = inferSourcePath(resultPath);
+      assert.equal(result, undefined);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("non-result file: returns undefined for arbitrary .json", () => {
+    const result = inferSourcePath("/some/path/config.json");
+    assert.equal(result, undefined);
   });
 });
