@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Testing & REST Client",
   "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -211,7 +211,7 @@
       "editor/title/run": [
         {
           "command": "glubean.runFile",
-          "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
+          "when": "resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/",
           "group": "navigation"
         },
         {
@@ -228,7 +228,7 @@
       "explorer/context": [
         {
           "command": "glubean.runFile",
-          "when": "resourceFilename =~ /\\.(test|explore)\\.ts$/",
+          "when": "resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/",
           "group": "glubean@1"
         },
         {
@@ -292,7 +292,7 @@
         "command": "glubean.runFile",
         "key": "ctrl+alt+t",
         "mac": "cmd+alt+t",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(test|explore)\\.ts$/"
+        "when": "editorTextFocus && resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/"
       }
     ]
   },
