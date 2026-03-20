@@ -9,9 +9,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   extractHistoryLabel,
+  historyBaseName,
   resultHistoryDir,
   resultHistoryFileName,
   resultHistoryKey,
+  resultHistoryRoot,
+  sanitizePathSegment,
+  sourceBaseName,
 } from "./resultHistory";
 import { writeRunArtifacts } from "./testController/artifacts";
 import type { GlubeanResult } from "./testController/results";
@@ -47,6 +51,95 @@ describe("resultHistory helpers", () => {
   it("extracts labels from bracketed and legacy filenames", () => {
     assert.equal(extractHistoryLabel("20260318T230952[by-name].result.json"), "by-name");
     assert.equal(extractHistoryLabel("20260318T230952--by-name.result.json"), "by-name");
+    assert.equal(extractHistoryLabel("20260318T230952.result.json"), undefined);
+  });
+
+  // -------------------------------------------------------------------------
+  // P2: Additional result history scenarios
+  // -------------------------------------------------------------------------
+
+  it("sourceBaseName strips .ts extension", () => {
+    assert.equal(sourceBaseName("/workspace/tests/health.test.ts"), "health.test");
+  });
+
+  it("sourceBaseName strips .js extension", () => {
+    assert.equal(sourceBaseName("/workspace/tests/health.test.js"), "health.test");
+  });
+
+  it("sourceBaseName strips .mjs extension", () => {
+    assert.equal(sourceBaseName("/workspace/tests/health.test.mjs"), "health.test");
+  });
+
+  it("sourceBaseName preserves non-source extensions", () => {
+    assert.equal(sourceBaseName("/workspace/tests/health.test.json"), "health.test.json");
+  });
+
+  it("historyBaseName strips .result.json from result file", () => {
+    assert.equal(historyBaseName("/workspace/tests/health.test.result.json"), "health.test");
+  });
+
+  it("historyBaseName strips source ext from source file", () => {
+    assert.equal(historyBaseName("/workspace/tests/health.test.ts"), "health.test");
+  });
+
+  it("historyBaseName handles bare filename", () => {
+    assert.equal(historyBaseName("search.test.ts"), "search.test");
+  });
+
+  it("sanitizePathSegment replaces invalid characters", () => {
+    assert.equal(sanitizePathSegment("get-user/<id>"), "get-user__id_");
+    assert.equal(sanitizePathSegment('foo"bar'), "foo_bar");
+    assert.equal(sanitizePathSegment("a:b|c?d"), "a_b_c_d");
+    assert.equal(sanitizePathSegment("normal-id"), "normal-id");
+  });
+
+  it("sanitizePathSegment replaces backslash and colon", () => {
+    assert.equal(sanitizePathSegment("path\\to:file"), "path_to_file");
+  });
+
+  it("resultHistoryDir constructs complete path", () => {
+    const dir = resultHistoryDir(
+      "/workspace",
+      "/workspace/tests/health.test.ts",
+      "health-check",
+    );
+    assert.equal(
+      dir,
+      path.join("/workspace", ".glubean", "results", "health.test", "health-check"),
+    );
+  });
+
+  it("resultHistoryDir normalizes data-driven IDs", () => {
+    const dir = resultHistoryDir(
+      "/workspace",
+      "/workspace/tests/api.test.ts",
+      "each:get-user-$id",
+    );
+    assert.equal(
+      dir,
+      path.join("/workspace", ".glubean", "results", "api.test", "get-user-"),
+    );
+  });
+
+  it("resultHistoryRoot constructs root path", () => {
+    const root = resultHistoryRoot(
+      "/workspace",
+      "/workspace/tests/health.test.ts",
+    );
+    assert.equal(
+      root,
+      path.join("/workspace", ".glubean", "results", "health.test"),
+    );
+  });
+
+  it("extractHistoryLabel legacy --label format with multiple dashes", () => {
+    assert.equal(
+      extractHistoryLabel("20260318T230952--by-name-and-price.result.json"),
+      "by-name-and-price",
+    );
+  });
+
+  it("extractHistoryLabel returns undefined for timestamp-only stem", () => {
     assert.equal(extractHistoryLabel("20260318T230952.result.json"), undefined);
   });
 });

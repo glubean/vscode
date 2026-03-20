@@ -14,6 +14,7 @@ import {
   formatTraceEvent,
   buildEventsSummary,
   tracePairToCurl,
+  findPairIndexAtLine,
   type GlubeanEvent,
   type ResultTestEntry,
 } from "./testController.utils";
@@ -687,5 +688,206 @@ describe("matchTestResults", () => {
       matched[2].map((r) => r.testId),
       ["orphan-a", "orphan-b"],
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // P2: Additional matchTestResults scenarios
+  // -------------------------------------------------------------------------
+
+  it("pick: prefix match works the same as each:", () => {
+    const ids = ["pick:search-$_pick"];
+    const results = [
+      entry("search-by-name"),
+      entry("search-by-price"),
+      entry("health"),
+    ];
+    const matched = matchTestResults(ids, results);
+
+    assert.equal(matched[0].length, 2);
+    assert.deepEqual(
+      matched[0].map((r) => r.testId),
+      ["search-by-name", "search-by-price"],
+    );
+  });
+
+  it("preserves failure status in matched entries", () => {
+    const ids = ["each:get-user-$id"];
+    const results = [
+      entry("get-user-1", true),
+      entry("get-user-2", false),
+    ];
+    const matched = matchTestResults(ids, results);
+
+    assert.equal(matched[0].length, 2);
+    assert.equal(matched[0][0].success, true);
+    assert.equal(matched[0][1].success, false);
+  });
+
+  it("single plain ID with single matching result", () => {
+    const ids = ["smoke"];
+    const results = [entry("smoke")];
+    const matched = matchTestResults(ids, results);
+
+    assert.equal(matched[0].length, 1);
+    assert.equal(matched[0][0].testId, "smoke");
+  });
+
+  it("multiple plain IDs, some missing from results", () => {
+    const ids = ["health", "smoke", "auth"];
+    const results = [entry("smoke"), entry("health")];
+    const matched = matchTestResults(ids, results);
+
+    assert.equal(matched[0].length, 1); // health
+    assert.equal(matched[1].length, 1); // smoke
+    assert.equal(matched[2].length, 0); // auth — missing
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P2: buildEventsSummary — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe("buildEventsSummary (P2 additions)", () => {
+  it("formats multiple assertions in sequence", () => {
+    const events: GlubeanEvent[] = [
+      { type: "assertion", passed: true, message: "status is 200" },
+      { type: "assertion", passed: false, message: "body has name", expected: "Alice", actual: "Bob" },
+      { type: "assertion", passed: true, message: "latency ok" },
+    ];
+    const result = buildEventsSummary(events);
+    const lines = result.split("\n");
+
+    assert.ok(lines[0].includes("[ASSERT ✓] status is 200"));
+    assert.ok(result.includes("[ASSERT ✗] body has name"));
+    assert.ok(result.includes("Expected: \"Alice\""));
+    assert.ok(result.includes("Actual:   \"Bob\""));
+    assert.ok(result.includes("[ASSERT ✓] latency ok"));
+  });
+
+  it("formats error followed by status", () => {
+    const events: GlubeanEvent[] = [
+      { type: "error", message: "ECONNREFUSED" },
+      { type: "status", status: "failed", error: "Connection refused" },
+    ];
+    const result = buildEventsSummary(events);
+    assert.ok(result.includes("[ERROR] ECONNREFUSED"));
+    assert.ok(result.includes("[STATUS] failed: Connection refused"));
+  });
+
+  it("formats step sequence with logs inside", () => {
+    const events: GlubeanEvent[] = [
+      { type: "step_start", index: 0, total: 2, name: "login" },
+      { type: "log", message: "sending credentials" },
+      { type: "step_end", index: 0, status: "passed", durationMs: 100 } as unknown as GlubeanEvent,
+      { type: "step_start", index: 1, total: 2, name: "get profile" },
+      { type: "log", message: "fetching user data" },
+      { type: "step_end", index: 1, status: "passed", durationMs: 50 } as unknown as GlubeanEvent,
+    ];
+    const result = buildEventsSummary(events);
+    assert.ok(result.includes("Step 1/2: login"));
+    assert.ok(result.includes("sending credentials"));
+    assert.ok(result.includes("Step 2/2: get profile"));
+    assert.ok(result.includes("fetching user data"));
+  });
+
+  it("formats trace with full request/response details", () => {
+    const events: GlubeanEvent[] = [
+      {
+        type: "trace",
+        data: {
+          method: "POST",
+          url: "/api/users",
+          status: 201,
+          duration: 120,
+          name: "Create User",
+          requestHeaders: { "Content-Type": "application/json" },
+          requestBody: { name: "test" },
+          responseHeaders: { "X-Request-Id": "abc123" },
+          responseBody: { id: 1 },
+        },
+      },
+    ];
+    const result = buildEventsSummary(events);
+    assert.ok(result.includes("HTTP POST /api/users"));
+    assert.ok(result.includes("(Create User)"));
+    assert.ok(result.includes("201"));
+    assert.ok(result.includes("Request Headers:"));
+    assert.ok(result.includes("Content-Type: application/json"));
+    assert.ok(result.includes("Request Body:"));
+    assert.ok(result.includes("Response Body:"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P2: findPairIndexAtLine
+// ---------------------------------------------------------------------------
+
+describe("findPairIndexAtLine", () => {
+  const sampleTrace = `[
+  {
+    "request": { "method": "GET", "url": "/api/health" },
+    "response": { "status": 200 }
+  },
+  {
+    "request": { "method": "POST", "url": "/api/users" },
+    "response": { "status": 201 }
+  },
+  {
+    "request": { "method": "DELETE", "url": "/api/users/1" },
+    "response": { "status": 204 }
+  }
+]`;
+
+  it("returns 0 for cursor on first element", () => {
+    assert.equal(findPairIndexAtLine(sampleTrace, 2), 0);
+  });
+
+  it("returns 1 for cursor on second element", () => {
+    assert.equal(findPairIndexAtLine(sampleTrace, 6), 1);
+  });
+
+  it("returns 2 for cursor on third element", () => {
+    assert.equal(findPairIndexAtLine(sampleTrace, 10), 2);
+  });
+
+  it("returns 0 as fallback for cursor on opening bracket", () => {
+    assert.equal(findPairIndexAtLine(sampleTrace, 0), 0);
+  });
+
+  it("handles single-element array", () => {
+    const single = `[
+  {
+    "request": { "method": "GET", "url": "/health" }
+  }
+]`;
+    assert.equal(findPairIndexAtLine(single, 2), 0);
+  });
+
+  it("handles JSONC with line comments", () => {
+    const jsonc = `[
+  // First request
+  {
+    "request": { "method": "GET", "url": "/health" }
+  },
+  // Second request
+  {
+    "request": { "method": "POST", "url": "/users" }
+  }
+]`;
+    assert.equal(findPairIndexAtLine(jsonc, 3), 0);
+    assert.equal(findPairIndexAtLine(jsonc, 7), 1);
+  });
+
+  it("handles strings containing braces", () => {
+    const withBraces = `[
+  {
+    "request": { "method": "POST", "url": "/api", "body": "{ \\"key\\": \\"value\\" }" }
+  },
+  {
+    "request": { "method": "GET", "url": "/api" }
+  }
+]`;
+    assert.equal(findPairIndexAtLine(withBraces, 2), 0);
+    assert.equal(findPairIndexAtLine(withBraces, 5), 1);
   });
 });
