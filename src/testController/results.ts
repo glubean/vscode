@@ -7,8 +7,22 @@ import {
   type GlubeanEvent,
 } from "../testController.utils";
 
+/** Runtime context captured when a test run is executed */
+export interface RunContext {
+  timestamp: string;
+  nodeVersion: string;
+  sdkVersion: string;
+  runnerVersion: string;
+  platform: string;
+  arch: string;
+  command?: string;
+  cwd?: string;
+  envFile?: string;
+}
+
 /** Parsed result from --result-json output */
 export interface GlubeanResult {
+  context?: RunContext;
   summary: {
     total: number;
     passed: number;

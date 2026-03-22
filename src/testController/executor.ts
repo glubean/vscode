@@ -160,7 +160,22 @@ export async function executeTest(
   const failed = testResults.filter((t) => !t.success).length;
   const totalDuration = testResults.reduce((sum, t) => sum + t.durationMs, 0);
 
+  // Build run context
+  let runContext: GlubeanResult["context"];
+  try {
+    const { buildRunContext } = await getRunner();
+    runContext = {
+      ...buildRunContext(),
+      command: options.inspectBrk ? "vscode-debug" : "vscode-play",
+      cwd,
+      ...(options.envFile && { envFile: options.envFile }),
+    };
+  } catch {
+    // Non-critical — old vendored runner may not export buildRunContext
+  }
+
   return {
+    ...(runContext && { context: runContext }),
     summary: {
       total: testResults.length,
       passed,
