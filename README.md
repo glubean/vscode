@@ -12,6 +12,8 @@
   <a href="https://docs.glubean.com"><img alt="Docs" src="https://img.shields.io/badge/Docs-docs.glubean.com-818cf8?style=flat-square" /></a>
 </p>
 
+<p align="center">💬 <a href="https://chatgpt.com/g/g-699e31ce19bc8191b748165f46449039-glubean">Ask Glubean AI anything</a> — setup help, feature questions, comparisons</p>
+
 ## Demo
 
 <p>
