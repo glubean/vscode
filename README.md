@@ -24,9 +24,9 @@
 
 - **Not a REST client** — Write verification code that runs in CI, not click-through workflows that break.
 - **Zero to running in 10 seconds** — Create a `.test.js`, click play. No setup, no config, no npm install.
-- **See every detail** — Result Viewer shows traces, assertions, response schema, headers — all in one place.
-- **AI writes your tests** — MCP server + skill + schema inference = AI understands your API and writes verification code.
-- **Data-driven at scale** — `test.each` + `test.pick` with JSON/YAML/CSV data files, CodeLens shows every case.
+- **See every detail** — [Result Viewer](https://docs.glubean.com/extension/result-viewer) shows traces, assertions, response schema, headers — all in one place.
+- **AI writes your tests** — [MCP server + skill](https://docs.glubean.com/extension/generate-with-ai) + schema inference = AI understands your API and writes verification code.
+- **Data-driven at scale** — [`test.each` + `test.pick`](https://docs.glubean.com/sdk/data-driven) with JSON/YAML/CSV data files, CodeLens shows every case.
 
 <!-- TODO: screenshot -->
 
@@ -63,34 +63,39 @@ npx glubean config skill   # AI learns glubean patterns to write tests
 npx glubean docs pull      # download SDK reference for AI context
 ```
 
-Now your AI agent can write verification tests, run them via MCP, read structured failures, and fix until green — without leaving the chat.
+Now your AI agent can write verification tests, run them via MCP, read structured failures, and fix until green — without leaving the chat. [Learn more →](https://docs.glubean.com/extension/generate-with-ai)
 
-> **Scratch mode vs Project mode** — The single-file experience above is scratch mode: great for trying things out and quick API checks. For `.env` files, secrets, `test.each` / `test.pick`, CI upload, and project-level configuration, create a project with `npx glubean init`.
+> **Scratch mode vs Project mode** — The single-file experience above is scratch mode: great for trying things out and quick API checks. For `.env` files, secrets, `test.each` / `test.pick`, CI upload, and project-level configuration, create a project with `npx glubean init`. [See limitations →](https://docs.glubean.com/reference/limitations)
 
 ## Features at a Glance
 
 | Feature | Highlights |
 |---|---|
-| **Run tests** | Play buttons, Test Explorer, right-click to debug, rerun failed only |
-| **Result Viewer** | Traces, assertions, events, response schema — navigate history with prev/next |
-| **Data-driven** | `test.each` + `test.pick` with JSON/YAML/CSV, CodeLens per case, Open data button |
-| **Environments** | Status bar switcher for `.env` files, auto-loads secrets, hover preview |
-| **Diagnostics** | `Glubean: Diagnose` — explains why something isn't working |
-| **AI Integration** | MCP server + skill + lens = AI discovers, writes, runs, and fixes tests |
-| **Glubean Panel** | Pin your most-used tests and files for quick access — click to open, ▶ to run |
-| **Refactor Hints** | $(lightbulb) CodeLens suggests extracting inline data, promoting explore→tests |
+| **[Run tests](https://docs.glubean.com/extension/running-tests)** | Play buttons, Test Explorer, right-click to debug, rerun failed only |
+| **[Result Viewer](https://docs.glubean.com/extension/result-viewer)** | Traces, assertions, events, response schema — navigate history with prev/next |
+| **[Data-driven](https://docs.glubean.com/sdk/data-driven)** | `test.each` + `test.pick` with JSON/YAML/CSV, CodeLens per case, Open data button |
+| **[Environments](https://docs.glubean.com/extension/environments)** | Status bar switcher for `.env` files, auto-loads secrets, hover preview |
+| **[Diagnostics](https://docs.glubean.com/extension/diagnostics)** | `Glubean: Diagnose` — explains why something isn't working |
+| **[AI Integration](https://docs.glubean.com/extension/generate-with-ai)** | MCP server + skill + lens = AI discovers, writes, runs, and fixes tests |
+| **[Glubean Panel](https://docs.glubean.com/extension/running-tests#glubean-panel)** | Pin your most-used tests and files for quick access — click to open, ▶ to run |
+| **Refactor Hints** | CodeLens suggests extracting inline data, promoting explore→tests |
 | **Jump to Source** | Click test name in Result Viewer to jump to definition |
-| **Test Explorer Layout** | flat/tree/auto — adapts to project size |
+| **[Test Explorer Layout](https://docs.glubean.com/extension/running-tests#test-explorer-layout)** | flat/tree/auto — adapts to project size |
 
 Each feature is documented in detail at **[docs.glubean.com](https://docs.glubean.com)**.
 
 ## Documentation
 
 - [Quick Start](https://docs.glubean.com/extension/quick-start) — install and run your first test
-- [Running Tests](https://docs.glubean.com/extension/running-tests) — play buttons, Test Explorer, data-driven, rerun failed
+- [Writing Tests](https://docs.glubean.com/extension/writing-tests) — CodeLens, snippets, data-driven patterns
+- [Running Tests](https://docs.glubean.com/extension/running-tests) — play buttons, Test Explorer, Glubean Panel, rerun failed
+- [Result Viewer](https://docs.glubean.com/extension/result-viewer) — traces, assertions, history, jump to source
 - [Environments & Secrets](https://docs.glubean.com/extension/environments) — `.env` files, secrets, status bar switcher
+- [AI Integration](https://docs.glubean.com/extension/generate-with-ai) — MCP server, skill, AI authoring loop
 - [Debugging](https://docs.glubean.com/extension/debugging) — breakpoints, step-through, Debug Console
+- [Diagnostics](https://docs.glubean.com/extension/diagnostics) — troubleshooting, common problems
 - [Commands & Settings](https://docs.glubean.com/extension/reference) — full reference
+- [Limitations](https://docs.glubean.com/reference/limitations) — trade-offs and known limitations
 
 ## How It Works
 
