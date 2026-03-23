@@ -8,6 +8,7 @@
 
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as path from "path";
 import { getWebviewHtml } from "./webviewUtils";
 import { tracePairToCurl } from "./testController.utils";
 import { extractTests } from "./parser";
@@ -117,7 +118,51 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
         if (msg.type === "ready") {
           updateWebview();
         } else if (msg.type === "jumpToSource" && msg.testId) {
-          const sourcePath = inferSourcePath(document.uri.fsPath);
+          // Try to find source from result JSON's files field first
+          let sourcePath: string | null = null;
+          try {
+            const resultContent = document.getText();
+            const parsed = JSON.parse(resultContent);
+            const files: string[] = parsed.files ?? [];
+            const cwd = parsed.context?.cwd;
+            if (files.length > 0) {
+              // Find the file that contains this testId
+              for (const f of files) {
+                const abs = path.isAbsolute(f)
+                  ? f
+                  : cwd
+                    ? path.resolve(cwd, f)
+                    : path.resolve(path.dirname(document.uri.fsPath), f);
+                if (fs.existsSync(abs)) {
+                  const content = fs.readFileSync(abs, "utf-8");
+                  const tests = extractTests(content);
+                  const hasTest = tests.some((t) => {
+                    const bare = t.id.replace(/^(each|pick):/, "");
+                    const prefix = bare.replace(/\$[^-]*/g, "");
+                    return t.id === msg.testId || bare === msg.testId || (prefix.length > 0 && msg.testId!.startsWith(prefix));
+                  });
+                  if (hasTest) {
+                    sourcePath = abs;
+                    break;
+                  }
+                }
+              }
+              // If testId not matched but we have files, use first one
+              if (!sourcePath && files.length === 1) {
+                const abs = path.isAbsolute(files[0])
+                  ? files[0]
+                  : cwd
+                    ? path.resolve(cwd, files[0])
+                    : path.resolve(path.dirname(document.uri.fsPath), files[0]);
+                if (fs.existsSync(abs)) sourcePath = abs;
+              }
+            }
+          } catch { /* ignore parse errors, fallback below */ }
+
+          // Fallback to path-based inference
+          if (!sourcePath) {
+            sourcePath = inferSourcePath(document.uri.fsPath) ?? null;
+          }
           if (!sourcePath) {
             void vscode.window.showWarningMessage(
               "Could not locate the source test file.",

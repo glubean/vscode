@@ -132,12 +132,6 @@ export function extractExportBlock(content: string, exportName: string): string 
       started = true;
     } else if (ch === ")" || ch === "}" || ch === "]") {
       depth--;
-      if (started && depth === 0) {
-        let end = i + 1;
-        while (end < content.length && content[end] !== "\n" && content[end] !== ";") end++;
-        if (end < content.length && content[end] === ";") end++;
-        return content.slice(startIdx, end).trim();
-      }
     } else if (ch === "`" || ch === '"' || ch === "'") {
       const quote = ch;
       i++;
@@ -145,6 +139,8 @@ export function extractExportBlock(content: string, exportName: string): string 
         if (content[i] === "\\") i++;
         i++;
       }
+    } else if (started && depth === 0 && ch === ";") {
+      return content.slice(startIdx, i + 1).trim();
     }
     i++;
   }

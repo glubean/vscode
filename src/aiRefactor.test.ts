@@ -172,6 +172,22 @@ describe("detectRefactorScenarios", () => {
     assert.equal(scenarios.some((s) => s.type === "extract-config"), true);
   });
 
+  it("detects extract-config for chained data-driven tests", () => {
+    const content = SDK_IMPORT + `export const myTest = test.each([
+  { url: "https://api.example.com/users" },
+  { url: "https://api.example.com/users" },
+  { url: "https://api.example.com/users" },
+  { url: "https://api.example.com/users" },
+])("my-test-$id", async (ctx, data) => {
+  await ctx.http.get(data.url);
+  await ctx.http.get(data.url);
+});`;
+    const meta = makeMeta({ id: "each:my-test-$id", exportName: "myTest" });
+    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
+    const types = scenarios.map((s) => s.type).sort();
+    assert.deepEqual(types, ["extract-config", "extract-data"]);
+  });
+
   it("detects multiple scenarios simultaneously", () => {
     // extract-config needs repeated URLs within the export block — use a simple test (not chained .each)
     const content = SDK_IMPORT + `export const myTest = test("my-test", async (ctx) => {
@@ -224,6 +240,19 @@ describe("extractExportBlock", () => {
     const block = extractExportBlock(content, "myTest");
     assert.ok(block.startsWith("export const myTest"));
     assert.ok(block.includes("ctx.http.get"));
+  });
+
+  it("extracts chained data-driven exports through the test body", () => {
+    const content = SDK_IMPORT + `export const myTest = test.each([
+  { url: "https://api.example.com/users" },
+  { url: "https://api.example.com/users" },
+])("my-test-$id", async (ctx, data) => {
+  await ctx.http.get(data.url);
+  await ctx.http.get(data.url);
+});`;
+    const block = extractExportBlock(content, "myTest");
+    assert.ok(block.includes('await ctx.http.get(data.url);'));
+    assert.ok(block.endsWith("});"));
   });
 
   it("returns empty string for missing export", () => {
