@@ -20,10 +20,11 @@ import {
   shutdownTelemetry,
   track,
 } from "./telemetry";
-import { TasksProvider, type TaskItem, type PinnedFileItem } from "./taskPanel/provider";
+import { TasksProvider, type TaskItem, type PinnedFileItem, type PinnedTestItem } from "./taskPanel/provider";
 import { TaskRunner } from "./taskPanel/runner";
 import { initStorage } from "./taskPanel/storage";
 import { initPinnedStorage, pinFile, unpinFile, listPinned, isPinned, type PinnedFile } from "./pinnedFiles";
+import { initPinnedTestStorage, pinTest, unpinTest, listPinnedTests, isPinnedTest, type PinnedTest } from "./pinnedTests";
 import { runDiagnose } from "./diagnose";
 import { registerAiRefactorCommand } from "./aiRefactor";
 
@@ -297,6 +298,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Tasks panel (Activity Bar view for QA) ─────────────────────────────
   initStorage(context.workspaceState);
   initPinnedStorage(context.workspaceState);
+  initPinnedTestStorage(context.workspaceState);
   const tasksProvider = new TasksProvider();
   const taskRunner = new TaskRunner(tasksProvider);
 
@@ -398,6 +400,77 @@ export function activate(context: vscode.ExtensionContext): void {
         const absolutePath = join(pinned.workspaceRoot, pinned.filePath);
         const uri = vscode.Uri.file(absolutePath);
         await testController.runFileByUri(uri);
+      },
+    ),
+  );
+
+  // ── Pinned tests commands ────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "glubean.pinTest",
+      async (args?: { uri: vscode.Uri; testId: string; exportName: string; label: string }) => {
+        if (!args?.uri || !args?.testId) {
+          vscode.window.showWarningMessage("No test selected to pin.");
+          return;
+        }
+
+        const folder = vscode.workspace.getWorkspaceFolder(args.uri);
+        if (!folder) {
+          vscode.window.showWarningMessage("File is not inside a workspace folder.");
+          return;
+        }
+
+        const workspaceRoot = folder.uri.fsPath;
+        const relativePath = vscode.workspace.asRelativePath(args.uri, false);
+
+        if (isPinnedTest(listPinnedTests(), workspaceRoot, relativePath, args.testId)) {
+          vscode.window.showInformationMessage(`${args.label} is already pinned.`);
+          return;
+        }
+
+        const entry: PinnedTest = {
+          type: "test",
+          workspaceRoot,
+          filePath: relativePath,
+          testId: args.testId,
+          exportName: args.exportName,
+          label: args.label,
+        };
+
+        await pinTest(entry);
+        tasksProvider.refresh();
+        track("pin_test");
+      },
+    ),
+    vscode.commands.registerCommand(
+      "glubean.unpinTest",
+      async (item?: PinnedTestItem) => {
+        if (!item?.pinned) {
+          vscode.window.showWarningMessage("No pinned test selected.");
+          return;
+        }
+
+        await unpinTest(item.pinned.workspaceRoot, item.pinned.filePath, item.pinned.testId);
+        tasksProvider.refresh();
+        track("unpin_test");
+      },
+    ),
+    vscode.commands.registerCommand(
+      "glubean.runPinnedTest",
+      async (pinnedOrItem?: PinnedTest | PinnedTestItem) => {
+        // Accept either a PinnedTest or PinnedTestItem (from inline action)
+        const pinned = pinnedOrItem && "pinned" in pinnedOrItem
+          ? (pinnedOrItem as PinnedTestItem).pinned
+          : pinnedOrItem as PinnedTest | undefined;
+
+        if (!pinned?.filePath || !pinned?.workspaceRoot || !pinned?.testId) {
+          vscode.window.showWarningMessage("No pinned test to run.");
+          return;
+        }
+
+        const { join } = await import("node:path");
+        const absolutePath = join(pinned.workspaceRoot, pinned.filePath);
+        await testController.rerunFailed(absolutePath, [pinned.testId]);
       },
     ),
   );

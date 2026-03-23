@@ -18,6 +18,7 @@ import { resolveDataPath } from "./data-path";
 import { extractTests } from "./parser";
 import { detectRefactorScenarios } from "./aiRefactor";
 import { listPinned, isPinned } from "./pinnedFiles";
+import { listPinnedTests, isPinnedTest } from "./pinnedTests";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
 const QUICK_PICK_THRESHOLD = 5;
@@ -295,6 +296,34 @@ class PickCodeLensProvider implements PickCodeLens {
             ],
           }),
         );
+      }
+    }
+
+    // ── Pin Test CodeLenses (per-test, if not already pinned) ──────────
+    if (wsFolder) {
+      const wsRoot = wsFolder.uri.fsPath;
+      const relPath = vscode.workspace.asRelativePath(document.uri, false);
+      const currentPinnedTests = listPinnedTests();
+
+      for (const meta of tests) {
+        if (!isPinnedTest(currentPinnedTests, wsRoot, relPath, meta.id)) {
+          const line = meta.line - 1; // 0-based for VS Code
+          const range = new vscode.Range(line, 0, line, 0);
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: "$(pin) Pin",
+              command: "glubean.pinTest",
+              arguments: [
+                {
+                  uri: document.uri,
+                  testId: meta.id,
+                  exportName: meta.exportName,
+                  label: meta.name ?? meta.id,
+                },
+              ],
+            }),
+          );
+        }
       }
     }
 

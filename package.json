@@ -243,6 +243,21 @@
         "command": "glubean.runPinnedFile",
         "title": "Run Pinned File",
         "icon": "$(play)"
+      },
+      {
+        "command": "glubean.pinTest",
+        "title": "Pin Test to Glubean",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "glubean.unpinTest",
+        "title": "Unpin Test",
+        "icon": "$(close)"
+      },
+      {
+        "command": "glubean.runPinnedTest",
+        "title": "Run Pinned Test",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -312,6 +327,16 @@
         {
           "command": "glubean.unpinFile",
           "when": "view == glubean.tasksView && viewItem == pinnedFile",
+          "group": "inline@2"
+        },
+        {
+          "command": "glubean.runPinnedTest",
+          "when": "view == glubean.tasksView && viewItem == pinnedTest",
+          "group": "inline@1"
+        },
+        {
+          "command": "glubean.unpinTest",
+          "when": "view == glubean.tasksView && viewItem == pinnedTest",
           "group": "inline@2"
         }
       ]
