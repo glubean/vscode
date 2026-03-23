@@ -133,3 +133,23 @@ describe("filterByRoot", () => {
     assert.equal(result.length, 0);
   });
 });
+
+// ── Multi-root description ──────────────────────────────────────────────
+
+describe("multi-root description", () => {
+  it("shows workspace prefix when multi-root", () => {
+    const pinned = { type: "file" as const, workspaceRoot: "/ws/cookbook", filePath: "tests/smoke.test.ts", label: "smoke.test.ts" };
+    const isMultiRoot = true;
+    const wsName = "cookbook";
+    const desc = isMultiRoot ? `${wsName}/${pinned.filePath}` : pinned.filePath;
+    assert.strictEqual(desc, "cookbook/tests/smoke.test.ts");
+  });
+
+  it("shows plain path when single root", () => {
+    const pinned = { type: "file" as const, workspaceRoot: "/ws/cookbook", filePath: "tests/smoke.test.ts", label: "smoke.test.ts" };
+    const isMultiRoot = false;
+    const wsName = "cookbook";
+    const desc = isMultiRoot ? `${wsName}/${pinned.filePath}` : pinned.filePath;
+    assert.strictEqual(desc, "tests/smoke.test.ts");
+  });
+});

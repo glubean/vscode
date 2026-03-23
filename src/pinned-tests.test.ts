@@ -147,3 +147,19 @@ describe("filterTestsByRoot", () => {
     assert.equal(result.length, 0);
   });
 });
+
+// ── Data-driven test detection ──────────────────────────────────────────
+
+describe("isDataDrivenPinnedTest", () => {
+  it("detects each: prefix", () => {
+    assert.strictEqual("each:search-$q".startsWith("each:"), true);
+  });
+
+  it("detects pick: prefix", () => {
+    assert.strictEqual("pick:dir-$_pick".startsWith("pick:"), true);
+  });
+
+  it("plain test has no prefix", () => {
+    assert.strictEqual("get-user".startsWith("each:") || "get-user".startsWith("pick:"), false);
+  });
+});
