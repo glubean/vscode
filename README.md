@@ -55,6 +55,16 @@ No `npm install`, no `package.json`, no setup. The response opens in the Result 
 
 **3. Create a project** — when you're ready for the full experience, run `npx glubean init` in your terminal to scaffold a project with environments, secrets, CI config, and more.
 
+**4. Set up AI** — if you use Claude Code, Cursor, or Codex, connect glubean's MCP server and skill:
+
+```bash
+npx glubean config mcp    # AI can discover, run, and diagnose tests
+npx glubean config skill   # AI learns glubean patterns to write tests
+npx glubean docs pull      # download SDK reference for AI context
+```
+
+Now your AI agent can write verification tests, run them via MCP, read structured failures, and fix until green — without leaving the chat.
+
 > **Scratch mode vs Project mode** — The single-file experience above is scratch mode: great for trying things out and quick API checks. For `.env` files, secrets, `test.each` / `test.pick`, CI upload, and project-level configuration, create a project with `npx glubean init`.
 
 ## Features at a Glance
@@ -66,7 +76,9 @@ No `npm install`, no `package.json`, no setup. The response opens in the Result 
 | **Data-driven** | `test.each` + `test.pick` with JSON/YAML/CSV, CodeLens per case, Open data button |
 | **Environments** | Status bar switcher for `.env` files, auto-loads secrets, hover preview |
 | **Diagnostics** | `Glubean: Diagnose` — explains why something isn't working |
-| **AI Integration** | MCP server + skill = AI discovers, writes, runs, and fixes tests |
+| **AI Integration** | MCP server + skill + lens = AI discovers, writes, runs, and fixes tests |
+| **Glubean Panel** | Pin your most-used tests and files for quick access — click to open, ▶ to run |
+| **Refactor Hints** | $(lightbulb) CodeLens suggests extracting inline data, promoting explore→tests |
 | **Jump to Source** | Click test name in Result Viewer to jump to definition |
 | **Test Explorer Layout** | flat/tree/auto — adapts to project size |
 
