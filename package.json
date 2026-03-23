@@ -107,7 +107,7 @@
         },
         "glubean.openResultAfterTask": {
           "type": "string",
-          "default": "failures",
+          "default": "always",
           "enum": [
             "always",
             "failures",

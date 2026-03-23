@@ -71,7 +71,7 @@ export function registerAiRefactorCommand(
 
         // Show toast with actions
         const action = await vscode.window.showInformationMessage(
-          `Refactor prompt ready: ${selectedScenario.label}`,
+          `${selectedScenario.label} — copy and paste to your AI agent`,
           "Copy to Clipboard",
           "Preview",
         );
@@ -79,7 +79,7 @@ export function registerAiRefactorCommand(
         if (action === "Copy to Clipboard") {
           await vscode.env.clipboard.writeText(prompt);
           vscode.window.showInformationMessage(
-            "Refactor prompt copied — paste into your AI tool.",
+            "Copied! Paste into Claude Code, Cursor, or any AI agent.",
           );
         } else if (action === "Preview") {
           const doc = await vscode.workspace.openTextDocument({

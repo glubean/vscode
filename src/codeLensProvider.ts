@@ -264,7 +264,7 @@ class PickCodeLensProvider implements PickCodeLens {
         const range = new vscode.Range(line, 0, line, 0);
         lenses.push(
           new vscode.CodeLens(range, {
-            title: "💡 Refactor",
+            title: "$(lightbulb) Refactor",
             command: "glubean.aiRefactor",
             arguments: [
               {

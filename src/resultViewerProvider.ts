@@ -132,7 +132,7 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
                   ? f
                   : cwd
                     ? path.resolve(cwd, f)
-                    : path.resolve(path.dirname(document.uri.fsPath), f);
+                    : path.resolve(this.inferProjectRoot(document.uri.fsPath), f);
                 if (fs.existsSync(abs)) {
                   const content = fs.readFileSync(abs, "utf-8");
                   const tests = extractTests(content);
@@ -153,7 +153,7 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
                   ? files[0]
                   : cwd
                     ? path.resolve(cwd, files[0])
-                    : path.resolve(path.dirname(document.uri.fsPath), files[0]);
+                    : path.resolve(this.inferProjectRoot(document.uri.fsPath), files[0]);
                 if (fs.existsSync(abs)) sourcePath = abs;
               }
             }
@@ -413,6 +413,21 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
         rawJson: raw,
       };
     }
+  }
+
+  /**
+   * Infer the project root from a result file path.
+   * .glubean/last-run.result.json → go up 2 levels
+   * .glubean/results/xxx/yyy/ts.result.json → go up to before .glubean
+   * foo.test.result.json (beside file) → dirname
+   */
+  private inferProjectRoot(resultPath: string): string {
+    const parts = resultPath.split(path.sep);
+    const glubeanIdx = parts.lastIndexOf(".glubean");
+    if (glubeanIdx >= 0) {
+      return parts.slice(0, glubeanIdx).join(path.sep);
+    }
+    return path.dirname(resultPath);
   }
 
   // -------------------------------------------------------------------------

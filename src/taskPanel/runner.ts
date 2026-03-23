@@ -15,7 +15,7 @@ function getTimeoutMs(): number {
 function getOpenResultAfterTask(): string {
   return vscode.workspace
     .getConfiguration("glubean")
-    .get<string>("openResultAfterTask", "failures");
+    .get<string>("openResultAfterTask", "always");
 }
 
 // Grace period between process exit and result file arrival.
