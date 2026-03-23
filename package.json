@@ -65,7 +65,7 @@
       "test": [
         {
           "id": "glubean.tasksView",
-          "name": "Glubean Tasks"
+          "name": "Glubean"
         }
       ]
     },
@@ -228,6 +228,21 @@
       {
         "command": "glubean.aiRefactor",
         "title": "Glubean: Refactor"
+      },
+      {
+        "command": "glubean.pinFile",
+        "title": "Pin to Glubean",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "glubean.unpinFile",
+        "title": "Unpin",
+        "icon": "$(close)"
+      },
+      {
+        "command": "glubean.runPinnedFile",
+        "title": "Run Pinned File",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -261,9 +276,14 @@
           "group": "glubean@1"
         },
         {
+          "command": "glubean.pinFile",
+          "when": "resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/",
+          "group": "glubean@2"
+        },
+        {
           "command": "glubean.runProject",
           "when": "explorerResourceIsFolder && resourceFilename =~ /^(?!node_modules$|\\.git$|dist$).+$/",
-          "group": "glubean@2"
+          "group": "glubean@3"
         }
       ],
       "view/title": [
@@ -283,6 +303,16 @@
           "command": "glubean.tasks.run",
           "when": "view == glubean.tasksView && viewItem == glubeanTask",
           "group": "inline"
+        },
+        {
+          "command": "glubean.runPinnedFile",
+          "when": "view == glubean.tasksView && viewItem == pinnedFile",
+          "group": "inline@1"
+        },
+        {
+          "command": "glubean.unpinFile",
+          "when": "view == glubean.tasksView && viewItem == pinnedFile",
+          "group": "inline@2"
         }
       ]
     },

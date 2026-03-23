@@ -20,9 +20,10 @@ import {
   shutdownTelemetry,
   track,
 } from "./telemetry";
-import { TasksProvider, type TaskItem } from "./taskPanel/provider";
+import { TasksProvider, type TaskItem, type PinnedFileItem } from "./taskPanel/provider";
 import { TaskRunner } from "./taskPanel/runner";
 import { initStorage } from "./taskPanel/storage";
+import { initPinnedStorage, pinFile, unpinFile, listPinned, isPinned, type PinnedFile } from "./pinnedFiles";
 import { runDiagnose } from "./diagnose";
 import { registerAiRefactorCommand } from "./aiRefactor";
 
@@ -295,6 +296,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── Tasks panel (Activity Bar view for QA) ─────────────────────────────
   initStorage(context.workspaceState);
+  initPinnedStorage(context.workspaceState);
   const tasksProvider = new TasksProvider();
   const taskRunner = new TaskRunner(tasksProvider);
 
@@ -326,6 +328,78 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("glubean.tasks.refresh", () => {
       refreshTasks();
     }),
+  );
+
+  // ── Pinned files commands ────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "glubean.pinFile",
+      async (resource?: vscode.Uri) => {
+        const uri = resource ?? vscode.window.activeTextEditor?.document.uri;
+        if (!uri) {
+          vscode.window.showWarningMessage("No file selected to pin.");
+          return;
+        }
+
+        const folder = vscode.workspace.getWorkspaceFolder(uri);
+        if (!folder) {
+          vscode.window.showWarningMessage("File is not inside a workspace folder.");
+          return;
+        }
+
+        const workspaceRoot = folder.uri.fsPath;
+        const relativePath = vscode.workspace.asRelativePath(uri, false);
+        const label = relativePath.split("/").pop() ?? relativePath;
+
+        if (isPinned(listPinned(), workspaceRoot, relativePath)) {
+          vscode.window.showInformationMessage(`${label} is already pinned.`);
+          return;
+        }
+
+        const entry: PinnedFile = {
+          type: "file",
+          workspaceRoot,
+          filePath: relativePath,
+          label,
+        };
+
+        await pinFile(entry);
+        tasksProvider.refresh();
+        track("pin_file");
+      },
+    ),
+    vscode.commands.registerCommand(
+      "glubean.unpinFile",
+      async (item?: PinnedFileItem) => {
+        if (!item?.pinned) {
+          vscode.window.showWarningMessage("No pinned file selected.");
+          return;
+        }
+
+        await unpinFile(item.pinned.workspaceRoot, item.pinned.filePath);
+        tasksProvider.refresh();
+        track("unpin_file");
+      },
+    ),
+    vscode.commands.registerCommand(
+      "glubean.runPinnedFile",
+      async (pinnedOrItem?: PinnedFile | PinnedFileItem) => {
+        // Accept either a PinnedFile (from tree item click) or PinnedFileItem (from inline action)
+        const pinned = pinnedOrItem && "pinned" in pinnedOrItem
+          ? (pinnedOrItem as PinnedFileItem).pinned
+          : pinnedOrItem as PinnedFile | undefined;
+
+        if (!pinned?.filePath || !pinned?.workspaceRoot) {
+          vscode.window.showWarningMessage("No pinned file to run.");
+          return;
+        }
+
+        const { join } = await import("node:path");
+        const absolutePath = join(pinned.workspaceRoot, pinned.filePath);
+        const uri = vscode.Uri.file(absolutePath);
+        await testController.runFileByUri(uri);
+      },
+    ),
   );
 
   const configWatcher = vscode.workspace.createFileSystemWatcher(

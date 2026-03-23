@@ -1,10 +1,39 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { parseTasksFromRoot, type TaskDef } from "./parser";
 import { getLastRun, type LastRunState } from "./storage";
+import { listPinned, type PinnedFile } from "../pinnedFiles";
 
 // ── Tree element types ─────────────────────────────────────────────────────
 
-export type TreeElement = WorkspaceHeader | TaskItem;
+export type TreeElement = SectionHeader | PinnedFileItem | WorkspaceHeader | TaskItem;
+
+export class SectionHeader extends vscode.TreeItem {
+  constructor(
+    public readonly sectionId: string,
+    label: string,
+    iconId: string,
+  ) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = "glubeanSection";
+    this.iconPath = new vscode.ThemeIcon(iconId);
+  }
+}
+
+export class PinnedFileItem extends vscode.TreeItem {
+  constructor(public readonly pinned: PinnedFile) {
+    super(pinned.label, vscode.TreeItemCollapsibleState.None);
+    this.contextValue = "pinnedFile";
+    this.iconPath = new vscode.ThemeIcon("file");
+    this.description = pinned.filePath;
+    this.tooltip = `${pinned.filePath}\nClick to open, ▶ to run`;
+    this.command = {
+      command: "vscode.open",
+      title: "Open File",
+      arguments: [vscode.Uri.file(path.join(pinned.workspaceRoot, pinned.filePath))],
+    };
+  }
+}
 
 export class WorkspaceHeader extends vscode.TreeItem {
   constructor(public readonly rootPath: string, label: string) {
@@ -92,22 +121,54 @@ export class TasksProvider implements vscode.TreeDataProvider<TreeElement> {
 
   getChildren(element?: TreeElement): TreeElement[] {
     if (!element) {
-      if (this.roots.length === 0) return [];
-      if (this.roots.length === 1) {
-        return this.getTasksByRoot(this.roots[0]);
+      // Root level: show section headers
+      const sections: TreeElement[] = [];
+
+      const pinned = listPinned();
+      if (pinned.length > 0) {
+        sections.push(new SectionHeader("pinnedFiles", "Pinned Files", "pin"));
       }
-      return this.roots
-        .filter((r) => (this.tasksByRoot.get(r)?.length ?? 0) > 0)
-        .map((r) => {
-          const folder = vscode.workspace.workspaceFolders?.find(
-            (f) => f.uri.fsPath === r,
-          );
-          return new WorkspaceHeader(r, folder?.name ?? r);
-        });
+
+      const hasTasks = this.getAllTasks().length > 0;
+      if (hasTasks) {
+        sections.push(new SectionHeader("tasks", "Tasks", "tasklist"));
+      }
+
+      // If only one section and no pinned files, flatten tasks directly
+      if (sections.length === 0) return [];
+      if (sections.length === 1 && pinned.length === 0 && hasTasks) {
+        // Single root with tasks only — keep flat for backward compatibility
+        if (this.roots.length === 1) {
+          return this.getTasksByRoot(this.roots[0]);
+        }
+      }
+
+      return sections;
     }
+
+    if (element instanceof SectionHeader) {
+      if (element.sectionId === "pinnedFiles") {
+        return listPinned().map((p) => new PinnedFileItem(p));
+      }
+      if (element.sectionId === "tasks") {
+        if (this.roots.length === 1) {
+          return this.getTasksByRoot(this.roots[0]);
+        }
+        return this.roots
+          .filter((r) => (this.tasksByRoot.get(r)?.length ?? 0) > 0)
+          .map((r) => {
+            const folder = vscode.workspace.workspaceFolders?.find(
+              (f) => f.uri.fsPath === r,
+            );
+            return new WorkspaceHeader(r, folder?.name ?? r);
+          });
+      }
+    }
+
     if (element instanceof WorkspaceHeader) {
       return this.getTasksByRoot(element.rootPath);
     }
+
     return [];
   }
 }
@@ -148,7 +209,7 @@ function descriptionFor(
   status: TaskStatus,
   lastRun?: LastRunState,
 ): string {
-  if (status === "running") return "running…";
+  if (status === "running") return "running\u2026";
   if (!lastRun) return "never run";
 
   const total = lastRun.passed + lastRun.failed + lastRun.skipped;

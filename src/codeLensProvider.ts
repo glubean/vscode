@@ -17,6 +17,7 @@ import { findDataLoaderCalls } from "./dataLoaderCalls";
 import { resolveDataPath } from "./data-path";
 import { extractTests } from "./parser";
 import { detectRefactorScenarios } from "./aiRefactor";
+import { listPinned, isPinned } from "./pinnedFiles";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
 const QUICK_PICK_THRESHOLD = 5;
@@ -246,6 +247,23 @@ class PickCodeLensProvider implements PickCodeLens {
                 exportName: meta.exportName,
               },
             ],
+          }),
+        );
+      }
+    }
+
+    // ── Pin CodeLens (top of file, if not already pinned) ──────────────
+    const wsFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    if (wsFolder) {
+      const wsRoot = wsFolder.uri.fsPath;
+      const relPath = vscode.workspace.asRelativePath(document.uri, false);
+      if (!isPinned(listPinned(), wsRoot, relPath)) {
+        const topRange = new vscode.Range(0, 0, 0, 0);
+        lenses.push(
+          new vscode.CodeLens(topRange, {
+            title: "$(pin) Pin to Glubean",
+            command: "glubean.pinFile",
+            arguments: [document.uri],
           }),
         );
       }
