@@ -22,6 +22,10 @@
   <a href="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/demo2.mp4"><img alt="Watch AI generate a test" src="https://img.shields.io/badge/%E2%9C%A6%20Watch%20AI%20generate%20a%20test-a855f7?style=for-the-badge" /></a>
 </p>
 
+<p align="center">
+  <img src="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/glubean-demo-scratch.gif" alt="Glubean scratch mode demo" width="800">
+</p>
+
 ## Why Glubean?
 
 - **Not a REST client** — Write verification code that runs in CI, not click-through workflows that break.
@@ -30,7 +34,13 @@
 - **AI writes your tests** — [MCP server + skill](https://docs.glubean.com/extension/generate-with-ai) + schema inference = AI understands your API and writes verification code.
 - **Data-driven at scale** — [`test.each` + `test.pick`](https://docs.glubean.com/sdk/data-driven) with JSON/YAML/CSV data files, CodeLens shows every case.
 
-<!-- TODO: screenshot -->
+<p align="center">
+  <img src="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/glubean-explore.gif" alt="Glubean explore mode" width="800">
+</p>
+
+<p align="center">
+  <img src="https://3ese0ujr3e86dvfp.public.blob.vercel-storage.com/glubean-fix.gif" alt="Glubean fix workflow" width="800">
+</p>
 
 ## Quick Start
 
