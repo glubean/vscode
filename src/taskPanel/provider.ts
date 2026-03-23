@@ -30,7 +30,14 @@ export class PinnedTestItem extends vscode.TreeItem {
   constructor(public readonly pinned: PinnedTest) {
     super(pinned.label, vscode.TreeItemCollapsibleState.None);
     this.contextValue = "pinnedTest";
-    this.description = pinned.filePath;
+    // In multi-root, show workspace name prefix for disambiguation
+    const wsFolder = vscode.workspace.workspaceFolders?.find(
+      (f) => f.uri.fsPath === pinned.workspaceRoot,
+    );
+    const isMultiRoot = (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
+    this.description = isMultiRoot && wsFolder
+      ? `${wsFolder.name}/${pinned.filePath}`
+      : pinned.filePath;
 
     // Check if the source file exists and the test can be found
     const absPath = path.join(pinned.workspaceRoot, pinned.filePath);
@@ -83,7 +90,14 @@ export class PinnedFileItem extends vscode.TreeItem {
     super(pinned.label, vscode.TreeItemCollapsibleState.None);
     this.contextValue = "pinnedFile";
     this.iconPath = new vscode.ThemeIcon("file");
-    this.description = pinned.filePath;
+    // In multi-root, show workspace name prefix for disambiguation
+    const wsFolder = vscode.workspace.workspaceFolders?.find(
+      (f) => f.uri.fsPath === pinned.workspaceRoot,
+    );
+    const isMultiRoot = (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
+    this.description = isMultiRoot && wsFolder
+      ? `${wsFolder.name}/${pinned.filePath}`
+      : pinned.filePath;
     this.tooltip = `${pinned.filePath}\nClick to open, ▶ to run`;
     this.command = {
       command: "vscode.open",

@@ -470,7 +470,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
         const { join } = await import("node:path");
         const absolutePath = join(pinned.workspaceRoot, pinned.filePath);
-        await testController.rerunFailed(absolutePath, [pinned.testId]);
+
+        // Data-driven tests (each:/pick: prefix) must run by exportName,
+        // not by testId filter — same logic as runSingleTest.
+        const isDataDriven = pinned.testId.startsWith("each:") || pinned.testId.startsWith("pick:");
+        if (isDataDriven && pinned.exportName) {
+          await testController.runTestByExport(absolutePath, pinned.exportName);
+        } else {
+          await testController.rerunFailed(absolutePath, [pinned.testId]);
+        }
       },
     ),
   );

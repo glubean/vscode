@@ -353,6 +353,48 @@ export async function rerunFailed(filePath: string, testIds: string[]): Promise<
 }
 
 /**
+ * Run a single test by export name (for data-driven pinned tests).
+ */
+export async function runTestByExport(filePath: string, exportName: string): Promise<void> {
+  const cwd = workspaceRootFor(filePath);
+
+  outputChannel.appendLine(`\n▶ run ${filePath} --export ${exportName}`);
+  outputChannel.appendLine(`  cwd: ${cwd}\n`);
+
+  const run = controller.createTestRun(
+    new vscode.TestRunRequest(),
+    `run ${exportName}`,
+    false,
+  );
+
+  vscode.commands.executeCommand("testing.showMostRecentOutput");
+
+  if (isScratchMode(filePath)) showScratchModeHint();
+
+  try {
+    const parsed = await executeTest(
+      filePath,
+      undefined,
+      cwd,
+      run.token,
+      run,
+      { envFile: envFileProvider?.(), exportName },
+    );
+
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
+    lastResultJsonPath = resultJsonPath;
+
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Error: ${message}`);
+  } finally {
+    run.end();
+  }
+}
+
+/**
  * Re-run the last executed test(s).
  * Returns false if there's nothing to re-run.
  */
