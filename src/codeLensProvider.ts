@@ -15,6 +15,8 @@ import { parse as parseYaml } from "yaml";
 import { getAliases } from "./testController";
 import { findDataLoaderCalls } from "./dataLoaderCalls";
 import { resolveDataPath } from "./data-path";
+import { extractTests } from "./parser";
+import { detectRefactorScenarios } from "./aiRefactor";
 
 /** Max individual key buttons before collapsing into a QuickPick button */
 const QUICK_PICK_THRESHOLD = 5;
@@ -242,6 +244,35 @@ class PickCodeLensProvider implements PickCodeLens {
                 filePath: document.uri.fsPath,
                 testId: meta.testId,
                 exportName: meta.exportName,
+              },
+            ],
+          }),
+        );
+      }
+    }
+
+    // ── AI Refactor CodeLenses ──────────────────────────────────────────
+    const tests = extractTests(content);
+    for (const meta of tests) {
+      const scenarios = detectRefactorScenarios(
+        content,
+        document.uri.fsPath,
+        meta,
+      );
+      if (scenarios.length > 0) {
+        const line = meta.line - 1; // 0-based for VS Code
+        const range = new vscode.Range(line, 0, line, 0);
+        lenses.push(
+          new vscode.CodeLens(range, {
+            title: "💡 Refactor",
+            command: "glubean.aiRefactor",
+            arguments: [
+              {
+                filePath: document.uri.fsPath,
+                exportName: meta.exportName,
+                testId: meta.id,
+                line: meta.line,
+                scenarios,
               },
             ],
           }),

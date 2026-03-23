@@ -233,7 +233,7 @@ export class TaskRunner {
           "vscode.openWith",
           uri,
           "glubean.resultViewer",
-          vscode.ViewColumn.Beside,
+          { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
         );
       }
     }

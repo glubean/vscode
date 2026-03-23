@@ -18,11 +18,16 @@ export interface RunContext {
   command?: string;
   cwd?: string;
   envFile?: string;
+  vscodeVersion?: string;
+  extensionVersion?: string;
 }
 
 /** Parsed result from --result-json output */
 export interface GlubeanResult {
   context?: RunContext;
+  /** Source file(s) that produced this result */
+  target?: string;
+  files?: string[];
   summary: {
     total: number;
     passed: number;

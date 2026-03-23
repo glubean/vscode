@@ -7,7 +7,7 @@
 
 import * as vscode from "vscode";
 import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { resolve, relative } from "node:path";
 import { loadProjectEnv } from "../envLoader";
 import type { GlubeanResult } from "./results";
 import type { GlubeanEvent } from "../testController.utils";
@@ -51,11 +51,6 @@ export async function executeTest(
   options: ExecuteTestOptions = {},
 ): Promise<GlubeanResult> {
   const runner = await getRunner();
-
-  // DEBUG: trace path resolution
-  console.log("[glubean-debug] executeTest called:", { filePath, cwd, testIds, options });
-  console.log("[glubean-debug] runner keys:", Object.keys(runner));
-  console.log("[glubean-debug] TestExecutor type:", typeof runner.TestExecutor);
 
   // Build execution context from .env files
   const { vars, secrets } = await loadProjectEnv(cwd, options.envFile);
@@ -164,11 +159,14 @@ export async function executeTest(
   let runContext: GlubeanResult["context"];
   try {
     const { buildRunContext } = await getRunner();
+    const ext = vscode.extensions.getExtension("Glubean.glubean");
     runContext = {
       ...buildRunContext(),
       command: options.inspectBrk ? "vscode-debug" : "vscode-play",
       cwd,
       ...(options.envFile && { envFile: options.envFile }),
+      vscodeVersion: vscode.version,
+      ...(ext && { extensionVersion: ext.packageJSON?.version }),
     };
   } catch {
     // Non-critical — old vendored runner may not export buildRunContext
@@ -176,6 +174,8 @@ export async function executeTest(
 
   return {
     ...(runContext && { context: runContext }),
+    target: filePath,
+    files: [relative(cwd, filePath)],
     summary: {
       total: testResults.length,
       passed,

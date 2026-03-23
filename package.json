@@ -1,7 +1,7 @@
 {
   "name": "glubean",
-  "displayName": "Glubean — API Testing & REST Client",
-  "description": "API testing, REST client & Postman alternative — code-first in TypeScript. Click play, see every request/response, debug with breakpoints, diff between runs. AI-friendly SDK: feed your OpenAPI spec to any AI and get production-ready tests.",
+  "displayName": "Glubean — API Verification",
+  "description": "Developer-owned API verification — code-first in TypeScript, accelerated by AI. Write verification code, run from the editor, see traces and assertions, debug with breakpoints. Works with any AI coding tool via MCP.",
   "version": "0.16.0",
   "publisher": "Glubean",
   "license": "MIT",
@@ -224,9 +224,19 @@
       {
         "command": "glubean.diagnose",
         "title": "Glubean: Diagnose"
+      },
+      {
+        "command": "glubean.aiRefactor",
+        "title": "Glubean: Refactor"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "glubean.aiRefactor",
+          "when": "false"
+        }
+      ],
       "editor/title/run": [
         {
           "command": "glubean.runFile",
