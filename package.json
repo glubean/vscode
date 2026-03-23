@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Verification",
   "description": "Developer-owned API verification — code-first in TypeScript, accelerated by AI. Write verification code, run from the editor, see traces and assertions, debug with breakpoints. Works with any AI coding tool via MCP.",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -417,7 +417,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@glubean/runner": "^0.1.27",
+    "@glubean/runner": "^0.1.28",
     "@glubean/scanner": "^0.1.20",
     "posthog-node": "^5.24.17"
   }
