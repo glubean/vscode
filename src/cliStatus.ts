@@ -5,7 +5,7 @@ import * as path from "node:path";
 const CACHE_KEY = "glubean.cliLatestVersion";
 const CACHE_TS_KEY = "glubean.cliLatestCheckedAt";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const REGISTRY_URL = "https://registry.npmjs.org/@glubean/cli/latest";
+const REGISTRY_URL = "https://registry.npmjs.org/glubean/latest";
 
 let statusBarItem: vscode.StatusBarItem;
 let currentAction: "install" | "upgrade" | "none" = "none";
@@ -201,8 +201,8 @@ export function activateCliStatus(
 
       const cmd =
         currentAction === "install"
-          ? "npm install --save-dev @glubean/cli"
-          : "npm update @glubean/cli";
+          ? "npm install -g glubean"
+          : "npm update -g glubean";
 
       const terminal =
         vscode.window.activeTerminal ??
