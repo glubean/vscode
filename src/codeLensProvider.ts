@@ -272,31 +272,25 @@ class PickCodeLensProvider implements PickCodeLens {
 
     // ── AI Refactor CodeLenses ──────────────────────────────────────────
     const tests = extractTests(content);
+    const scenarios = detectRefactorScenarios("", "", { type: "test", id: "", exportName: "", line: 0 });
     for (const meta of tests) {
-      const scenarios = detectRefactorScenarios(
-        content,
-        document.uri.fsPath,
-        meta,
+      const line = meta.line - 1; // 0-based for VS Code
+      const range = new vscode.Range(line, 0, line, 0);
+      lenses.push(
+        new vscode.CodeLens(range, {
+          title: "$(lightbulb)",
+          command: "glubean.aiRefactor",
+          arguments: [
+            {
+              filePath: document.uri.fsPath,
+              exportName: meta.exportName,
+              testId: meta.id,
+              line: meta.line,
+              scenarios,
+            },
+          ],
+        }),
       );
-      if (scenarios.length > 0) {
-        const line = meta.line - 1; // 0-based for VS Code
-        const range = new vscode.Range(line, 0, line, 0);
-        lenses.push(
-          new vscode.CodeLens(range, {
-            title: "$(lightbulb) Refactor",
-            command: "glubean.aiRefactor",
-            arguments: [
-              {
-                filePath: document.uri.fsPath,
-                exportName: meta.exportName,
-                testId: meta.id,
-                line: meta.line,
-                scenarios,
-              },
-            ],
-          }),
-        );
-      }
     }
 
     // ── Pin Test CodeLenses (per-test, if not already pinned) ──────────
@@ -347,8 +341,13 @@ class PickCodeLensProvider implements PickCodeLens {
     }
 
     // JSON import: read file and extract keys
-    if (meta.dataSource?.type === "json-import") {
+    if (meta.dataSource?.type === "json-import" || meta.dataSource?.type === "json-map") {
       return this.resolveJsonImportKeys(meta.dataSource.path, document);
+    }
+
+    // YAML map: read YAML file and extract top-level keys
+    if (meta.dataSource?.type === "yaml-map") {
+      return this.resolveYamlMapKeys(meta.dataSource.path, document);
     }
 
     // Directory merge: read all data files in the directory, merge keys
@@ -378,6 +377,35 @@ class PickCodeLensProvider implements PickCodeLens {
 
       const content = fs.readFileSync(resolvedPath, "utf-8");
       const data = JSON.parse(content);
+
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        return Object.keys(data);
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Read a YAML file and return its top-level keys.
+   */
+  private resolveYamlMapKeys(
+    yamlPath: string,
+    document: vscode.TextDocument,
+  ): string[] | null {
+    try {
+      const filePath = document.uri.fsPath;
+      const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
+        path.dirname(filePath);
+      const resolvedPath = resolveDataPath(yamlPath, {
+        sourceFilePath: filePath,
+        workspaceRoot,
+      }).resolvedPath;
+
+      const content = fs.readFileSync(resolvedPath, "utf-8");
+      const data = parseYaml(content);
 
       if (data && typeof data === "object" && !Array.isArray(data)) {
         return Object.keys(data);

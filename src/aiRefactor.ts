@@ -69,7 +69,16 @@ export function registerAiRefactorCommand(
           meta,
         );
 
-        // Show toast with actions
+        // "Copy context" — copy directly, no extra dialog
+        if (selectedScenario.type === "copy-context") {
+          await vscode.env.clipboard.writeText(prompt);
+          vscode.window.showInformationMessage(
+            "Copied! Paste into your AI agent and describe what you want.",
+          );
+          return;
+        }
+
+        // Predefined scenario — show toast with actions
         const action = await vscode.window.showInformationMessage(
           `${selectedScenario.label} — copy and paste to your AI agent`,
           "Copy to Clipboard",

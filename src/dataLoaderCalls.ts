@@ -44,7 +44,7 @@ export function findDataLoaderCalls(
   }
 
   const filePattern = new RegExp(
-    `(?:fromYaml|fromCsv|fromJsonl)\\s*${GENERIC_RE}\\s*\\(\\s*["']([^"']+)["']`,
+    `(?:fromYaml(?:\\.map)?|fromJson(?:\\.map)?|fromCsv|fromJsonl)\\s*${GENERIC_RE}\\s*\\(\\s*["']([^"']+)["']`,
     "gs",
   );
   while ((match = filePattern.exec(text)) !== null) {

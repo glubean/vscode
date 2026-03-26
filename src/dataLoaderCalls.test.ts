@@ -225,6 +225,48 @@ const examples = await fromDir.merge<ProductBody>("./data/products/");
     assert.equal(calls[0].resolvedPath, "/workspace/tests/api/data/products/");
   });
 
+  it("resolves fromJson file path", () => {
+    const content = `
+const data = await fromJson("./data/cases.json");
+`;
+    const calls = findDataLoaderCalls(content, {
+      filePath: "/workspace/tests/api/cases.test.ts",
+      workspaceRoot: "/workspace",
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].target, "file");
+    assert.equal(calls[0].resolvedPath, "/workspace/tests/api/data/cases.json");
+  });
+
+  it("resolves fromJson.map file path", () => {
+    const content = `
+const scenarios = await fromJson.map("./data/scenarios.json");
+`;
+    const calls = findDataLoaderCalls(content, {
+      filePath: "/workspace/tests/api/search.test.ts",
+      workspaceRoot: "/workspace",
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].target, "file");
+    assert.equal(calls[0].resolvedPath, "/workspace/tests/api/data/scenarios.json");
+  });
+
+  it("resolves fromYaml.map file path", () => {
+    const content = `
+const scenarios = await fromYaml.map("./data/scenarios.yaml");
+`;
+    const calls = findDataLoaderCalls(content, {
+      filePath: "/workspace/tests/api/search.test.ts",
+      workspaceRoot: "/workspace",
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].target, "file");
+    assert.equal(calls[0].resolvedPath, "/workspace/tests/api/data/scenarios.yaml");
+  });
+
   it("finds multiple data loader calls in one file", () => {
     const content = `
 const users = await fromYaml("data/users.yaml");

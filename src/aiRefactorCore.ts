@@ -11,7 +11,7 @@ import type { TestMeta } from "./parser";
 // ---------------------------------------------------------------------------
 
 export interface Scenario {
-  type: "extract-data" | "promote-explore" | "extract-config";
+  type: "copy-context" | "extract-data" | "promote-explore" | "extract-config" | "convert-to-pick" | "promote-to-metadata";
   label: string;
   detail: string;
 }
@@ -164,48 +164,48 @@ export function hasRepeatedUrls(text: string): boolean {
 }
 
 /**
- * Detect applicable refactor scenarios for a test definition.
+ * Return all refactor scenarios for a test.
+ *
+ * Every test gets every option — the user picks what's relevant.
+ * Labels must be self-explanatory since there's no smart filtering.
  */
 export function detectRefactorScenarios(
-  content: string,
-  filePath: string,
-  meta: TestMeta,
+  _content: string,
+  _filePath: string,
+  _meta: TestMeta,
 ): Scenario[] {
-  const scenarios: Scenario[] = [];
-
-  // 1. Inline data > 3 cases (object or array)
-  const isDataDriven = meta.id.startsWith("each:") || meta.id.startsWith("pick:");
-  if (isDataDriven) {
-    const inlineCount = countInlineCases(content, meta.exportName);
-    if (inlineCount > 3) {
-      scenarios.push({
-        type: "extract-data",
-        label: "Extract inline data to file",
-        detail: `${inlineCount} inline cases — extract to a YAML/JSON data file`,
-      });
-    }
-  }
-
-  // 2. File in explore/
-  if (filePath.includes("/explore/")) {
-    scenarios.push({
-      type: "promote-explore",
-      label: "Promote to tests/",
-      detail: "Move this explore flow into committed verification",
-    });
-  }
-
-  // 3. Repeated URL — scope to the current export to avoid noisy hints
-  const exportBlock = extractExportBlock(content, meta.exportName);
-  if (exportBlock && hasRepeatedUrls(exportBlock)) {
-    scenarios.push({
+  return [
+    {
+      type: "copy-context",
+      label: "Copy context",
+      detail: "Copy test context to clipboard — paste into your AI agent",
+    },
+    {
+      type: "extract-data",
+      label: "Extract inline data to file",
+      detail: "Move inline test data into a YAML/JSON data file",
+    },
+    {
+      type: "convert-to-pick",
+      label: "Convert to data-driven test",
+      detail: "Parametrize hardcoded values with test.pick() + data file",
+    },
+    {
+      type: "promote-to-metadata",
+      label: "Convert ID to metadata object",
+      detail: "Change string ID to { id, ... } for adding config options",
+    },
+    {
       type: "extract-config",
       label: "Extract request setup to config",
       detail: "Move repeated URL/headers into configure()",
-    });
-  }
-
-  return scenarios;
+    },
+    {
+      type: "promote-explore",
+      label: "Promote to tests/",
+      detail: "Move this explore flow into committed verification",
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -224,8 +224,24 @@ export function buildPrompt(
   meta: TestMeta,
 ): string {
   const testId = meta.id.replace(/^(each|pick):/, "");
+  const body = buildPromptBody(scenario, filePath, meta, testId);
+  return `/glubean\n${body}`;
+}
 
+function buildPromptBody(
+  scenario: Scenario,
+  filePath: string,
+  meta: TestMeta,
+  testId: string,
+): string {
   switch (scenario.type) {
+    case "copy-context":
+      return [
+        `**File:** ${filePath}`,
+        `**Export:** ${meta.exportName}`,
+        `**Test ID:** ${testId}`,
+      ].join("\n");
+
     case "extract-data":
       return [
         "## Task",
@@ -275,6 +291,39 @@ export function buildPrompt(
         "3. Use `configure()` with `{{KEY}}` template syntax for env references",
         "4. Rewrite the test to use the shared HTTP client",
         "5. Preserve behavior while reducing duplicated setup",
+      ].join("\n");
+
+    case "convert-to-pick":
+      return [
+        "## Task",
+        "Convert this test to a data-driven `test.pick()` test.",
+        "",
+        `**File:** ${filePath}`,
+        `**Export:** ${meta.exportName}`,
+        `**Test ID:** ${testId}`,
+        "",
+        "## Instructions",
+        "1. Read the file above and identify hardcoded request parameters (URLs, body, headers)",
+        "2. Extract the parameters into a YAML data file under `data/` using the test ID as the filename",
+        "3. Rewrite the test to use `test.pick(await fromYaml.map(...))(\"${testId}-$_pick\", callback)`",
+        "4. Each key in the data file should be a meaningful scenario name",
+        "5. Preserve all existing assertions and behavior",
+      ].join("\n");
+
+    case "promote-to-metadata":
+      return [
+        "## Task",
+        "Convert the string ID to a metadata object.",
+        "",
+        `**File:** ${filePath}`,
+        `**Export:** ${meta.exportName}`,
+        `**Test ID:** ${testId}`,
+        "",
+        "## Instructions",
+        "1. Read the file above and find the test definition",
+        "2. Change `test(\"${testId}\", ...)` to `test({ id: \"${testId}\" }, ...)`",
+        "3. Do not add any extra configuration fields — the user will add them as needed",
+        "4. If this is a chained call like `test.each(...)( \"${testId}\", ...)`, apply the same change to the ID argument",
       ].join("\n");
   }
 }

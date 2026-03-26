@@ -119,112 +119,30 @@ describe("hasRepeatedUrls", () => {
 });
 
 // ---------------------------------------------------------------------------
-// detectRefactorScenarios
+// detectRefactorScenarios — always returns all scenarios
 // ---------------------------------------------------------------------------
 
 describe("detectRefactorScenarios", () => {
-  it("detects extract-data when inline cases > 3", () => {
-    const content = SDK_IMPORT + `export const myTest = test.each({
-  "a": {}, "b": {}, "c": {}, "d": {},
-})("my-test-$id", async () => {});`;
-    const meta = makeMeta({ id: "each:my-test-$id", exportName: "myTest" });
-    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "extract-data"), true);
-  });
-
-  it("does not detect extract-data when inline cases <= 3", () => {
-    const content = SDK_IMPORT + `export const myTest = test.each({
-  "a": {}, "b": {},
-})("my-test-$id", async () => {});`;
-    const meta = makeMeta({ id: "each:my-test-$id", exportName: "myTest" });
-    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "extract-data"), false);
-  });
-
-  it("does not detect extract-data for non-data-driven tests", () => {
-    const content = SDK_IMPORT + `export const myTest = test("my-test", async () => {});`;
-    const meta = makeMeta({ id: "my-test", exportName: "myTest" });
-    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "extract-data"), false);
-  });
-
-  it("detects promote-explore for files in explore/", () => {
-    const content = SDK_IMPORT + `export const myTest = test("my-test", async () => {});`;
-    const meta = makeMeta();
-    const scenarios = detectRefactorScenarios(content, "/project/explore/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "promote-explore"), true);
-  });
-
-  it("does not detect promote-explore for files in tests/", () => {
+  it("returns all 6 scenarios with copy-context first", () => {
     const content = SDK_IMPORT + `export const myTest = test("my-test", async () => {});`;
     const meta = makeMeta();
     const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "promote-explore"), false);
+    assert.equal(scenarios.length, 6);
+    assert.equal(scenarios[0].type, "copy-context");
   });
 
-  it("detects extract-config when URLs are repeated", () => {
-    const content = SDK_IMPORT + `export const myTest = test("my-test", async (ctx) => {
-  await ctx.http.get("https://api.example.com/users");
-  await ctx.http.get("https://api.example.com/users");
-});`;
+  it("returns all 6 scenarios for data-driven test", () => {
+    const content = SDK_IMPORT + `export const myTest = test.each([])("t-$id", async () => {});`;
+    const meta = makeMeta({ id: "each:t-$id" });
+    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
+    assert.equal(scenarios.length, 6);
+  });
+
+  it("returns all 6 scenarios for metadata-object test", () => {
+    const content = SDK_IMPORT + `export const myTest = test({ id: "my-test" }, async () => {});`;
     const meta = makeMeta();
     const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "extract-config"), true);
-  });
-
-  it("detects extract-config for chained data-driven tests", () => {
-    const content = SDK_IMPORT + `export const myTest = test.each([
-  { url: "https://api.example.com/users" },
-  { url: "https://api.example.com/users" },
-  { url: "https://api.example.com/users" },
-  { url: "https://api.example.com/users" },
-])("my-test-$id", async (ctx, data) => {
-  await ctx.http.get(data.url);
-  await ctx.http.get(data.url);
-});`;
-    const meta = makeMeta({ id: "each:my-test-$id", exportName: "myTest" });
-    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    const types = scenarios.map((s) => s.type).sort();
-    assert.deepEqual(types, ["extract-config", "extract-data"]);
-  });
-
-  it("detects multiple scenarios simultaneously", () => {
-    // extract-config needs repeated URLs within the export block — use a simple test (not chained .each)
-    const content = SDK_IMPORT + `export const myTest = test("my-test", async (ctx) => {
-  await ctx.http.get("https://api.example.com/users");
-  await ctx.http.get("https://api.example.com/users");
-});
-
-export const dataTest = test.each({
-  "a": {}, "b": {}, "c": {}, "d": {},
-})("data-$id", async () => {});`;
-    // Test myTest in explore/ → promote-explore + extract-config
-    const meta1 = makeMeta({ id: "my-test", exportName: "myTest" });
-    const scenarios1 = detectRefactorScenarios(content, "/project/explore/api.test.ts", meta1);
-    assert.equal(scenarios1.length, 2);
-    const types1 = scenarios1.map((s) => s.type).sort();
-    assert.deepEqual(types1, ["extract-config", "promote-explore"]);
-
-    // Test dataTest in explore/ → extract-data + promote-explore
-    const meta2 = makeMeta({ id: "each:data-$id", exportName: "dataTest" });
-    const scenarios2 = detectRefactorScenarios(content, "/project/explore/api.test.ts", meta2);
-    assert.equal(scenarios2.length, 2);
-    const types2 = scenarios2.map((s) => s.type).sort();
-    assert.deepEqual(types2, ["extract-data", "promote-explore"]);
-  });
-
-  it("does not detect extract-config from another export in the same file", () => {
-    const content = SDK_IMPORT + `export const first = test("first", async (ctx) => {
-  await ctx.http.get("/users");
-});
-
-export const second = test("second", async (ctx) => {
-  await ctx.http.get("https://api.example.com/orders");
-  await ctx.http.get("https://api.example.com/orders");
-});`;
-    const meta = makeMeta({ id: "first", exportName: "first" });
-    const scenarios = detectRefactorScenarios(content, "/project/tests/api.test.ts", meta);
-    assert.equal(scenarios.some((s) => s.type === "extract-config"), false);
+    assert.equal(scenarios.length, 6);
   });
 });
 
@@ -266,55 +184,87 @@ describe("extractExportBlock", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildPrompt", () => {
-  const sampleContent = SDK_IMPORT + `export const myTest = test.each({
-  "a": { url: "/a" },
-  "b": { url: "/b" },
-  "c": { url: "/c" },
-  "d": { url: "/d" },
-})("my-test-$id", async (ctx, data) => {
-  await ctx.http.get(data.url);
-});`;
+  it("all prompts start with /glubean prefix", () => {
+    const meta = makeMeta();
+    const types = [
+      "copy-context",
+      "extract-data",
+      "convert-to-pick",
+      "promote-to-metadata",
+      "extract-config",
+      "promote-explore",
+    ] as const;
+    for (const type of types) {
+      const prompt = buildPrompt(
+        { type, label: "", detail: "" },
+        "/project/tests/api.test.ts",
+        meta,
+      );
+      assert.ok(prompt.startsWith("/glubean\n"), `${type} prompt must start with /glubean`);
+    }
+  });
 
-  it("builds extract-data prompt with correct sections", () => {
-    const meta = makeMeta({ id: "each:my-test-$id", exportName: "myTest" });
-    const scenario = { type: "extract-data" as const, label: "Extract inline data", detail: "" };
+  it("builds copy-context prompt with only context, no instructions", () => {
+    const meta = makeMeta({ id: "my-test", exportName: "myTest" });
+    const scenario = { type: "copy-context" as const, label: "", detail: "" };
     const prompt = buildPrompt(scenario, "/project/tests/api.test.ts", meta);
 
-    assert.ok(prompt.includes("## Task"));
+    assert.ok(prompt.startsWith("/glubean\n"));
+    assert.ok(prompt.includes("**File:**"));
+    assert.ok(prompt.includes("**Export:** myTest"));
+    assert.ok(prompt.includes("**Test ID:** my-test"));
+    assert.ok(!prompt.includes("## Instructions"), "copy-context must not have instructions");
+    assert.ok(!prompt.includes("## Task"), "copy-context must not have task header");
+  });
+
+  it("builds extract-data prompt", () => {
+    const meta = makeMeta({ id: "each:my-test-$id", exportName: "myTest" });
+    const scenario = { type: "extract-data" as const, label: "", detail: "" };
+    const prompt = buildPrompt(scenario, "/project/tests/api.test.ts", meta);
+
     assert.ok(prompt.includes("Extract the inline test data"));
     assert.ok(prompt.includes("**File:**"));
-    assert.ok(prompt.includes("/project/tests/api.test.ts"));
     assert.ok(prompt.includes("**Export:** myTest"));
-    assert.ok(prompt.includes("## Instructions"));
-    assert.ok(prompt.includes("single YAML data file"));
-    assert.ok(prompt.includes("load it with `fromYaml`"));
-    // Slim format — no Project Context or Glubean Conventions sections
-    assert.ok(!prompt.includes("## Project Context"));
-    assert.ok(!prompt.includes("## Glubean Conventions"));
   });
 
   it("builds promote-explore prompt", () => {
     const meta = makeMeta({ id: "my-test", exportName: "myTest" });
-    const scenario = { type: "promote-explore" as const, label: "Promote", detail: "" };
+    const scenario = { type: "promote-explore" as const, label: "", detail: "" };
     const prompt = buildPrompt(scenario, "/project/explore/api.test.ts", meta);
 
     assert.ok(prompt.includes("Promote"));
-    assert.ok(prompt.includes("explore/"));
     assert.ok(prompt.includes("tests/"));
   });
 
   it("builds extract-config prompt", () => {
     const meta = makeMeta({ id: "my-test", exportName: "myTest" });
-    const scenario = { type: "extract-config" as const, label: "Extract config", detail: "" };
+    const scenario = { type: "extract-config" as const, label: "", detail: "" };
     const prompt = buildPrompt(scenario, "/project/tests/api.test.ts", meta);
 
     assert.ok(prompt.includes("configure()"));
-    assert.ok(prompt.includes("base URL"));
+  });
+
+  it("builds convert-to-pick prompt", () => {
+    const meta = makeMeta({ id: "my-test", exportName: "myTest" });
+    const scenario = { type: "convert-to-pick" as const, label: "", detail: "" };
+    const prompt = buildPrompt(scenario, "/project/tests/api.test.ts", meta);
+
+    assert.ok(prompt.includes("test.pick()"));
+    assert.ok(prompt.includes("YAML data file"));
+  });
+
+  it("builds promote-to-metadata prompt", () => {
+    const meta = makeMeta({ id: "my-test", exportName: "myTest" });
+    const scenario = { type: "promote-to-metadata" as const, label: "", detail: "" };
+    const prompt = buildPrompt(scenario, "/project/tests/api.test.ts", meta);
+
+    assert.ok(prompt.includes("metadata object"));
+    assert.ok(prompt.includes("{ id:"));
   });
 
   it("strips variant prefix from test id in prompt", () => {
     const meta = makeMeta({ id: "pick:my-test-$_pick", exportName: "myTest" });
-    const scenario = { type: "extract-data" as const, label: "Extract", detail: "" };
+    const scenario = { type: "extract-data" as const, label: "", detail: "" };
     const prompt = buildPrompt(scenario, "/project/tests/api.test.ts", meta);
 
     assert.ok(prompt.includes("my-test-$_pick"));
