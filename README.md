@@ -70,10 +70,11 @@ No `npm install`, no `package.json`, no setup. The response opens in the Result 
 **4. Set up AI** — if you use Claude Code, Cursor, or Codex, connect glubean's MCP server and skill:
 
 ```bash
-npx glubean config mcp    # AI can discover, run, and diagnose tests
-npx glubean config skill   # AI learns glubean patterns to write tests
-npx glubean docs pull      # download SDK reference for AI context
+npx glubean config mcp       # AI can discover, run, and diagnose tests
+npx skills add glubean/skill  # AI learns glubean patterns to write tests
 ```
+
+> **Note:** SDK reference docs are bundled with the skill — no separate download needed.
 
 Now your AI agent can write verification tests, run them via MCP, read structured failures, and fix until green — without leaving the chat. [Learn more →](https://docs.glubean.com/extension/generate-with-ai)
 
