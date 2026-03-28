@@ -1172,7 +1172,7 @@ async function debugHandler(
     cwd,
     emitFullTrace: true,
     inspectBrk: port,
-  });
+  }).withSession(cwd);
 
   const fileUrl = pathToFileURL(resolve(cwd, filePath)).href;
   const context: import("@glubean/runner").ExecutionContext = { vars, secrets };
