@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — API Verification",
   "description": "Developer-owned API verification — code-first in TypeScript, accelerated by AI. Write verification code, run from the editor, see traces and assertions, debug with breakpoints. Works with any AI coding tool via MCP.",
-  "version": "0.17.12",
+  "version": "0.17.13",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
