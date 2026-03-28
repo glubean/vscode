@@ -1182,8 +1182,21 @@ async function debugHandler(
     signal: ac.signal,
   });
 
+  // Kick off event consumption so the generator spawns the subprocess
+  const events: import("@glubean/runner").ExecutionEvent[] = [];
+  const eventCollector = (async () => {
+    for await (const event of runIterator) {
+      events.push(event);
+      if (event.type === "log") {
+        run.appendOutput(`  ${event.message}\r\n`);
+      } else if (event.type === "assertion") {
+        run.appendOutput(`  ${event.passed ? "✓" : "✗"} ${event.message}\r\n`);
+      }
+    }
+  })();
+
   try {
-    // Poll the inspector HTTP endpoint
+    // Poll the inspector HTTP endpoint (subprocess is now spawning)
     outputChannel.appendLine(
       `[debug] Polling http://127.0.0.1:${port}/json ...`,
     );
@@ -1226,7 +1239,6 @@ async function debugHandler(
       "[debug] Debugger attached, waiting for completion...",
     );
 
-    // Consume events from the runner while debug session is active
     const debugSessionEnded = new Promise<void>((resolve) => {
       debugEndedDisposable = vscode.debug.onDidTerminateDebugSession((session) => {
         if (session.name === debugSessionName) {
@@ -1245,20 +1257,6 @@ async function debugHandler(
         resolve();
       }, SAFETY_TIMEOUT_MS);
     });
-
-    // Collect events while waiting for debug to end
-    const events: import("@glubean/runner").ExecutionEvent[] = [];
-    const eventCollector = (async () => {
-      for await (const event of runIterator) {
-        events.push(event);
-        // Stream output to Test Results panel
-        if (event.type === "log") {
-          run.appendOutput(`  ${event.message}\r\n`);
-        } else if (event.type === "assertion") {
-          run.appendOutput(`  ${event.passed ? "✓" : "✗"} ${event.message}\r\n`);
-        }
-      }
-    })();
 
     // Wait for any signal
     await Promise.race([eventCollector, debugSessionEnded, safetyTimeout]);
@@ -1296,6 +1294,7 @@ async function debugHandler(
       clearTimeout(safetyTimeoutHandle);
     }
     ac.abort(); // ensure cleanup
+    await eventCollector.catch(() => {}); // drain generator before ending
     run.end();
   }
 }
