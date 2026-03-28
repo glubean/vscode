@@ -1335,7 +1335,7 @@ async function runFile(
   try {
     const parsed = await executeTest(
       filePath,
-      undefined, // run all tests in file
+      tests.map((t) => t.meta.id),
       cwd,
       cancellation,
       run,
