@@ -28,9 +28,11 @@ const METHOD_CLASSES: Record<string, string> = {
   DELETE: "method-delete method-delete-bg",
 };
 
-function statusClass(status: number): string {
-  if (status < 300) return "status-ok";
-  if (status < 400) return "status-redirect";
+function statusClass(status: number | string): string {
+  const n = typeof status === "number" ? status : Number.NaN;
+  if (n < 300) return "status-ok";
+  if (n < 400) return "status-redirect";
+  if (Number.isNaN(n)) return "muted";
   return "status-error";
 }
 
@@ -65,12 +67,17 @@ export function RequestList({ calls, selected, onSelect }: RequestListProps) {
             onClick={() => onSelect(i)}
           >
             <div class="flex items-center gap-2">
+              {call.protocol && call.protocol !== "http" && (
+                <span class={`px-1.5 py-0.5 text-[10px] font-semibold rounded-full protocol-pill${isSelected ? " opacity-90" : ""}`}>
+                  {call.protocol.toUpperCase()}
+                </span>
+              )}
               <span
                 class={`px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${
                   METHOD_CLASSES[call.request.method] ?? "muted"
                 }${isSelected ? " opacity-90" : ""}`}
               >
-                {call.request.method}
+                {call.protocol && call.protocol !== "http" ? (call.target ?? call.request.method) : call.request.method}
               </span>
               <span class={`text-xs ${isSelected ? "opacity-90" : statusClass(call.response.status)}`}>
                 {call.response.status}
@@ -80,10 +87,10 @@ export function RequestList({ calls, selected, onSelect }: RequestListProps) {
               </span>
             </div>
             <div class="text-xs url-font truncate" title={call.request.url}>
-              {urlPath(call.request.url)}
+              {call.protocol && call.protocol !== "http" ? (call.target ?? call.request.url) : urlPath(call.request.url)}
             </div>
             <div class={`text-[10px] truncate ${isSelected ? "opacity-70" : "muted"}`}>
-              {urlHost(call.request.url)}
+              {call.protocol && call.protocol !== "http" ? (call.protocol) : urlHost(call.request.url)}
             </div>
           </button>
         );

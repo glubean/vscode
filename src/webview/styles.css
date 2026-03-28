@@ -61,6 +61,12 @@
   .tok-null { color: var(--vscode-descriptionForeground, #808080); }
   .tok-key { color: var(--vscode-debugTokenExpression-name, #9cdcfe); }
 
+  /* Protocol pill (non-HTTP traces) */
+  .protocol-pill {
+    color: var(--vscode-badge-foreground, #fff);
+    background: var(--vscode-badge-background, #6e7681);
+  }
+
   /* HTTP method badges */
   .method-get { color: var(--vscode-testing-iconPassed, #3fb950); }
   .method-post { color: var(--vscode-debugIcon-startForeground, #58a6ff); }

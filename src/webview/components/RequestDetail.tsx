@@ -57,9 +57,11 @@ function BodyView({ body }: { body?: unknown }) {
   return <CodeViewer data={body} />;
 }
 
-function statusClass(status: number): string {
-  if (status < 300) return "status-ok";
-  if (status < 400) return "status-redirect";
+function statusClass(status: number | string): string {
+  const n = typeof status === "number" ? status : Number.NaN;
+  if (n < 300) return "status-ok";
+  if (n < 400) return "status-redirect";
+  if (Number.isNaN(n)) return "muted";
   return "status-error";
 }
 

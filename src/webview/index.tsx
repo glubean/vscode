@@ -16,6 +16,8 @@ export interface TimelineEvent {
 }
 
 export interface TraceCall {
+  protocol?: string;
+  target?: string;
   request: {
     method: string;
     url: string;
@@ -23,12 +25,13 @@ export interface TraceCall {
     body?: unknown;
   };
   response: {
-    status: number;
+    status: number | string;
     statusText?: string;
     durationMs: number;
     headers?: Record<string, string>;
     body?: unknown;
   };
+  metadata?: Record<string, unknown>;
 }
 
 export interface ResultData {
