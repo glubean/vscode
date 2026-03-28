@@ -55,66 +55,19 @@ export async function executeTest(
   // Build execution context from .env files
   const { vars, secrets } = await loadProjectEnv(cwd, options.envFile);
 
-  // Create executor
+  // Create executor with auto-session
   const executor = new runner.TestExecutor({
     cwd,
     emitFullTrace: options.emitFullTrace ?? true,
     inspectBrk: options.inspectBrk,
-  });
+  }).withSession(cwd);
 
   // Connect VSCode CancellationToken to AbortController
   const ac = new AbortController();
   const disposable = cancellation.onCancellationRequested(() => ac.abort());
 
   const fileUrl = pathToFileURL(resolve(cwd, filePath)).href;
-  const testDir = resolve(cwd, filePath, "..");
-
-  // ── Session lifecycle ──────────────────────────────────────────────────
-  const sessionFile = runner.discoverSessionFile(testDir, cwd);
-  const orchestrator = new runner.RunOrchestrator(executor);
-  const sessionState: Record<string, unknown> = {};
-
-  if (sessionFile) {
-    run.appendOutput(`Session: ${relative(cwd, sessionFile)}\r\n`);
-    let sessionFailed = false;
-
-    for await (const event of orchestrator.runSessionSetup(
-      sessionFile,
-      { vars, secrets },
-    )) {
-      if (event.type === "session:set") {
-        sessionState[event.key] = event.value;
-      } else if (event.type === "status" && event.status === "failed") {
-        sessionFailed = true;
-        run.appendOutput(`  ✗ Session setup failed${event.error ? `: ${event.error}` : ""}\r\n`);
-      } else if (event.type === "log") {
-        run.appendOutput(`  [session] ${event.message}\r\n`);
-      }
-    }
-
-    if (sessionFailed) {
-      // Best-effort teardown
-      for await (const _event of orchestrator.runSessionTeardown(
-        sessionFile,
-        { vars, secrets },
-        sessionState,
-      )) {
-        // consume events
-      }
-      // Return empty result — session setup failed
-      const { generateSummary } = await getRunner();
-      return {
-        target: filePath,
-        files: [relative(cwd, filePath)],
-        summary: { total: 0, passed: 0, failed: 0, skipped: 0, durationMs: 0, stats: generateSummary([]) },
-        tests: [],
-      };
-    }
-  }
-
-  const context: import("@glubean/runner").ExecutionContext = Object.keys(sessionState).length > 0
-    ? runner.createContextWithSession({ vars, secrets }, sessionState)
-    : { vars, secrets };
+  const context: import("@glubean/runner").ExecutionContext = { vars, secrets };
 
   const testResults: GlubeanResult["tests"] = [];
 
@@ -185,18 +138,8 @@ export async function executeTest(
       });
     }
   } finally {
-    // ── Session teardown ───────────────────────────────────────────────
-    if (sessionFile) {
-      for await (const event of orchestrator.runSessionTeardown(
-        sessionFile,
-        { vars, secrets },
-        sessionState,
-      )) {
-        if (event.type === "log") {
-          run.appendOutput(`  [session] ${event.message}\r\n`);
-        }
-      }
-    }
+    // Session teardown (no-op if no session.ts was discovered)
+    for await (const _event of executor.finalize()) {}
 
     // Restore previous GLUBEAN_PICK value to avoid leaking across runs
     if (previousPick !== undefined) {
