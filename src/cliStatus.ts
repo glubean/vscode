@@ -202,7 +202,7 @@ export function activateCliStatus(
       const cmd =
         currentAction === "install"
           ? "npm install -g glubean"
-          : "npm update -g glubean";
+          : "npm install -g glubean@latest";
 
       const terminal =
         vscode.window.activeTerminal ??
