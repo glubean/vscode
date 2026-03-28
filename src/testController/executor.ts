@@ -292,6 +292,10 @@ function toGlubeanEvent(event: import("@glubean/runner").ExecutionEvent): Glubea
       return { type: "schema_validation", message: event.label, data: event.issues, stepIndex: event.stepIndex } as unknown as GlubeanEvent;
     case "metric":
       return { type: "metric", name: event.name, data: event.value } as unknown as GlubeanEvent;
+    case "event":
+      return { type: "event", data: event.data, stepIndex: event.stepIndex } as GlubeanEvent;
+    case "action":
+      return { type: "action", data: event.data, stepIndex: event.stepIndex } as GlubeanEvent;
     case "summary":
       return { type: "summary", data: event.data } as unknown as GlubeanEvent;
     default:

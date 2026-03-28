@@ -28,8 +28,10 @@ export interface TimelineEvent {
   data?: { method?: string; url?: string; status?: number; duration?: number };
 }
 
-/** Full HTTP call data for the Trace tab. */
+/** Protocol call data for the Trace tab. */
 export interface TraceCall {
+  protocol?: string;
+  target?: string;
   request: {
     method: string;
     url: string;
@@ -37,12 +39,13 @@ export interface TraceCall {
     body?: unknown;
   };
   response: {
-    status: number;
+    status: number | string;
     statusText?: string;
     durationMs: number;
     headers?: Record<string, string>;
     body?: unknown;
   };
+  metadata?: Record<string, unknown>;
 }
 
 export interface ResultViewerData {
@@ -326,18 +329,21 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
               // Build full trace calls for the Trace tab
               if (e.type === "trace" && e.data) {
                 calls.push({
+                  protocol: e.data.protocol ?? "http",
+                  target: e.data.target,
                   request: {
-                    method: e.data.method ?? "GET",
-                    url: e.data.url ?? "",
+                    method: e.data.method ?? "?",
+                    url: e.data.url ?? e.data.target ?? "",
                     headers: e.data.requestHeaders,
                     body: e.data.requestBody,
                   },
                   response: {
                     status: e.data.status ?? 0,
-                    durationMs: e.data.duration ?? 0,
+                    durationMs: e.data.durationMs ?? e.data.duration ?? 0,
                     headers: e.data.responseHeaders,
                     body: e.data.responseBody,
                   },
+                  metadata: e.data.metadata,
                 });
               }
 
