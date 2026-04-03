@@ -1,21 +1,7 @@
-interface Call {
-  request: {
-    method: string;
-    url: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-  response: {
-    status: number;
-    statusText?: string;
-    durationMs: number;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-}
+import type { TraceCall } from "../index";
 
 interface RequestListProps {
-  calls: Call[];
+  calls: TraceCall[];
   selected: number;
   onSelect: (index: number) => void;
 }

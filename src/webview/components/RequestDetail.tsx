@@ -1,24 +1,9 @@
 import { Tabs } from "./Tabs";
 import { CodeViewer } from "./CodeViewer";
-
-interface Call {
-  request: {
-    method: string;
-    url: string;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-  response: {
-    status: number;
-    statusText?: string;
-    durationMs: number;
-    headers?: Record<string, string>;
-    body?: unknown;
-  };
-}
+import type { TraceCall } from "../index";
 
 interface RequestDetailProps {
-  call: Call;
+  call: TraceCall;
   onCopyAsCurl?: () => void;
 }
 
