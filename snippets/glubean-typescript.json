@@ -43,7 +43,26 @@
     ],
     "description": "Import configure + definePlugin from @glubean/sdk"
   },
-  "GB Scratch POST Test": {
+  "GB GET Test": {
+    "prefix": ["gb-get", "gbget"],
+    "body": [
+      "import { test } from \"@glubean/sdk\";",
+      "",
+      "export const ${1:getProduct} = test(\"${2:get-product}\", async (ctx) => {",
+      "  const res = await ctx.http.get(\"${3:https://dummyjson.com/products/1}\", {",
+      "    searchParams: { ${4:} },",
+      "    headers: { ${5:} },",
+      "  });",
+      "  ctx.expect(res).toHaveStatus(200);",
+      "",
+      "  const data = await res.json<${6:{ id: number; title: string }}>();",
+      "  ctx.expect(data.id).toBeDefined();",
+      "  ctx.log(\"response\", data);",
+      "});"
+    ],
+    "description": "GET test with searchParams + headers"
+  },
+  "GB POST Test": {
     "prefix": ["gb-post", "gbpost"],
     "body": [
       "import { test } from \"@glubean/sdk\";",
@@ -51,15 +70,17 @@
       "export const ${1:createProduct} = test(\"${2:create-product}\", async (ctx) => {",
       "  const res = await ctx.http.post(\"${3:https://dummyjson.com/products/add}\", {",
       "    json: { ${4:title: \"Test Product\", price: 9.99} },",
+      "    searchParams: { ${5:} },",
+      "    headers: { ${6:} },",
       "  });",
-      "  ctx.expect(res).toHaveStatus(${5:201});",
+      "  ctx.expect(res).toHaveStatus(${7:201});",
       "",
-      "  const data = await res.json<${6:{ id: number; title: string }}>();",
+      "  const data = await res.json<${8:{ id: number; title: string }}>();",
       "  ctx.expect(data.id).toBeDefined();",
       "  ctx.log(\"created\", data);",
       "});"
     ],
-    "description": "Complete POST scratch test — json body + typed response"
+    "description": "POST test with json body, searchParams + headers"
   },
   "GB Simple Test": {
     "prefix": ["gb-t", "gbt"],
