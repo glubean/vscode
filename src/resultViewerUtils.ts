@@ -42,8 +42,8 @@ const TEST_EXTS = [".ts", ".js", ".mjs"] as const;
 export function inferSourcePath(resultPath: string): string | undefined {
   const basename = path.basename(resultPath);
 
-  // Case 1: side-file — e.g. smoke.test.result.json
-  const sideFileMatch = basename.match(/^(.+\.test)\.result\.json$/);
+  // Case 1: side-file — e.g. smoke.test.result.json or create.contract.result.json
+  const sideFileMatch = basename.match(/^(.+\.(?:test|contract))\.result\.json$/);
   if (sideFileMatch) {
     const stem = sideFileMatch[1]; // e.g. "smoke.test"
     const dir = path.dirname(resultPath);

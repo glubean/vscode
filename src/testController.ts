@@ -395,6 +395,53 @@ export async function runTestByExport(filePath: string, exportName: string): Pro
 }
 
 /**
+ * Run a single contract case by testId and exportName.
+ * Dedicated function — does not reuse rerunFailed() to avoid polluting
+ * the batch API with a single-use exportName parameter.
+ */
+export async function runContractCase(
+  filePath: string,
+  testId: string,
+  exportName: string,
+): Promise<void> {
+  const cwd = workspaceRootFor(filePath);
+
+  outputChannel.appendLine(`\n▶ run contract case: ${testId}`);
+  outputChannel.appendLine(`  file: ${filePath}`);
+  outputChannel.appendLine(`  cwd: ${cwd}\n`);
+
+  const run = controller.createTestRun(
+    new vscode.TestRunRequest(),
+    `contract: ${testId}`,
+    false,
+  );
+
+  vscode.commands.executeCommand("testing.showMostRecentOutput");
+
+  try {
+    const parsed = await executeTest(
+      filePath,
+      [testId],
+      cwd,
+      run.token,
+      run,
+      { envFile: envFileProvider?.(), exportName },
+    );
+
+    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
+    lastResultJsonPath = resultJsonPath;
+
+    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+    await openPostRunViewer(filePath, resultJsonPath, parsed);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`Error: ${message}`);
+  } finally {
+    run.end();
+  }
+}
+
+/**
  * Re-run the last executed test(s).
  * Returns false if there's nothing to re-run.
  */

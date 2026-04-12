@@ -12,6 +12,7 @@
 
 import {
   extractAliasesFromSource,
+  extractContractCases,
   extractFromSource,
   isGlubeanFile as _isGlubeanFile,
   type ExportMeta,
@@ -107,16 +108,35 @@ export function extractTests(content: string, customFns?: string[]): TestMeta[] 
     return [];
   }
 
+  // Try test() path first
   const all = extractFromSource(content, customFns).map(toTestMeta);
+  if (all.length > 0) {
+    // Deduplicate by id — keeps first occurrence when multiple exports share
+    // the same test id (e.g. re-exports or copy-paste errors).
+    const seen = new Set<string>();
+    return all.filter((t) => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+  }
 
-  // Deduplicate by id — keeps first occurrence when multiple exports share
-  // the same test id (e.g. re-exports or copy-paste errors).
-  const seen = new Set<string>();
-  return all.filter((t) => {
-    if (seen.has(t.id)) return false;
-    seen.add(t.id);
-    return true;
-  });
+  // Fall through: isGlubeanFile passed (file imports @glubean/sdk) but
+  // extractFromSource found no test() calls. Try contract path.
+  const contracts = extractContractCases(content);
+  if (contracts.length > 0) {
+    return contracts.flatMap((c) =>
+      c.cases.map((caseItem) => ({
+        type: "test" as const,
+        id: `${c.contractId}.${caseItem.key}`,
+        name: `${c.endpoint} — ${caseItem.key}`,
+        exportName: c.exportName,
+        line: caseItem.line,
+      })),
+    );
+  }
+
+  return [];
 }
 
 // extractPickExamples and PickMeta are now imported from @glubean/scanner/static

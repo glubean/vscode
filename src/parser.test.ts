@@ -588,3 +588,88 @@ export const scenarioTests = test
     assert.equal(tests[0].exportName, "scenarioTests");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Contract file extraction
+// ---------------------------------------------------------------------------
+
+describe("extractTests — contract files", () => {
+  const CONTRACT_IMPORT = 'import { contract } from "@glubean/sdk";\n';
+
+  it("extracts contract cases from .contract.ts content", () => {
+    const content = CONTRACT_IMPORT + `
+import { api, publicHttp } from "../config/client.js";
+
+export const createProject = contract.http("create-project", {
+  endpoint: "POST /projects",
+  client: api,
+  cases: {
+    success: {
+      description: "Valid input returns 201.",
+      body: { name: "Test" },
+      expect: { status: 201 },
+    },
+    noAuth: {
+      description: "Unauthenticated returns 401.",
+      client: publicHttp,
+      expect: { status: 401 },
+    },
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    assert.equal(tests[0].id, "create-project.success");
+    assert.equal(tests[0].exportName, "createProject");
+    assert.equal(tests[0].name, "POST /projects — success");
+    assert.ok(tests[0].line > 0, "line number should be positive");
+    assert.equal(tests[1].id, "create-project.noAuth");
+  });
+
+  it("returns empty array for contract file with no cases", () => {
+    const content = CONTRACT_IMPORT + `export {};`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 0);
+  });
+
+  it("does not interfere with regular test files", () => {
+    // A file with both test() and contract.http() — test() takes priority
+    const content = `import { test, contract } from "@glubean/sdk";
+
+export const smoke = test("smoke", (ctx) => { ctx.assert(true, "ok"); });
+
+export const c = contract.http("my-contract", {
+  endpoint: "GET /health",
+  cases: { ok: { description: "200", expect: { status: 200 } } },
+});
+`;
+    const tests = extractTests(content);
+    // test() found first, so contract path never runs
+    assert.equal(tests.length, 1);
+    assert.equal(tests[0].id, "smoke");
+  });
+
+  it("handles deferred and requires fields in contract cases", () => {
+    const content = CONTRACT_IMPORT + `
+export const auth = contract.http("auth-callback", {
+  endpoint: "POST /auth/callback",
+  cases: {
+    real: {
+      description: "Real OAuth.",
+      requires: "browser",
+      expect: { status: 200 },
+    },
+    deferred: {
+      description: "Not ready.",
+      deferred: "backend pending",
+      expect: { status: 200 },
+    },
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    assert.equal(tests[0].id, "auth-callback.real");
+    assert.equal(tests[1].id, "auth-callback.deferred");
+  });
+});

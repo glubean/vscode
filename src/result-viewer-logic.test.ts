@@ -271,4 +271,37 @@ describe("inferSourcePath", () => {
     const result = inferSourcePath("/some/path/config.json");
     assert.equal(result, undefined);
   });
+
+  // ── Contract file support ───────────────────────────────────────────
+  it("side-file: create.contract.result.json → create.contract.ts", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "create.contract.ts"), "");
+      fs.writeFileSync(path.join(dir, "create.contract.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "create.contract.result.json"));
+      assert.equal(result, path.join(dir, "create.contract.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("history: .glubean/results/create.contract/create-project.success/ resolves contract source", () => {
+    const dir = setup();
+    try {
+      // Create source file
+      fs.writeFileSync(path.join(dir, "create.contract.ts"), "");
+
+      // Create history structure
+      const histDir = path.join(dir, ".glubean", "results", "create.contract", "create-project.success");
+      fs.mkdirSync(histDir, { recursive: true });
+      const resultPath = path.join(histDir, "20260411T120000.result.json");
+      fs.writeFileSync(resultPath, "{}");
+
+      const result = inferSourcePath(resultPath);
+      assert.equal(result, path.join(dir, "create.contract.ts"));
+    } finally {
+      cleanup();
+    }
+  });
 });

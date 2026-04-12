@@ -10,7 +10,7 @@ import * as fs from "fs";
 import * as testController from "./testController";
 import { activateCliStatus } from "./cliStatus";
 import { createHoverProvider } from "./hoverProvider";
-import { createPickCodeLensProvider } from "./codeLensProvider";
+import { createPickCodeLensProvider, createContractCodeLensProvider } from "./codeLensProvider";
 import { createResultCodeLensProvider } from "./resultCodeLensProvider";
 import { activateResultNavigator } from "./resultNavigator";
 import { ResultViewerProvider } from "./resultViewerProvider";
@@ -241,6 +241,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const codeLensSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.test.ts" },
     { language: "javascript", pattern: "**/*.test.{js,mjs}" },
+    { language: "typescript", pattern: "**/*.contract.ts" },
+    { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
   ];
 
   // Result history buttons (shown on all tests)
@@ -262,6 +264,17 @@ export function activate(context: vscode.ExtensionContext): void {
       pickCodeLensProvider,
     ),
     pickCodeLensProvider,
+  );
+
+  // contract.http() case run buttons
+  const contractSelector: vscode.DocumentSelector = [
+    { language: "typescript", pattern: "**/*.contract.ts" },
+    { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
+  ];
+  const contractCodeLensProvider = createContractCodeLensProvider("glubean.runContractCase");
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(contractSelector, contractCodeLensProvider),
+    contractCodeLensProvider,
   );
 
   // ── Result viewer (custom editor for .result.json) ───────────────────
@@ -911,6 +924,17 @@ Includes patterns for:
         } finally {
           pickCodeLensProvider.clearRunning(args.filePath, args.testId);
         }
+      },
+    ),
+  );
+
+  // ── Contract case run command ──────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "glubean.runContractCase",
+      async (args?: { filePath: string; testId: string; exportName: string }) => {
+        if (!args?.filePath || !args?.testId || !args?.exportName) return;
+        await testController.runContractCase(args.filePath, args.testId, args.exportName);
       },
     ),
   );

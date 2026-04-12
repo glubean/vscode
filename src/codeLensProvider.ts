@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { extractPickExamples, type PickMeta } from "@glubean/scanner/static";
+import { computeContractLenses } from "./contractLensCore";
 import { parse as parseYaml } from "yaml";
 import { getAliases } from "./testController";
 import { findDataLoaderCalls } from "./dataLoaderCalls";
@@ -481,5 +482,52 @@ class PickCodeLensProvider implements PickCodeLens {
     } catch {
       return null;
     }
+  }
+}
+
+// =============================================================================
+// Contract CodeLens provider
+// =============================================================================
+
+export interface ContractCodeLens extends vscode.CodeLensProvider, vscode.Disposable {}
+
+export function createContractCodeLensProvider(
+  runCommandId: string,
+): ContractCodeLens {
+  return new ContractCodeLensProvider(runCommandId);
+}
+
+class ContractCodeLensProvider implements ContractCodeLens {
+  private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
+  readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
+  private readonly saveListener: vscode.Disposable;
+
+  constructor(private readonly runCommandId: string) {
+    this.saveListener = vscode.workspace.onDidSaveTextDocument(() => {
+      this._onDidChangeCodeLenses.fire();
+    });
+  }
+
+  dispose() {
+    this.saveListener.dispose();
+    this._onDidChangeCodeLenses.dispose();
+  }
+
+  provideCodeLenses(
+    document: vscode.TextDocument,
+    _token: vscode.CancellationToken,
+  ): vscode.CodeLens[] {
+    const items = computeContractLenses(document.getText(), document.uri.fsPath);
+    return items.map((item) => {
+      const range = new vscode.Range(item.line, 0, item.line, 0);
+      if (item.kind === "disabled") {
+        return new vscode.CodeLens(range, { title: item.title, command: "" });
+      }
+      return new vscode.CodeLens(range, {
+        title: item.title,
+        command: this.runCommandId,
+        arguments: [item.args],
+      });
+    });
   }
 }
