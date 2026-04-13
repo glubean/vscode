@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@glubean/runner':
-        specifier: ^0.1.46
-        version: 0.1.46
+        specifier: ^0.1.47
+        version: 0.1.47
       '@glubean/scanner':
         specifier: ^0.1.32
         version: 0.1.32
@@ -420,14 +420,14 @@ packages:
     resolution: {integrity: sha512-rZAP3aVgB9ds9KOeUSL+zZ21hPmo8dh6fnIFwRQj5EAZl9gzR7wxYbYXYysAM8CTqGmUGyp2S4kUdV17MnGuWQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
 
-  '@glubean/runner@0.1.46':
-    resolution: {integrity: sha512-nUSD4b0hg1lBiTKgroEqDIyPPId5W0p0BnCzc+Zcqce7JBlg23oz3itNSu8nkDs7m3KVGYMPN48j37vn6shbHQ==}
+  '@glubean/runner@0.1.47':
+    resolution: {integrity: sha512-yX2OeGivNUOqH/ceoyglDnKxg7t+KjAhPQ0e18/NRs7D5hnau9cPFjhCiMw+hGPcbZq8TNXszh/3C9drAI/uiA==}
 
   '@glubean/scanner@0.1.32':
     resolution: {integrity: sha512-4wGXQUMOqKhJevFiOHkOtwg78lohouKrVulCuUhiPNsg8k9KG9cfcXO7Oja2e+NRI4z8vLDxFqBVJkOY9OaqyA==}
 
-  '@glubean/sdk@0.1.34':
-    resolution: {integrity: sha512-I/USmfn5eH8tskIrebXhahDzzrnrZJPQGW7f8yxTtTcrXpnrSRV4UMbhXGL/WkWqErKJP7inIUf6TDOnWmgCbQ==}
+  '@glubean/sdk@0.1.35':
+    resolution: {integrity: sha512-wQcCFE34CsQf564B8qvPSwSIJfDumu3SVpyGOD8MkOGwU1AyBNN0cKlsTutobeGDR6sf81Mx+dtigDks+c+ABg==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -1477,16 +1477,16 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@glubean/runner@0.1.46':
+  '@glubean/runner@0.1.47':
     dependencies:
-      '@glubean/sdk': 0.1.34
+      '@glubean/sdk': 0.1.35
       ky: 1.14.3
       p-queue: 9.1.2
       tsx: 4.21.0
 
   '@glubean/scanner@0.1.32': {}
 
-  '@glubean/sdk@0.1.34':
+  '@glubean/sdk@0.1.35':
     dependencies:
       yaml: 2.8.3
 
