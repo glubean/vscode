@@ -44,30 +44,44 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the workspace folder that contains the given file path.
- * Falls back to the file's own directory — this enables zero-project mode
- * for standalone test files that aren't inside any workspace folder.
+ * Resolve the project root for a given test file.
+ *
+ * Walks up from the file looking for the nearest `package.json` — this
+ * correctly resolves to the workspace *package* dir in monorepos (e.g.
+ * `cookbook/test-after/`) rather than the workspace root (`cookbook/`).
+ *
+ * Falls back to the VS Code workspace folder, then the file's own directory
+ * (zero-project / scratch mode).
  */
 function workspaceRootFor(filePath: string): string {
   const fileUri = vscode.Uri.file(filePath);
-  const folder = vscode.workspace.getWorkspaceFolder(fileUri);
-  if (folder) {
-    return folder.uri.fsPath;
+  const wsFolder = vscode.workspace.getWorkspaceFolder(fileUri);
+  const ceiling = wsFolder?.uri.fsPath ?? path.parse(filePath).root;
+
+  // Walk up from the file's directory to find the nearest package.json
+  let dir = path.dirname(filePath);
+  while (dir.length >= ceiling.length) {
+    if (fs.existsSync(path.join(dir, "package.json"))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // filesystem root
+    dir = parent;
   }
-  return path.dirname(filePath);
+
+  // No package.json found — fall back to workspace folder or file dir
+  return wsFolder?.uri.fsPath ?? path.dirname(filePath);
 }
 
 const resultModuleDeps = { workspaceRootFor };
 
 /**
- * Detect scratch mode: file is not in any workspace folder, or cwd has no
- * node_modules/@glubean/sdk (runner will inject its own).
+ * Detect scratch mode: no package.json ancestor, or resolved project root
+ * has no node_modules/@glubean/sdk (runner will inject its own).
  */
 function isScratchMode(filePath: string): boolean {
-  const fileUri = vscode.Uri.file(filePath);
-  const folder = vscode.workspace.getWorkspaceFolder(fileUri);
-  if (!folder) return true;
-  return !fs.existsSync(path.join(folder.uri.fsPath, "node_modules", "@glubean", "sdk"));
+  const cwd = workspaceRootFor(filePath);
+  return !fs.existsSync(path.join(cwd, "node_modules", "@glubean", "sdk"));
 }
 
 let scratchModeHintShown = false;

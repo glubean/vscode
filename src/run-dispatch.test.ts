@@ -6,6 +6,7 @@
  * 2. runSingleTest uses exportName for data-driven tests (each:/pick:)
  * 3. runSingleTest uses filterId for plain tests
  * 4. isWholeFile correctly determines file-level vs single-test runs
+ * 5. findNearestPackageDir resolves to correct package dir in monorepos
  *
  * These tests replicate the decision logic from testController.ts without
  * depending on VS Code APIs.
@@ -15,6 +16,9 @@
 
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import { normalizeFilterId } from "./testController.utils";
 
 // ---------------------------------------------------------------------------
@@ -216,5 +220,119 @@ describe("dispatch decision (runFile vs runSingleTest)", () => {
     const calls = dispatchRun(tests, 1);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].testIds, undefined, "runFile must pass undefined testIds, not template IDs");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findNearestPackageDir — core logic of workspaceRootFor
+// ---------------------------------------------------------------------------
+
+/**
+ * Replicate the package.json walk-up logic from workspaceRootFor
+ * (testController.ts), extracted for testing without VS Code APIs.
+ *
+ * Walks up from filePath looking for the nearest package.json,
+ * stopping at ceiling (workspace folder root or filesystem root).
+ */
+function findNearestPackageDir(filePath: string, ceiling: string): string | undefined {
+  let dir = path.dirname(filePath);
+  while (dir.length >= ceiling.length) {
+    if (fs.existsSync(path.join(dir, "package.json"))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+describe("findNearestPackageDir (workspaceRootFor core logic)", () => {
+  let tmpDir: string;
+
+  // Create a temp monorepo structure for testing:
+  //   tmp/
+  //     package.json              ← workspace root
+  //     pnpm-workspace.yaml
+  //     test-after/
+  //       package.json            ← package
+  //       explore/
+  //         dummyjson/
+  //           smoke.test.ts
+  //     contract-first/
+  //       package.json            ← package
+  //       contracts/
+  //         auth.contract.ts
+
+  function setup() {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "glubean-test-"));
+
+    // Workspace root
+    fs.writeFileSync(path.join(tmpDir, "package.json"), '{"private":true}');
+    fs.writeFileSync(path.join(tmpDir, "pnpm-workspace.yaml"), "packages:\n  - test-after\n  - contract-first\n");
+
+    // test-after package
+    fs.mkdirSync(path.join(tmpDir, "test-after", "explore", "dummyjson"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "test-after", "package.json"), '{"name":"test-after"}');
+    fs.writeFileSync(path.join(tmpDir, "test-after", "explore", "dummyjson", "smoke.test.ts"), "");
+
+    // contract-first package
+    fs.mkdirSync(path.join(tmpDir, "contract-first", "contracts"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "contract-first", "package.json"), '{"name":"contract-first"}');
+    fs.writeFileSync(path.join(tmpDir, "contract-first", "contracts", "auth.contract.ts"), "");
+  }
+
+  function cleanup() {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  it("resolves to package dir, not workspace root, for monorepo file", () => {
+    setup();
+    try {
+      const filePath = path.join(tmpDir, "test-after", "explore", "dummyjson", "smoke.test.ts");
+      const result = findNearestPackageDir(filePath, tmpDir);
+      assert.equal(result, path.join(tmpDir, "test-after"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("resolves to contract-first package dir for contract file", () => {
+    setup();
+    try {
+      const filePath = path.join(tmpDir, "contract-first", "contracts", "auth.contract.ts");
+      const result = findNearestPackageDir(filePath, tmpDir);
+      assert.equal(result, path.join(tmpDir, "contract-first"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("resolves to project root for single-project (non-monorepo)", () => {
+    const singleDir = fs.mkdtempSync(path.join(os.tmpdir(), "glubean-single-"));
+    try {
+      fs.writeFileSync(path.join(singleDir, "package.json"), '{"name":"my-project"}');
+      fs.mkdirSync(path.join(singleDir, "explore"), { recursive: true });
+      fs.writeFileSync(path.join(singleDir, "explore", "test.ts"), "");
+
+      const filePath = path.join(singleDir, "explore", "test.ts");
+      const result = findNearestPackageDir(filePath, singleDir);
+      assert.equal(result, singleDir);
+    } finally {
+      fs.rmSync(singleDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined for scratch mode (no package.json)", () => {
+    const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "glubean-scratch-"));
+    try {
+      fs.writeFileSync(path.join(scratchDir, "test.ts"), "");
+
+      const filePath = path.join(scratchDir, "test.ts");
+      const result = findNearestPackageDir(filePath, scratchDir);
+      assert.equal(result, undefined);
+    } finally {
+      fs.rmSync(scratchDir, { recursive: true, force: true });
+    }
   });
 });
