@@ -8,6 +8,7 @@
 import { useState } from "preact/hooks";
 import { CodeViewer } from "./CodeViewer";
 import { EventTimeline } from "./EventTimeline";
+import { ErrorPanel, countErrors } from "./ErrorPanel";
 import { AssertionList } from "./AssertionList";
 import { RequestList } from "./RequestList";
 import { RequestDetail } from "./RequestDetail";
@@ -369,11 +370,21 @@ function SingleTestView({
   const call = calls[selectedCall];
 
   const assertions = test.events.filter((e) => e.type === "assertion");
+  const errorCount = countErrors([test]);
+  const hasErrors = errorCount > 0;
 
   return (
     <div class="flex-1 overflow-hidden min-h-0">
       <Tabs
+        defaultTab={hasErrors ? "errors" : undefined}
         tabs={[
+          ...(hasErrors ? [{
+            id: "errors",
+            label: `Errors (${errorCount})`,
+            content: (
+              <ErrorPanel tests={[test]} />
+            ),
+          }] : []),
           {
             id: "trace",
             label: `Trace (${calls.length})`,
@@ -449,10 +460,23 @@ function MultiTestView({
   onCopyAsCurl?: (call: TraceCall) => void;
   onJumpToSource?: (testId: string) => void;
 }) {
+  const errorCount = countErrors(data.tests);
+  const hasErrors = errorCount > 0;
+
   return (
     <div class="flex-1 overflow-hidden min-h-0">
       <Tabs
+        defaultTab={hasErrors ? "errors" : undefined}
         tabs={[
+          ...(hasErrors ? [{
+            id: "errors",
+            label: `Errors (${errorCount})`,
+            content: (
+              <div class="overflow-y-auto h-full">
+                <ErrorPanel tests={data.tests} />
+              </div>
+            ),
+          }] : []),
           {
             id: "tests",
             label: `Tests (${data.summary.total})`,
