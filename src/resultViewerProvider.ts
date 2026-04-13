@@ -349,19 +349,23 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
                 });
               }
 
-              // Build lightweight events for the Events tab
-              if (e.type === "summary" || e.type === "status" || e.type === "start") {
+              // Build lightweight events for the Events tab + Error panel
+              if (e.type === "summary" || e.type === "start") {
                 continue;
               }
               trimmedEvents.push({
                 type: e.type,
-                message: e.message,
+                message: e.message ?? e.error,
                 passed: e.passed,
+                reason: e.reason,
                 ...(e.type === "assertion" && e.actual !== undefined
                   ? { actual: e.actual }
                   : {}),
                 ...(e.type === "assertion" && e.expected !== undefined
                   ? { expected: e.expected }
+                  : {}),
+                ...(e.type === "status" && e.error
+                  ? { error: e.error }
                   : {}),
                 data: e.data
                   ? {

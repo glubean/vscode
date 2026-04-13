@@ -9,6 +9,7 @@ type ViewerState =
 export interface TimelineEvent {
   type: string;
   message?: string;
+  error?: string;
   passed?: boolean;
   actual?: unknown;
   expected?: unknown;
