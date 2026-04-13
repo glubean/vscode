@@ -56,9 +56,16 @@ import {
 function workspaceRootFor(filePath: string): string {
   const fileUri = vscode.Uri.file(filePath);
   const wsFolder = vscode.workspace.getWorkspaceFolder(fileUri);
-  const ceiling = wsFolder?.uri.fsPath ?? path.parse(filePath).root;
 
-  // Walk up from the file's directory to find the nearest package.json
+  if (!wsFolder) {
+    // No workspace folder → scratch mode. Use the file's own directory;
+    // don't walk up — we'd risk finding an unrelated package.json.
+    return path.dirname(filePath);
+  }
+
+  // Walk up from the file's directory to find the nearest package.json,
+  // bounded by the workspace folder root.
+  const ceiling = wsFolder.uri.fsPath;
   let dir = path.dirname(filePath);
   while (dir.length >= ceiling.length) {
     if (fs.existsSync(path.join(dir, "package.json"))) {
@@ -69,8 +76,8 @@ function workspaceRootFor(filePath: string): string {
     dir = parent;
   }
 
-  // No package.json found — fall back to workspace folder or file dir
-  return wsFolder?.uri.fsPath ?? path.dirname(filePath);
+  // No package.json found within workspace — fall back to workspace root
+  return wsFolder.uri.fsPath;
 }
 
 const resultModuleDeps = { workspaceRootFor };
