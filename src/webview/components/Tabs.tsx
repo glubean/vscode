@@ -14,7 +14,11 @@ interface TabsProps {
 
 export function Tabs({ tabs, defaultTab }: TabsProps) {
   const [active, setActive] = useState(defaultTab ?? tabs[0]?.id ?? "");
-  const current = tabs.find((t) => t.id === active);
+
+  // If the active tab no longer exists (e.g. switching from failed to passed
+  // result where Errors tab disappears), fall back to the first tab.
+  const resolved = tabs.find((t) => t.id === active) ? active : (defaultTab ?? tabs[0]?.id ?? "");
+  const current = tabs.find((t) => t.id === resolved);
 
   return (
     <div class="flex flex-col h-full min-h-0">
@@ -23,7 +27,7 @@ export function Tabs({ tabs, defaultTab }: TabsProps) {
           <button
             key={tab.id}
             class={`tab-pill-base px-3 py-1.5 text-xs font-normal transition-colors cursor-pointer ${
-              tab.id === active
+              tab.id === resolved
                 ? "tab-pill-active"
                 : "tab-pill-inactive"
             }`}
