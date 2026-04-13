@@ -12,6 +12,7 @@ export interface TimelineEvent {
   passed?: boolean;
   actual?: unknown;
   expected?: unknown;
+  reason?: string;
   data?: { method?: string; url?: string; status?: number; duration?: number };
 }
 

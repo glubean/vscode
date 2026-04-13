@@ -228,16 +228,19 @@ function formatEvent(event: import("@glubean/runner").ExecutionEvent): string | 
         : `  ✗ ${event.message}${event.expected !== undefined ? ` (expected: ${JSON.stringify(event.expected)}, actual: ${JSON.stringify(event.actual)})` : ""}`;
     case "warning":
       return `  ⚠ ${event.message}`;
-    case "error":
-      return `  ✗ ERROR: ${event.message}`;
+    case "error": {
+      const tag = event.reason ? ` [${event.reason.toUpperCase()}]` : "";
+      return `  ✗ ERROR${tag}: ${event.message}`;
+    }
     case "step_start":
       return `  Step ${event.index + 1}/${event.total}: ${event.name}`;
     case "step_end":
       return `  Step ${event.index + 1}: ${event.status} (${event.durationMs}ms)`;
-    case "status":
-      return event.status === "completed"
-        ? `  ✓ passed`
-        : `  ✗ ${event.status}${event.error ? `: ${event.error}` : ""}`;
+    case "status": {
+      if (event.status === "completed") return `  ✓ passed`;
+      const tag = event.reason ? ` [${event.reason.toUpperCase()}]` : "";
+      return `  ✗ ${event.status}${tag}${event.error ? `: ${event.error}` : ""}`;
+    }
     case "trace":
       return `  → ${event.data?.method || "?"} ${event.data?.url || ""} [${event.data?.status || "?"}]`;
     default:
@@ -267,9 +270,9 @@ function toGlubeanEvent(event: import("@glubean/runner").ExecutionEvent): Glubea
     case "warning":
       return { type: "warning", message: event.message, stepIndex: event.stepIndex };
     case "error":
-      return { type: "error", error: event.message };
+      return { type: "error", error: event.message, reason: event.reason };
     case "status":
-      return { type: "status", status: event.status, error: event.error };
+      return { type: "status", status: event.status, error: event.error, reason: event.reason };
     case "step_start":
       return {
         type: "step_start",

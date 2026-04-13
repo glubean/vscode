@@ -21,9 +21,10 @@ export interface GlubeanEvent {
   passed?: boolean;
   actual?: unknown;
   expected?: unknown;
-  // status
+  // status / error
   status?: string;
   error?: string;
+  reason?: string;
   // step
   index?: number;
   name?: string;
@@ -307,12 +308,14 @@ export function buildEventsSummary(events: GlubeanEvent[]): string {
         break;
       }
       case "error": {
-        lines.push(`[ERROR] ${event.message ?? ""}`);
+        const tag = event.reason ? ` ${event.reason.toUpperCase()}` : "";
+        lines.push(`[ERROR${tag}] ${event.message ?? ""}`);
         break;
       }
       case "status": {
         if (event.error) {
-          lines.push(`[STATUS] ${event.status ?? "failed"}: ${event.error}`);
+          const tag = event.reason ? ` ${event.reason.toUpperCase()}` : "";
+          lines.push(`[STATUS${tag}] ${event.status ?? "failed"}: ${event.error}`);
         }
         break;
       }

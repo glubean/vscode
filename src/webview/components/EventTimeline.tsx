@@ -49,13 +49,22 @@ function EventRow({ ev }: { ev: TimelineEvent }) {
   const isFailedAssertion = ev.type === "assertion" && ev.passed === false;
   const isError = ev.type === "error";
 
+  const REASON_LABELS: Record<string, string> = {
+    http_timeout: "HTTP Timeout",
+    test_timeout: "Test Timeout",
+    network: "Network Error",
+    oom: "Out of Memory",
+  };
+
   let message: string;
   if (ev.type === "trace") {
     message = formatTraceEvent(ev);
   } else if (ev.type === "metric" && ev.data) {
     message = ev.message ?? `${ev.data.duration ?? 0}ms`;
   } else {
-    message = ev.message ?? ev.type;
+    const base = ev.message ?? ev.type;
+    const label = ev.reason ? REASON_LABELS[ev.reason] ?? ev.reason : undefined;
+    message = label ? `[${label}] ${base}` : base;
   }
 
   const color = isFailedAssertion || isError

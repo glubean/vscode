@@ -308,11 +308,13 @@ export class ResultViewerProvider implements vscode.CustomTextEditorProvider {
             // statuses take priority, followed by the first assertion failure.
             for (const e of t.events) {
               if (e.type === "error" && e.message) {
-                failureReason = e.message;
+                const label = e.reason ? `[${e.reason}] ` : "";
+                failureReason = `${label}${e.message}`;
                 break;
               }
               if (e.type === "status" && (e.error || e.reason)) {
-                failureReason = e.error || e.reason;
+                const label = e.reason && e.error ? `[${e.reason}] ` : "";
+                failureReason = `${label}${e.error || e.reason}`;
                 break;
               }
               if (e.type === "assertion" && !e.passed && e.message && !failureReason) {
