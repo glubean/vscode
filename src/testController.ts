@@ -1382,7 +1382,7 @@ async function runFile(
   try {
     const parsed = await executeTest(
       filePath,
-      tests.map((t) => t.meta.id),
+      undefined, // whole-file run — let harness discover all tests (wildcard)
       cwd,
       cancellation,
       run,
