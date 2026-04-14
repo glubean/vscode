@@ -22,9 +22,11 @@ import { inferSourcePath } from "./resultViewerUtils";
 export interface TimelineEvent {
   type: string;
   message?: string;
+  error?: string;
   passed?: boolean;
   actual?: unknown;
   expected?: unknown;
+  reason?: string;
   data?: { method?: string; url?: string; status?: number; duration?: number };
 }
 
