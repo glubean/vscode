@@ -12,18 +12,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Lint (type-check)
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Build extension
-        run: npm run build:extension
+        run: pnpm run build:extension
 
       - name: Build webview (JS only, skip Tailwind CSS)
         run: npx esbuild ./src/webview/index.tsx --bundle --outfile=dist/webview/index.js --format=iife --platform=browser --minify --sourcemap --jsx=automatic --jsx-import-source=preact
