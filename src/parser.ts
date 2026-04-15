@@ -123,6 +123,12 @@ export function extractTests(content: string, customFns?: string[]): TestMeta[] 
 
   // Fall through: isGlubeanFile passed (file imports @glubean/sdk) but
   // extractFromSource found no test() calls. Try contract path.
+
+  // First: try // @contract marker-based discovery (supports .with() syntax)
+  const markerTests = extractContractsByMarker(content);
+  if (markerTests.length > 0) return markerTests;
+
+  // Fallback: old regex-based discovery (contract.http("id", {))
   const contracts = extractContractCases(content);
   if (contracts.length > 0) {
     return contracts.flatMap((c) =>
@@ -137,6 +143,120 @@ export function extractTests(content: string, customFns?: string[]): TestMeta[] 
   }
 
   return [];
+}
+
+// ---------------------------------------------------------------------------
+// // @contract marker-based contract extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract contract tests from // @contract markers.
+ *
+ * Pattern:
+ *   // @contract
+ *   export const getMe = userApi("get-me", {
+ *     endpoint: "GET /me",
+ *     cases: { ok: { ... }, notFound: { ... } },
+ *   });
+ *
+ * The marker tells us where the contract export is. We then extract:
+ * - exportName from "export const <name>"
+ * - contractId from the first string argument: ("get-me", ...)
+ * - endpoint from "endpoint: "..."
+ * - per-case metadata from the cases: { ... } block
+ */
+function extractContractsByMarker(content: string): TestMeta[] {
+  const results: TestMeta[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\/\/\s*@contract\s*$/.test(lines[i])) continue;
+
+    // Next line should be "export const <name> = ..."
+    const nextLine = lines[i + 1];
+    if (!nextLine) continue;
+    const exportMatch = nextLine.match(/export\s+const\s+(\w+)/);
+    if (!exportMatch) continue;
+    const exportName = exportMatch[1];
+    const exportLineNum = i + 2; // 1-based
+
+    // Find the contract body from this point forward
+    const afterExport = content.slice(content.indexOf(nextLine));
+
+    // Extract contract ID from first string argument: ("get-me", ...)
+    const idMatch = afterExport.match(/\(\s*["']([^"']+)["']\s*,\s*\{/);
+    if (!idMatch) continue;
+    const contractId = idMatch[1];
+
+    // Extract endpoint
+    const endpointMatch = afterExport.match(/endpoint\s*:\s*["']([^"']+)["']/);
+    const endpoint = endpointMatch ? endpointMatch[1] : contractId;
+
+    // Find cases: { ... } block
+    const casesStart = afterExport.indexOf("cases:");
+    if (casesStart === -1) continue;
+
+    const afterCases = afterExport.slice(casesStart);
+    const braceIdx = afterCases.indexOf("{");
+    if (braceIdx === -1) continue;
+
+    // Extract top-level keys by tracking brace depth
+    const casesContent = afterCases.slice(braceIdx);
+    const topLevelKeys: { key: string; offset: number }[] = [];
+    let depth = 0;
+
+    for (let j = 0; j < casesContent.length; j++) {
+      if (casesContent[j] === "{") {
+        if (depth === 1) {
+          const before = casesContent.slice(0, j).trimEnd();
+          const keyMatch = before.match(/["']?(\w+)["']?\s*:\s*$/);
+          if (keyMatch) {
+            topLevelKeys.push({ key: keyMatch[1], offset: j });
+          }
+        }
+        depth++;
+      } else if (casesContent[j] === "}") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+
+    for (const { key, offset } of topLevelKeys) {
+      // Calculate absolute position for line number
+      const absolutePos = content.indexOf(nextLine) + casesStart + braceIdx + offset;
+      const caseLine = content.substring(0, absolutePos).split("\n").length;
+
+      // Extract case body
+      let caseDepth = 0;
+      let caseEnd = offset;
+      for (let j = offset; j < casesContent.length; j++) {
+        if (casesContent[j] === "{") caseDepth++;
+        else if (casesContent[j] === "}") {
+          caseDepth--;
+          if (caseDepth === 0) { caseEnd = j; break; }
+        }
+      }
+      const caseBody = casesContent.slice(offset, caseEnd + 1);
+
+      // Extract case-level fields
+      const descMatch = caseBody.match(/description\s*:\s*["']([^"']+)["']/);
+      const deferredMatch = caseBody.match(/deferred\s*:\s*["']([^"']+)["']/);
+      const requiresMatch = caseBody.match(/requires\s*:\s*["'](headless|browser|out-of-band)["']/);
+      const defaultRunMatch = caseBody.match(/defaultRun\s*:\s*["'](always|opt-in)["']/);
+
+      const variant = deferredMatch ? "each" : undefined; // not actually each, but need deferred info
+
+      results.push({
+        type: "test",
+        id: `${contractId}.${key}`,
+        name: `${endpoint} — ${key}`,
+        exportName,
+        line: caseLine,
+      });
+    }
+  }
+
+  return results;
 }
 
 // extractPickExamples and PickMeta are now imported from @glubean/scanner/static
