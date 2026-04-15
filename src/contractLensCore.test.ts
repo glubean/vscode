@@ -205,3 +205,105 @@ export const c = contract.http("mixed", {
     assert.equal(items[2].kind, "disabled");
   });
 });
+
+// ---------------------------------------------------------------------------
+// // @contract marker-based CodeLens
+// ---------------------------------------------------------------------------
+
+describe("computeContractLenses — // @contract marker", () => {
+  const SDK_IMPORT = 'import { contract, configure } from "@glubean/sdk";\n';
+
+  it("emits run items for marker-based .with() contracts", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("test", {});
+
+// @contract
+export const getMe = api("get-me", {
+  endpoint: "GET /me",
+  cases: {
+    ok: {
+      description: "Returns profile",
+      expect: { status: 200 },
+    },
+    notFound: {
+      description: "User not found",
+      expect: { status: 404 },
+    },
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].kind, "run");
+    assert.equal(items[0].title, "▶ run ok");
+    assert.equal(items[0].args?.testId, "get-me.ok");
+    assert.equal(items[0].args?.exportName, "getMe");
+    assert.equal(items[1].kind, "run");
+    assert.equal(items[1].title, "▶ run notFound");
+    assert.equal(items[1].args?.testId, "get-me.notFound");
+  });
+
+  it("handles deferred cases with marker", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("test", {});
+
+// @contract
+export const send = api("send", {
+  endpoint: "POST /send",
+  cases: {
+    ok: {
+      description: "Sent",
+      expect: { status: 201 },
+    },
+    pending: {
+      description: "Not ready",
+      deferred: "backend pending",
+      expect: { status: 200 },
+    },
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].kind, "run");
+    assert.equal(items[1].kind, "disabled");
+    assert.ok(items[1].title.includes("deferred: backend pending"));
+  });
+
+  it("handles requires: browser with marker", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("test", {});
+
+// @contract
+export const oauth = api("oauth", {
+  endpoint: "POST /oauth/callback",
+  cases: {
+    real: {
+      description: "Real OAuth",
+      requires: "browser",
+      expect: { status: 200 },
+    },
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.ok(items[0].title.includes("requires: browser"));
+  });
+
+  it("falls back to old regex when no markers present", () => {
+    const content = CONTRACT_IMPORT + `
+export const legacy = contract.http("legacy", {
+  endpoint: "GET /legacy",
+  cases: {
+    ok: { description: "ok", expect: { status: 200 } },
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "run");
+    assert.equal(items[0].args?.testId, "legacy.ok");
+  });
+});

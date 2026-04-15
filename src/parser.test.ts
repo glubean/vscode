@@ -673,3 +673,98 @@ export const auth = contract.http("auth-callback", {
     assert.equal(tests[1].id, "auth-callback.deferred");
   });
 });
+
+// ---------------------------------------------------------------------------
+// // @contract marker-based discovery
+// ---------------------------------------------------------------------------
+
+describe("extractTests — // @contract marker", () => {
+  const SDK_IMPORT = 'import { contract, configure } from "@glubean/sdk";\n';
+
+  it("discovers contracts via // @contract marker with .with() syntax", () => {
+    const content = SDK_IMPORT + `
+const { http: api } = configure({ http: { prefixUrl: "{{API}}" } });
+const userApi = contract.http.with("user", { client: api, security: "bearer" });
+
+// @contract
+export const getMe = userApi("get-me", {
+  endpoint: "GET /me",
+  cases: {
+    ok: {
+      description: "Returns profile",
+      expect: { status: 200 },
+    },
+    unauthorized: {
+      description: "Missing token",
+      expect: { status: 401 },
+    },
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    assert.equal(tests[0].id, "get-me.ok");
+    assert.equal(tests[0].exportName, "getMe");
+    assert.equal(tests[0].name, "GET /me — ok");
+    assert.ok(tests[0].line > 0);
+    assert.equal(tests[1].id, "get-me.unauthorized");
+    assert.equal(tests[1].exportName, "getMe");
+  });
+
+  it("discovers multiple contracts with separate markers", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("test", {});
+
+// @contract
+export const health = api("health", {
+  endpoint: "GET /health",
+  cases: {
+    ok: { description: "ok", expect: { status: 200 } },
+  },
+});
+
+// @contract
+export const users = api("list-users", {
+  endpoint: "GET /users",
+  cases: {
+    ok: { description: "ok", expect: { status: 200 } },
+    empty: { description: "no users", expect: { status: 200 } },
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 3);
+    assert.equal(tests[0].id, "health.ok");
+    assert.equal(tests[0].exportName, "health");
+    assert.equal(tests[1].id, "list-users.ok");
+    assert.equal(tests[1].exportName, "users");
+    assert.equal(tests[2].id, "list-users.empty");
+  });
+
+  it("ignores // @contract without a following export const", () => {
+    const content = SDK_IMPORT + `
+// @contract
+const notExported = contract.http.with("x", {})("test", {
+  endpoint: "GET /test",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 0);
+  });
+
+  it("falls back to old regex when no markers present", () => {
+    const content = SDK_IMPORT + `
+export const legacy = contract.http("legacy-test", {
+  endpoint: "GET /legacy",
+  cases: {
+    ok: { description: "ok", expect: { status: 200 } },
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 1);
+    assert.equal(tests[0].id, "legacy-test.ok");
+    assert.equal(tests[0].exportName, "legacy");
+  });
+});
