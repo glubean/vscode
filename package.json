@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — REST Client & API Test Runner",
   "description": "Code-first API test runner and REST client for TypeScript. Explore APIs, run tests, debug with breakpoints, and see traces — Postman alternative powered by AI.",
-  "version": "0.17.31",
+  "version": "0.17.32",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -421,6 +421,7 @@
     "posthog-node": "^5.24.17",
     "yaml": "^2.8.3"
   },
+  "packageManager": "pnpm@10.13.1",
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
