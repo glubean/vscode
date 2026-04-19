@@ -307,3 +307,99 @@ export const legacy = contract.http("legacy", {
     assert.equal(items[0].args?.testId, "legacy.ok");
   });
 });
+
+// ---------------------------------------------------------------------------
+// // @flow marker-based CodeLens
+// ---------------------------------------------------------------------------
+
+describe("computeContractLenses — // @flow marker", () => {
+  const FILE_PATH = "/abs/path/to/flow.contract.ts";
+  const SDK_IMPORT = 'import { contract, configure } from "@glubean/sdk";\n';
+
+  it("emits a single run item for a flow with a literal id", () => {
+    const content = SDK_IMPORT + `
+import { login } from "./auth.contract.ts";
+import { getProfile } from "./profile.contract.ts";
+
+// @flow
+export const loginThenGetProfile = contract
+  .flow("login-then-profile")
+  .meta({ description: "E2E", tags: ["e2e"] })
+  .step(login.case("success"), {
+    out: (_s, res: any) => ({ token: res.body.accessToken }),
+  })
+  .compute((s) => ({ ...s, authHeader: \`Bearer \${s.token}\` }))
+  .step(getProfile.case("authorized"), {
+    in: (s) => ({ headers: { Authorization: s.authHeader } }),
+  });
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "run");
+    assert.equal(items[0].title, "▶ run login-then-profile");
+    assert.equal(items[0].args?.testId, "login-then-profile");
+    assert.equal(items[0].args?.exportName, "loginThenGetProfile");
+    // Lens should sit on the `export const` line (0-based).
+    // Count lines up to `export const loginThenGetProfile` in the content.
+    const expectedLine = content.split("\n").findIndex((l) =>
+      l.includes("export const loginThenGetProfile")
+    );
+    assert.equal(items[0].line, expectedLine);
+  });
+
+  it("emits a disabled item when flow is marked skip via .meta({ skip: \"...\" })", () => {
+    const content = SDK_IMPORT + `
+// @flow
+export const illustrative = contract
+  .flow("docs-example")
+  .meta({ skip: "no live server" })
+  .setup(async () => ({ x: 1 }));
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.equal(items[0].title, "⊘ skip: no live server");
+  });
+
+  it("ignores // @flow without a following export const", () => {
+    const content = SDK_IMPORT + `
+// @flow
+// (no export here — malformed)
+const ignored = 42;
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 0);
+  });
+
+  it("ignores // @flow when .flow(...) has no literal string id", () => {
+    const content = SDK_IMPORT + `
+const dynamicId = "computed";
+// @flow
+export const dynamic = contract.flow(dynamicId).setup(async () => ({}));
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 0);
+  });
+
+  it("emits contract AND flow lenses when a file declares both", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("demo", {});
+
+// @contract
+export const ping = api("ping", {
+  endpoint: "GET /ping",
+  cases: { ok: { description: "pong", expect: { status: 200 } } },
+});
+
+// @flow
+export const smoke = contract
+  .flow("ping-smoke")
+  .step(ping.case("ok"));
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    // Contract case "ok" + flow "ping-smoke" = 2 items.
+    assert.equal(items.length, 2);
+    const titles = items.map((i) => i.title).sort();
+    assert.deepEqual(titles, ["▶ run ok", "▶ run ping-smoke"]);
+  });
+});

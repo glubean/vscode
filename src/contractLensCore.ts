@@ -44,8 +44,13 @@ export function computeContractLenses(
   content: string,
   filePath: string,
 ): ContractLensItem[] {
-  // Try // @contract marker first (supports .with() syntax)
-  const markerItems = computeContractLensesByMarker(content, filePath);
+  // Collect lens items from BOTH contract and flow markers — files may
+  // export contracts, flows, or both (e.g. cookbook's flow.contract.ts).
+  // Merging avoids losing one category when the other is present.
+  const markerItems = [
+    ...computeContractLensesByMarker(content, filePath),
+    ...computeFlowLensesByMarker(content, filePath),
+  ];
   if (markerItems.length > 0) return markerItems;
 
   // Fallback: old regex (contract.http("id", {))
@@ -151,6 +156,77 @@ function computeContractLensesByMarker(
         const suffix = defaultRunMatch ? " (opt-in)" : "";
         items.push({ line: caseLine, title: `\u25B6 run ${key}${suffix}`, kind: "run", args: { filePath, testId, exportName } });
       }
+    }
+  }
+
+  return items;
+}
+
+/**
+ * Compute flow lenses from `// @flow` markers.
+ *
+ * Unlike contracts, a flow is a single runnable unit — there are no
+ * per-case entries. One lens is emitted at the `export const` line with
+ * the flow id as the test id (flow.contract.ts example:
+ * `contract.flow("login-then-profile")...` → `testId: "login-then-profile"`).
+ *
+ * If the flow declares `.meta({ skip: "..." })` with a literal string
+ * reason, the lens is rendered as `⊘ skip: <reason>` (disabled).
+ *
+ * Author conventions the detector relies on:
+ *   - A `// @flow` comment line immediately above the export
+ *   - `.flow("<id>")` call with a literal string id
+ *   - Optional `.meta({ skip: "<reason>" })` with a literal string reason
+ * More dynamic forms (e.g. `.flow(computedId())`) are not detected —
+ * authors can fall back to the gutter Test Explorer play button.
+ */
+function computeFlowLensesByMarker(
+  content: string,
+  filePath: string,
+): ContractLensItem[] {
+  const items: ContractLensItem[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\/\/\s*@flow\s*$/.test(lines[i])) continue;
+
+    const nextLine = lines[i + 1];
+    if (!nextLine) continue;
+    const exportMatch = nextLine.match(/export\s+const\s+(\w+)/);
+    if (!exportMatch) continue;
+    const exportName = exportMatch[1];
+
+    // Find .flow("<id>") anywhere in the tail of the file from the export
+    // line onwards. This tolerates the canonical multi-line style
+    // (`contract\n  .flow("id")\n  .meta(...)\n  .step(...)`) where the
+    // call sits on a later line than `export const`.
+    const afterExport = content.slice(content.indexOf(nextLine));
+    const flowIdMatch = afterExport.match(/\.flow\s*\(\s*["']([^"']+)["']/);
+    if (!flowIdMatch) continue;
+    const flowId = flowIdMatch[1];
+
+    // Scope the .meta({...}) search to the first call on this export —
+    // a reasonable approximation that avoids crossing into later exports.
+    // Matches `.meta({ ... skip: "reason" ... })` with a literal string.
+    const metaCall = afterExport.match(/\.meta\s*\(\s*\{([\s\S]*?)\}\s*\)/);
+    const skipMatch = metaCall?.[1].match(/skip\s*:\s*["']([^"']+)["']/);
+
+    // Lens renders at the `export const` line (0-based).
+    const line = i + 1;
+
+    if (skipMatch) {
+      items.push({
+        line,
+        title: `\u2298 skip: ${skipMatch[1]}`,
+        kind: "disabled",
+      });
+    } else {
+      items.push({
+        line,
+        title: `\u25B6 run ${flowId}`,
+        kind: "run",
+        args: { filePath, testId: flowId, exportName },
+      });
     }
   }
 

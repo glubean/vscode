@@ -122,10 +122,14 @@ export function extractTests(content: string, customFns?: string[]): TestMeta[] 
   }
 
   // Fall through: isGlubeanFile passed (file imports @glubean/sdk) but
-  // extractFromSource found no test() calls. Try contract path.
+  // extractFromSource found no test() calls. Try contract / flow paths.
 
-  // First: try // @contract marker-based discovery (supports .with() syntax)
-  const markerTests = extractContractsByMarker(content);
+  // Collect contract cases AND flow entries by marker. Files can declare
+  // both (e.g. cookbook's flow.contract.ts co-locates contracts + a flow).
+  const markerTests = [
+    ...extractContractsByMarker(content),
+    ...extractFlowsByMarker(content),
+  ];
   if (markerTests.length > 0) return markerTests;
 
   // Fallback: old regex-based discovery (contract.http("id", {))
@@ -254,6 +258,63 @@ function extractContractsByMarker(content: string): TestMeta[] {
         line: caseLine,
       });
     }
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// // @flow marker-based flow extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract flow tests from `// @flow` markers.
+ *
+ * Pattern:
+ *   // @flow
+ *   export const signupFlow = contract
+ *     .flow("signup-flow")
+ *     .meta({ description: "..." })
+ *     .step(...)
+ *     .compute(...)
+ *     .step(...);
+ *
+ * A flow is a single executable unit — one TestMeta per flow, using the
+ * flow id as the test id. Skip-at-declaration via `.meta({ skip: "..." })`
+ * is detected but still emitted as a TestMeta so the Test Explorer shows
+ * the entry (runtime ctx.skip() renders the reason at run time).
+ *
+ * Supported authoring form:
+ *   - literal string arg to `.flow(...)`
+ *   - optional `.meta({ ... })` somewhere in the chain
+ * Dynamic ids (computed at runtime) are not detected by this static pass.
+ */
+function extractFlowsByMarker(content: string): TestMeta[] {
+  const results: TestMeta[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\/\/\s*@flow\s*$/.test(lines[i])) continue;
+
+    const nextLine = lines[i + 1];
+    if (!nextLine) continue;
+    const exportMatch = nextLine.match(/export\s+const\s+(\w+)/);
+    if (!exportMatch) continue;
+    const exportName = exportMatch[1];
+    const exportLine = i + 2; // 1-based
+
+    const afterExport = content.slice(content.indexOf(nextLine));
+    const flowIdMatch = afterExport.match(/\.flow\s*\(\s*["']([^"']+)["']/);
+    if (!flowIdMatch) continue;
+    const flowId = flowIdMatch[1];
+
+    results.push({
+      type: "test",
+      id: flowId,
+      name: flowId,
+      exportName,
+      line: exportLine,
+    });
   }
 
   return results;
