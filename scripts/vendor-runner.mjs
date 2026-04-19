@@ -4,7 +4,7 @@
  * Runner is published to npm, so we just `npm install` it in a temp dir
  * and copy the resolved node_modules. Clean and simple.
  */
-import { cpSync, rmSync, mkdtempSync, writeFileSync, readdirSync } from "node:fs";
+import { cpSync, rmSync, mkdtempSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -48,8 +48,27 @@ execSync(`npm install --omit=dev @glubean/runner ${platformFlags}`, {
 // remove any wrong-platform ones.
 if (targetOs && targetCpu) {
   const wantedPkg = `@esbuild/${targetOs}-${targetCpu}`;
-  console.log(`Force-installing ${wantedPkg} for cross-platform build...`);
-  execSync(`npm install --force ${wantedPkg}`, { cwd: tmp, stdio: "inherit" });
+
+  // Pin to the resolved host esbuild version. esbuild's JS host and native
+  // binary must be the exact same version; `npm install --force <pkg>`
+  // without a version always pulls latest, and when esbuild publishes a
+  // new minor between the main install and this force-install the two
+  // diverge — producing vsixs that throw
+  //   "Host version X does not match binary version Y"
+  // at runtime. (Reproduced as 0.17.30–0.17.34 with host 0.27.7 /
+  // binary 0.28.0 after esbuild 0.28 shipped.)
+  const esbuildPkgJson = JSON.parse(
+    readFileSync(join(tmp, "node_modules/esbuild/package.json"), "utf8"),
+  );
+  const esbuildVersion = esbuildPkgJson.version;
+
+  console.log(
+    `Force-installing ${wantedPkg}@${esbuildVersion} for cross-platform build...`,
+  );
+  execSync(`npm install --force ${wantedPkg}@${esbuildVersion}`, {
+    cwd: tmp,
+    stdio: "inherit",
+  });
 
   // Remove any other @esbuild/* platform packages
   const esbuildDir = join(tmp, "node_modules", "@esbuild");
@@ -77,6 +96,33 @@ const removePatterns = [
 ];
 for (const p of removePatterns) {
   try { rmSync(resolve(vendorRoot, p), { recursive: true, force: true }); } catch {}
+}
+
+// Safety net: assert esbuild host and all @esbuild/* binaries agree on
+// version. Any mismatch here would ship a broken vsix — fail the build
+// instead of paging users.
+try {
+  const hostVer = JSON.parse(
+    readFileSync(join(vendorRoot, "esbuild/package.json"), "utf8"),
+  ).version;
+  const esbuildPlatformsDir = join(vendorRoot, "@esbuild");
+  for (const entry of readdirSync(esbuildPlatformsDir)) {
+    const binVer = JSON.parse(
+      readFileSync(join(esbuildPlatformsDir, entry, "package.json"), "utf8"),
+    ).version;
+    if (binVer !== hostVer) {
+      throw new Error(
+        `esbuild vendor mismatch: host=${hostVer} but @esbuild/${entry}=${binVer}`,
+      );
+    }
+  }
+} catch (err) {
+  if (err && err.code === "ENOENT") {
+    // No @esbuild platform dir (e.g. runner stopped depending on esbuild).
+    // Nothing to check.
+  } else {
+    throw err;
+  }
 }
 
 // Report
