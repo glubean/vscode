@@ -40,9 +40,9 @@
   "GB Import Plugin": {
     "prefix": ["gb-ip", "gbip"],
     "body": [
-      "import { configure, definePlugin } from \"@glubean/sdk\";"
+      "import { configure, defineClientFactory } from \"@glubean/sdk\";"
     ],
-    "description": "Import configure + definePlugin from @glubean/sdk"
+    "description": "Import configure + defineClientFactory from @glubean/sdk"
   },
   "GB GET Test": {
     "prefix": ["gb-get", "gbget"],
@@ -303,7 +303,7 @@
   "GB Plugin Define": {
     "prefix": ["gb-plugin", "gbpl"],
     "body": [
-      "const ${1:secureApiPlugin} = definePlugin((runtime) => {",
+      "const ${1:secureApiClient} = defineClientFactory((runtime) => {",
       "  const client = runtime.http.extend({",
       "    prefixUrl: runtime.requireVar(\"${2:BASE_URL}\"),",
       "    headers: { Authorization: `Bearer \\${runtime.requireSecret(\"${3:API_KEY}\")}` },",
@@ -316,11 +316,11 @@
       "",
       "export const { ${6:secureApi} } = configure({",
       "  plugins: {",
-      "    ${6:secureApi}: { factory: ${1:secureApiPlugin} },",
+      "    ${6:secureApi}: ${1:secureApiClient},",
       "  },",
       "});"
     ],
-    "description": "definePlugin + configure plugins"
+    "description": "defineClientFactory + configure plugins"
   },
   "GB Expect Guard": {
     "prefix": ["gb-expect", "gbx"],
