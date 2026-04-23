@@ -91,20 +91,30 @@ export async function executeTest(
   try {
     // Determine which test IDs to run
     const idsToRun = testIds ?? (await discoverTestIds(fileUrl));
+    const isWildcard = idsToRun.length === 1 && idsToRun[0] === "*";
 
-    for (const testId of idsToRun) {
-      if (cancellation.isCancellationRequested) break;
+    // PM-2d: batch multiple known testIds into ONE subprocess via the
+    // `testIds` option. Previous impl spawned one harness per testId, which
+    // for a 10-test file = 10 tsx subprocess boots. Keep the wildcard path
+    // (discovery fallback) as a single per-testId call because "*" isn't a
+    // real id and harness interprets it specially.
+    const shouldBatch = !isWildcard && idsToRun.length > 1;
 
-      const startTime = Date.now();
-      const events: GlubeanEvent[] = [];
-      let success = false;
-      let testName = testId;
+    if (shouldBatch) {
+      const startTimes = new Map<string, number>();
+      const eventsPerTest = new Map<string, GlubeanEvent[]>();
+      const namesPerTest = new Map<string, string>();
+      for (const id of idsToRun) {
+        startTimes.set(id, Date.now());
+        eventsPerTest.set(id, []);
+        namesPerTest.set(id, id);
+      }
 
-      for await (const event of executor.run(fileUrl, testId, context, {
+      for await (const event of executor.run(fileUrl, "", context, {
         signal: ac.signal,
         exportName: options.exportName,
+        testIds: idsToRun,
       })) {
-        // Detect missing Node.js and show actionable notification
         if (event.type === "error" && typeof event.message === "string" && event.message.startsWith("NODE_NOT_FOUND:")) {
           vscode.window.showErrorMessage(
             "Node.js 20+ is required to run Glubean tests. Install Node.js, then restart VS Code (not just Reload Window).",
@@ -116,33 +126,86 @@ export async function executeTest(
           });
         }
 
-        // Stream formatted output to Test Results panel
         const line = formatEvent(event);
         if (line) {
           run.appendOutput(line.replace(/\n/g, "\r\n") + "\r\n");
         }
 
-        // Collect events for applyResults
         const glubeanEvent = toGlubeanEvent(event);
-        if (glubeanEvent) events.push(glubeanEvent);
+        // Attribute by event.testId (harness emits this on every event in batch mode).
+        // Fallback to first id if missing — defensive; not expected.
+        const attributedId = event.testId && eventsPerTest.has(event.testId)
+          ? event.testId
+          : idsToRun[0];
+        if (glubeanEvent) eventsPerTest.get(attributedId)!.push(glubeanEvent);
 
-        // Track test name and success
         if (event.type === "start") {
-          testName = event.name || testId;
+          const id = event.testId && namesPerTest.has(event.testId) ? event.testId : attributedId;
+          namesPerTest.set(id, event.name || id);
+          startTimes.set(id, Date.now());
         }
       }
 
-      // Use runner's generateSummary for per-test success + stats
-      const testSummary = (await getRunner()).generateSummary(events as any);
-      success = testSummary.success;
+      const summaryFn = (await getRunner()).generateSummary;
+      for (const id of idsToRun) {
+        const evs = eventsPerTest.get(id)!;
+        const summary = summaryFn(evs as any);
+        testResults.push({
+          testId: id,
+          testName: namesPerTest.get(id) || id,
+          success: summary.success,
+          durationMs: Date.now() - (startTimes.get(id) || Date.now()),
+          events: evs,
+        });
+      }
+    } else {
+      for (const testId of idsToRun) {
+        if (cancellation.isCancellationRequested) break;
 
-      testResults.push({
-        testId,
-        testName,
-        success,
-        durationMs: Date.now() - startTime,
-        events,
-      });
+        const startTime = Date.now();
+        const events: GlubeanEvent[] = [];
+        let success = false;
+        let testName = testId;
+
+        for await (const event of executor.run(fileUrl, testId, context, {
+          signal: ac.signal,
+          exportName: options.exportName,
+        })) {
+          if (event.type === "error" && typeof event.message === "string" && event.message.startsWith("NODE_NOT_FOUND:")) {
+            vscode.window.showErrorMessage(
+              "Node.js 20+ is required to run Glubean tests. Install Node.js, then restart VS Code (not just Reload Window).",
+              "Download Node.js",
+            ).then((choice) => {
+              if (choice === "Download Node.js") {
+                vscode.env.openExternal(vscode.Uri.parse("https://nodejs.org"));
+              }
+            });
+          }
+
+          const line = formatEvent(event);
+          if (line) {
+            run.appendOutput(line.replace(/\n/g, "\r\n") + "\r\n");
+          }
+
+          const glubeanEvent = toGlubeanEvent(event);
+          if (glubeanEvent) events.push(glubeanEvent);
+
+          if (event.type === "start") {
+            testName = event.name || testId;
+          }
+        }
+
+        const testSummary = (await getRunner()).generateSummary(events as any);
+        success = testSummary.success;
+
+        testResults.push({
+          testId,
+          testName,
+          success,
+          durationMs: Date.now() - startTime,
+          events,
+        });
+      }
     }
   } finally {
     // Session teardown (no-op if no session.ts was discovered)
