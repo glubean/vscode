@@ -229,6 +229,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const hoverSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.test.ts" },
     { language: "javascript", pattern: "**/*.test.{js,mjs}" },
+    { language: "typescript", pattern: "**/*.contract.ts" },
+    { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
+    { language: "typescript", pattern: "**/*.flow.ts" },
+    { language: "javascript", pattern: "**/*.flow.{js,mjs}" },
   ];
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
@@ -243,6 +247,8 @@ export function activate(context: vscode.ExtensionContext): void {
     { language: "javascript", pattern: "**/*.test.{js,mjs}" },
     { language: "typescript", pattern: "**/*.contract.ts" },
     { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
+    { language: "typescript", pattern: "**/*.flow.ts" },
+    { language: "javascript", pattern: "**/*.flow.{js,mjs}" },
   ];
 
   // Result history buttons (shown on all tests)

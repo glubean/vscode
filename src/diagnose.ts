@@ -163,7 +163,7 @@ export function detectIssues(data: DiagnosticData): Issue[] {
   if (data.discovery.filesFound === 0 && data.discovery.autoDiscover) {
     issues.push({
       level: "warn",
-      message: "No .test.{ts,js,mjs} files found in workspace",
+      message: "No .test / .contract / .flow files found in workspace",
     });
   }
 
@@ -288,7 +288,7 @@ async function collectDiagnosticData(): Promise<DiagnosticData> {
   let filesFound = 0;
   try {
     const testFiles = await vscode.workspace.findFiles(
-      "**/*.test.{ts,js,mjs}",
+      "**/*.{test,contract,flow}.{ts,js,mjs}",
       "**/node_modules/**",
     );
     filesFound = testFiles.length;

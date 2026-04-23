@@ -18,9 +18,9 @@ import * as path from "node:path";
 // Replicate: isGlubeanFileName (from testController.ts line 489-491)
 // ---------------------------------------------------------------------------
 
-/** Check if a file name is a Glubean test file (*.test.ts, *.test.js, *.test.mjs). */
+/** Check if a file name is a Glubean test / contract / flow file. */
 function isGlubeanFileName(fileName: string): boolean {
-  return /\.test\.(ts|js|mjs)$/.test(fileName);
+  return /\.(test|contract|flow)\.(ts|js|mjs)$/.test(fileName);
 }
 
 // ---------------------------------------------------------------------------

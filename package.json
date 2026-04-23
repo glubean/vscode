@@ -55,6 +55,12 @@
     "workspaceContains:**/*.test.ts",
     "workspaceContains:**/*.test.js",
     "workspaceContains:**/*.test.mjs",
+    "workspaceContains:**/*.contract.ts",
+    "workspaceContains:**/*.contract.js",
+    "workspaceContains:**/*.contract.mjs",
+    "workspaceContains:**/*.flow.ts",
+    "workspaceContains:**/*.flow.js",
+    "workspaceContains:**/*.flow.mjs",
     "onLanguage:typescript",
     "onLanguage:javascript"
   ],
