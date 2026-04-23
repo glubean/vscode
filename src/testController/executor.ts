@@ -52,6 +52,13 @@ export async function executeTest(
 ): Promise<GlubeanResult> {
   const runner = await getRunner();
 
+  // Plugin bootstrap: run glubean.setup.ts so plugin-registered protocols
+  // (grpc / graphql / custom) are available. Harness subprocess bootstraps
+  // itself, but discoverTestIds below does parent-process `import(fileUrl)`
+  // which will fail on plugin-protocol contracts without this.
+  // Idempotent via loadState cache in @glubean/runner/bootstrap.
+  await runner.bootstrap(cwd);
+
   // Build execution context from .env files
   const { vars, secrets } = await loadProjectEnv(cwd, options.envFile);
 

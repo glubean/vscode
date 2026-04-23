@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@glubean/runner':
-        specifier: ^0.2.3
-        version: 0.2.3
+        specifier: ^0.2.4
+        version: 0.2.4
       '@glubean/scanner':
-        specifier: ^0.2.1
-        version: 0.2.1
+        specifier: ^0.2.2
+        version: 0.2.2
       posthog-node:
         specifier: ^5.24.17
         version: 5.29.2(rxjs@7.8.2)
@@ -420,14 +420,14 @@ packages:
     resolution: {integrity: sha512-rZAP3aVgB9ds9KOeUSL+zZ21hPmo8dh6fnIFwRQj5EAZl9gzR7wxYbYXYysAM8CTqGmUGyp2S4kUdV17MnGuWQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
 
-  '@glubean/runner@0.2.3':
-    resolution: {integrity: sha512-owuWUbQhQ9i+TQuQaYeaoz9lItujkm2JtAlncDHaWAyy+JRh+q1awM9azQHYkJPG2FfQqyz5qsGy5eCx3SoRHA==}
+  '@glubean/runner@0.2.4':
+    resolution: {integrity: sha512-nIuHeVU1I6HTAxElCXddudcrxarpd9hpUQm3dzaY5xMWclwVAO7gSaW33gPlOtZPdFP0nsnUUul1w7IYZzhVEw==}
 
-  '@glubean/scanner@0.2.1':
-    resolution: {integrity: sha512-xsgWx23FJZBY/qm0AuVQDXb6MccZqm+2P+cIm+/dCN7tTUD0+pd4V3dtKDJzWiDGBPOai7jP+4cp8FKMhb8Leg==}
+  '@glubean/scanner@0.2.2':
+    resolution: {integrity: sha512-WIMDZRsDP5p/n+mkKzgMm4PVuO+YBDDbUVVYDA/7slvg3/EJTQrg2xzSvd3giFTA+M4Iw2w9QaZTfmModV1fFw==}
 
-  '@glubean/sdk@0.2.1':
-    resolution: {integrity: sha512-t+Onlju8LKcq2lLGGxNbkgA61+Mb69BeI6EZSRSZXooYfUf/k6FB9lq5adspbH5TRwe7MuL7MINj0gQ/Bklg9A==}
+  '@glubean/sdk@0.2.2':
+    resolution: {integrity: sha512-DqUGdNM6Z9sOc8nsoO4rhq3jxPf0ig/oXJn3+t6zb/MV4iKANei+IZz9p/C5SNjuqUQZwoZcNd5oeuRM+Td2kw==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -795,6 +795,10 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
+
+  dotenv@16.6.1:
+    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+    engines: {node: '>=12'}
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -1463,16 +1467,17 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@glubean/runner@0.2.3':
+  '@glubean/runner@0.2.4':
     dependencies:
-      '@glubean/sdk': 0.2.1
+      '@glubean/sdk': 0.2.2
+      dotenv: 16.6.1
       ky: 1.14.3
       p-queue: 9.1.2
       tsx: 4.21.0
 
-  '@glubean/scanner@0.2.1': {}
+  '@glubean/scanner@0.2.2': {}
 
-  '@glubean/sdk@0.2.1':
+  '@glubean/sdk@0.2.2':
     dependencies:
       yaml: 2.8.3
 
@@ -1826,6 +1831,8 @@ snapshots:
   deep-is@0.1.4: {}
 
   detect-libc@2.1.2: {}
+
+  dotenv@16.6.1: {}
 
   emoji-regex@8.0.0: {}
 
