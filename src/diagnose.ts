@@ -13,7 +13,30 @@ import { extractTests, isGlubeanFile } from "./parser";
 import { extractPickExamples } from "@glubean/scanner/static";
 import { findDataLoaderCalls } from "./dataLoaderCalls";
 import { getAliases } from "./testController";
-import { parseEnvContent } from "./envLoader";
+
+// Narrow parseEnvContent kept inline: countEnvVars just needs to enumerate
+// keys. The canonical loader (`@glubean/runner` loadProjectEnv) reads files
+// end-to-end and returns resolved values, which isn't what this UI counter
+// needs. No need to widen the runner surface for one diagnostic count.
+function parseEnvContent(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    result[key] = value;
+  }
+  return result;
+}
 
 // ---------------------------------------------------------------------------
 // Types

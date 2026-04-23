@@ -8,7 +8,7 @@
 import * as vscode from "vscode";
 import { pathToFileURL } from "node:url";
 import { resolve, relative } from "node:path";
-import { loadProjectEnv } from "../envLoader";
+import { loadProjectEnv } from "@glubean/runner";
 import type { GlubeanResult } from "./results";
 import type { GlubeanEvent } from "../testController.utils";
 

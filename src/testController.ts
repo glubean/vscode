@@ -1231,14 +1231,13 @@ async function debugHandler(
 
   // Run the test in a background task so we can attach the debugger
   const runner = await import("@glubean/runner");
-  const { loadProjectEnv } = await import("./envLoader");
 
   // Plugin bootstrap: idempotent; harness subprocess also self-bootstraps,
   // but calling here keeps parity with the non-debug executor path in
   // testController/executor.ts and guards any future parent-process eval.
   await runner.bootstrap(cwd);
 
-  const { vars, secrets } = await loadProjectEnv(cwd, envFileProvider?.());
+  const { vars, secrets } = await runner.loadProjectEnv(cwd, envFileProvider?.());
   const { pathToFileURL } = await import("node:url");
   const { resolve } = await import("node:path");
 
