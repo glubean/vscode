@@ -381,7 +381,7 @@
         "command": "glubean.runFile",
         "key": "ctrl+alt+t",
         "mac": "cmd+alt+t",
-        "when": "editorTextFocus && resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/"
+        "when": "editorTextFocus && resourceFilename =~ /\\.(test|contract|flow)\\.(ts|js|mjs)$/"
       }
     ]
   },

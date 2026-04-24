@@ -89,8 +89,12 @@ export async function executeTest(
   }
 
   try {
-    // Determine which test IDs to run
-    const idsToRun = testIds ?? (await discoverTestIds(fileUrl));
+    // Determine which test IDs to run. When the caller passes
+    // `testIds=undefined` together with `exportName`, scope discovery to
+    // that export only — otherwise a single data-driven Test Explorer click
+    // (or a pinned `runTestByExport`) would batch-run every unrelated test
+    // in the same file.
+    const idsToRun = testIds ?? (await discoverTestIds(fileUrl, options.exportName));
     const isWildcard = idsToRun.length === 1 && idsToRun[0] === "*";
 
     // PM-2d: batch multiple known testIds into ONE subprocess via the
@@ -276,15 +280,28 @@ export async function executeTest(
 /**
  * Discover test IDs from a file by dynamically importing it.
  * Falls back to running all if discovery fails.
+ *
+ * When `exportName` is provided, scope the result to just that export's
+ * tests — essential for data-driven (`test.each` / `test.pick`) runs where
+ * one Test Explorer click should not widen to every unrelated test in the
+ * same file. Without this filter, `runSingleTest()` for `each:/pick:`
+ * items (passes `testIds=undefined, exportName="X"`) and `runTestByExport()`
+ * for pinned data-driven tests would batch-run the whole file.
  */
-async function discoverTestIds(fileUrl: string): Promise<string[]> {
+async function discoverTestIds(
+  fileUrl: string,
+  exportName?: string,
+): Promise<string[]> {
   try {
     const runner = await getRunner();
     // resolveModuleTests is exported from @glubean/runner
     if ("resolveModuleTests" in runner) {
       const mod = await import(fileUrl);
       const tests = (runner as any).resolveModuleTests(mod);
-      return tests.map((t: any) => t.id || t.testId);
+      const filtered = exportName
+        ? tests.filter((t: any) => t.exportName === exportName)
+        : tests;
+      return filtered.map((t: any) => t.id || t.testId);
     }
   } catch {
     // Discovery failed, let the harness handle it

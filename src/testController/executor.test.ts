@@ -374,3 +374,75 @@ describe("batched-mode attribution", () => {
     assert.ok(result.get("b")!.some((e) => e.type === "warning"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Discovery scope for data-driven exportName runs
+// ---------------------------------------------------------------------------
+// When a caller passes `testIds=undefined` + `exportName="X"` (runSingleTest
+// for each:/pick: items, pinned runTestByExport), discoverTestIds must
+// return only the ids from export X — otherwise the subsequent batched run
+// widens scope to every test in the file, executing unrelated tests.
+
+type ResolvedTestShape = { id: string; exportName: string };
+
+/**
+ * Replicate the export-filter logic from executor.ts discoverTestIds().
+ * The real implementation wraps this with a dynamic import + runner API
+ * call; the filter itself is the pure slice we lock in tests.
+ */
+function filterByExport(
+  tests: ResolvedTestShape[],
+  exportName?: string,
+): string[] {
+  const filtered = exportName
+    ? tests.filter((t) => t.exportName === exportName)
+    : tests;
+  return filtered.map((t) => t.id);
+}
+
+describe("discoverTestIds export-scope filter", () => {
+  const file = [
+    { id: "health-check", exportName: "healthCheck" },
+    { id: "pick:users-$label", exportName: "usersData" },
+    { id: "pick:products-$label", exportName: "productsData" },
+    { id: "smoke", exportName: "smoke" },
+  ];
+
+  it("without exportName: returns every id in the file", () => {
+    const ids = filterByExport(file);
+    assert.deepEqual(ids, [
+      "health-check",
+      "pick:users-$label",
+      "pick:products-$label",
+      "smoke",
+    ]);
+  });
+
+  it("with exportName: scopes to that export's ids only", () => {
+    const ids = filterByExport(file, "usersData");
+    assert.deepEqual(ids, ["pick:users-$label"]);
+  });
+
+  it("data-driven export resolving to multiple case ids is preserved", () => {
+    // Simulates resolveModuleTests output for a test.each export that
+    // resolved into multiple per-case entries — they all carry the same
+    // exportName and must ALL be returned together.
+    const eachFile: ResolvedTestShape[] = [
+      { id: "health-check", exportName: "healthCheck" },
+      { id: "each:user-alice", exportName: "userMatrix" },
+      { id: "each:user-bob", exportName: "userMatrix" },
+      { id: "each:user-carol", exportName: "userMatrix" },
+    ];
+    const ids = filterByExport(eachFile, "userMatrix");
+    assert.deepEqual(ids, [
+      "each:user-alice",
+      "each:user-bob",
+      "each:user-carol",
+    ]);
+  });
+
+  it("exportName matching nothing returns empty (silent no-op)", () => {
+    const ids = filterByExport(file, "nonExistent");
+    assert.deepEqual(ids, []);
+  });
+});

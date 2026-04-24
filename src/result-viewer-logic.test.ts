@@ -203,6 +203,48 @@ describe("inferSourcePath", () => {
     }
   });
 
+  it("side-file: login.flow.result.json → login.flow.ts", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "login.flow.ts"), "");
+      fs.writeFileSync(path.join(dir, "login.flow.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "login.flow.result.json"));
+      assert.equal(result, path.join(dir, "login.flow.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("side-file: checkout.contract.result.json → checkout.contract.ts", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "checkout.contract.ts"), "");
+      fs.writeFileSync(path.join(dir, "checkout.contract.result.json"), "{}");
+
+      const result = inferSourcePath(path.join(dir, "checkout.contract.result.json"));
+      assert.equal(result, path.join(dir, "checkout.contract.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("history: .glubean/results/login.flow/step/ts.result.json → login.flow.ts", () => {
+    const dir = setup();
+    try {
+      fs.writeFileSync(path.join(dir, "login.flow.ts"), "");
+      const histDir = path.join(dir, ".glubean", "results", "login.flow", "step1");
+      fs.mkdirSync(histDir, { recursive: true });
+      const resultPath = path.join(histDir, "20260424T120000.result.json");
+      fs.writeFileSync(resultPath, "{}");
+
+      const result = inferSourcePath(resultPath);
+      assert.equal(result, path.join(dir, "login.flow.ts"));
+    } finally {
+      cleanup();
+    }
+  });
+
   it("side-file: returns undefined when no source file exists", () => {
     const dir = setup();
     try {
