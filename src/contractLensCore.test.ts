@@ -270,6 +270,28 @@ export const send = api("send", {
     assert.ok(items[1].title.includes("deferred: backend pending"));
   });
 
+  it("handles deprecated cases with marker", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("test", {});
+
+// @contract
+export const legacy = api("legacy", {
+  endpoint: "POST /v1/legacy",
+  cases: {
+    old: {
+      description: "v1 path",
+      deprecated: "use v2",
+      expect: { status: 200 },
+    },
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.ok(items[0].title.includes("deprecated: use v2"));
+  });
+
   it("handles requires: browser with marker", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("test", {});

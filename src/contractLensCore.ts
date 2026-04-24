@@ -33,6 +33,9 @@ export interface ContractLensItem {
  * Rules:
  * - Each contract case becomes one lens item at `caseLine - 1` (0-based).
  * - `deferred` → `⊘ deferred: <reason>` (disabled).
+ * - `deprecated` → `⊘ deprecated: <reason>` (disabled). Takes precedence
+ *   over `defaultRun` / `requires` since the user shouldn't be routed to
+ *   "run anyway" on a case whose code is marked for removal.
  * - `requires: "browser" | "out-of-band"` → `⊘ requires: <cap>` (disabled).
  * - `defaultRun: "opt-in"` → `▶ run <key> (opt-in)` (runnable).
  * - Otherwise → `▶ run <key>` (runnable).
@@ -66,6 +69,9 @@ export function computeContractLenses(
         items.push({ line, title: `\u2298 deferred: ${c.deferred}`, kind: "disabled" });
         continue;
       }
+      // Note: scanner's static `extractContractCases` declares `deprecated` on
+      // the type but does not yet populate it — only the marker path detects
+      // deprecated. Covered by `computeContractLensesByMarker` below.
       if (c.requires === "browser" || c.requires === "out-of-band") {
         items.push({ line, title: `\u2298 requires: ${c.requires}`, kind: "disabled" });
         continue;
@@ -143,6 +149,7 @@ function computeContractLensesByMarker(
       const caseBody = casesContent.slice(offset, caseEnd + 1);
 
       const deferredMatch = caseBody.match(/deferred\s*:\s*["']([^"']+)["']/);
+      const deprecatedMatch = caseBody.match(/deprecated\s*:\s*["']([^"']+)["']/);
       const requiresMatch = caseBody.match(/requires\s*:\s*["'](browser|out-of-band)["']/);
       const defaultRunMatch = caseBody.match(/defaultRun\s*:\s*["'](opt-in)["']/);
 
@@ -150,6 +157,8 @@ function computeContractLensesByMarker(
 
       if (deferredMatch) {
         items.push({ line: caseLine, title: `\u2298 deferred: ${deferredMatch[1]}`, kind: "disabled" });
+      } else if (deprecatedMatch) {
+        items.push({ line: caseLine, title: `\u2298 deprecated: ${deprecatedMatch[1]}`, kind: "disabled" });
       } else if (requiresMatch) {
         items.push({ line: caseLine, title: `\u2298 requires: ${requiresMatch[1]}`, kind: "disabled" });
       } else {
