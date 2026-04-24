@@ -1229,26 +1229,44 @@ async function debugHandler(
   let debugEndedDisposable: vscode.Disposable | undefined;
   let safetyTimeoutHandle: NodeJS.Timeout | undefined;
 
-  // Run the test in a background task so we can attach the debugger
-  const runner = await import("@glubean/runner");
+  // Run the test in a background task so we can attach the debugger.
+  // All setup that can throw (dynamic import, bootstrap, env load, path
+  // resolution, TestExecutor construction) runs inside a guarded block —
+  // a failure here (e.g. plugin bootstrap rethrowing a failed setup file,
+  // .env.secrets unreadable, TestExecutor constructor throwing) must not
+  // leave run.started() hanging without a corresponding run.end().
+  let runner: typeof import("@glubean/runner");
+  let executor: import("@glubean/runner").TestExecutor;
+  let context: import("@glubean/runner").ExecutionContext;
+  let fileUrl: string;
+  try {
+    runner = await import("@glubean/runner");
 
-  // Plugin bootstrap: idempotent; harness subprocess also self-bootstraps,
-  // but calling here keeps parity with the non-debug executor path in
-  // testController/executor.ts and guards any future parent-process eval.
-  await runner.bootstrap(cwd);
+    // Plugin bootstrap: idempotent; harness subprocess also self-bootstraps,
+    // but calling here keeps parity with the non-debug executor path in
+    // testController/executor.ts and guards any future parent-process eval.
+    await runner.bootstrap(cwd);
 
-  const { vars, secrets } = await runner.loadProjectEnv(cwd, envFileProvider?.());
-  const { pathToFileURL } = await import("node:url");
-  const { resolve } = await import("node:path");
+    const env = await runner.loadProjectEnv(cwd, envFileProvider?.());
+    const { pathToFileURL } = await import("node:url");
+    const { resolve } = await import("node:path");
 
-  const executor = new runner.TestExecutor({
-    cwd,
-    emitFullTrace: true,
-    inspectBrk: port,
-  }).withSession(cwd);
+    executor = new runner.TestExecutor({
+      cwd,
+      emitFullTrace: true,
+      inspectBrk: port,
+    }).withSession(cwd);
 
-  const fileUrl = pathToFileURL(resolve(cwd, filePath)).href;
-  const context: import("@glubean/runner").ExecutionContext = { vars, secrets };
+    fileUrl = pathToFileURL(resolve(cwd, filePath)).href;
+    context = { vars: env.vars, secrets: env.secrets };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    run.errored(item, new vscode.TestMessage(`Debug setup failed: ${message}`));
+    outputChannel.appendLine(`[debug] Setup error: ${message}`);
+    cancelDisposable.dispose();
+    run.end();
+    return;
+  }
 
   // Start the test execution (it will pause at --inspect-brk)
   const runIterator = executor.run(fileUrl, filterId, context, {

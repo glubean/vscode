@@ -261,3 +261,116 @@ describe("glubean.runPick command arg shape", () => {
     // This would trigger the early return in the command handler
   });
 });
+
+// ---------------------------------------------------------------------------
+// Batched-mode event attribution (executor.ts — shouldBatch path)
+// ---------------------------------------------------------------------------
+// When idsToRun.length > 1, executeTest collapses the run into a single
+// harness subprocess via `executor.run(fileUrl, "", ctx, {testIds})`. The
+// returned event stream carries `event.testId` on scoped events. Unscoped
+// events (no testId) come from file-level faults — session setup failure,
+// module import error, spawn failure, OOM, propagating test_timeout. Those
+// must fan out to every selected id, otherwise `generateSummary([])` would
+// return success for tests that never even started.
+
+type AttributionEvent = { testId?: string; type: string; payload?: unknown };
+
+/**
+ * Replicate the attribution rule from executor.ts (batched branch).
+ *   - Scoped event (testId known) → only that id's events array
+ *   - Unscoped event → broadcast to every selected id
+ */
+function attributeEvents(
+  events: AttributionEvent[],
+  idsToRun: string[],
+): Map<string, AttributionEvent[]> {
+  const eventsPerTest = new Map<string, AttributionEvent[]>();
+  for (const id of idsToRun) eventsPerTest.set(id, []);
+
+  for (const ev of events) {
+    if (ev.testId && eventsPerTest.has(ev.testId)) {
+      eventsPerTest.get(ev.testId)!.push(ev);
+    } else {
+      for (const id of idsToRun) eventsPerTest.get(id)!.push(ev);
+    }
+  }
+  return eventsPerTest;
+}
+
+describe("batched-mode attribution", () => {
+  it("scoped events land only on their own test", () => {
+    const ids = ["a", "b", "c"];
+    const events: AttributionEvent[] = [
+      { testId: "a", type: "start" },
+      { testId: "a", type: "assertion" },
+      { testId: "b", type: "start" },
+      { testId: "c", type: "start" },
+    ];
+    const result = attributeEvents(events, ids);
+    assert.equal(result.get("a")!.length, 2);
+    assert.equal(result.get("b")!.length, 1);
+    assert.equal(result.get("c")!.length, 1);
+  });
+
+  it("unscoped error event broadcasts to every selected id", () => {
+    const ids = ["a", "b", "c"];
+    const events: AttributionEvent[] = [
+      // File-level spawn failure before any test started — no testId
+      { type: "error", payload: "module import failed" },
+    ];
+    const result = attributeEvents(events, ids);
+    assert.equal(result.get("a")!.length, 1);
+    assert.equal(result.get("b")!.length, 1);
+    assert.equal(result.get("c")!.length, 1);
+    assert.deepEqual(
+      result.get("a")![0],
+      { type: "error", payload: "module import failed" },
+    );
+  });
+
+  it("unscoped events with unknown testId also broadcast", () => {
+    // Defensive: if the harness somehow emits an event with a testId not in
+    // the selected set, it must not silently swallow — treat as file-level.
+    const ids = ["a", "b"];
+    const events: AttributionEvent[] = [
+      { testId: "unknown-id", type: "error", payload: "stray" },
+    ];
+    const result = attributeEvents(events, ids);
+    assert.equal(result.get("a")!.length, 1);
+    assert.equal(result.get("b")!.length, 1);
+  });
+
+  it("session-setup failure before any test start fans out across all selected ids", () => {
+    const ids = ["get-user", "create-user", "delete-user"];
+    const events: AttributionEvent[] = [
+      { type: "error", payload: "session.ts threw at setup" },
+      { type: "status", payload: { status: "failed", reason: "session-setup" } },
+    ];
+    const result = attributeEvents(events, ids);
+    for (const id of ids) {
+      assert.equal(
+        result.get(id)!.length,
+        2,
+        `${id} should have both session-failure events`,
+      );
+    }
+  });
+
+  it("mixed scoped + unscoped: unscoped reaches all, scoped stays local", () => {
+    const ids = ["a", "b"];
+    const events: AttributionEvent[] = [
+      { testId: "a", type: "start" },
+      { testId: "a", type: "assertion" },
+      { type: "warning", payload: "ambient" },  // unscoped
+      { testId: "b", type: "start" },
+    ];
+    const result = attributeEvents(events, ids);
+    // a: start + assertion + warning = 3
+    // b: warning + start = 2
+    assert.equal(result.get("a")!.length, 3);
+    assert.equal(result.get("b")!.length, 2);
+    // Warning must be present in both
+    assert.ok(result.get("a")!.some((e) => e.type === "warning"));
+    assert.ok(result.get("b")!.some((e) => e.type === "warning"));
+  });
+});

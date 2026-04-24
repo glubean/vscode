@@ -132,17 +132,27 @@ export async function executeTest(
         }
 
         const glubeanEvent = toGlubeanEvent(event);
-        // Attribute by event.testId (harness emits this on every event in batch mode).
-        // Fallback to first id if missing — defensive; not expected.
-        const attributedId = event.testId && eventsPerTest.has(event.testId)
-          ? event.testId
-          : idsToRun[0];
-        if (glubeanEvent) eventsPerTest.get(attributedId)!.push(glubeanEvent);
+        if (glubeanEvent) {
+          if (event.testId && eventsPerTest.has(event.testId)) {
+            // Scoped event — attribute to its specific test
+            eventsPerTest.get(event.testId)!.push(glubeanEvent);
+          } else {
+            // Unscoped event — session setup failure, module import error,
+            // spawn failure, OOM, test_timeout propagating up, or any fatal
+            // that prevented per-test attribution. Broadcast to every
+            // selected id so `generateSummary` sees the failure on each and
+            // Test Explorer doesn't silently mark un-started tests as passed
+            // (generateSummary([]) currently returns success=true, so empty
+            // arrays would be false positives).
+            for (const id of idsToRun) {
+              eventsPerTest.get(id)!.push(glubeanEvent);
+            }
+          }
+        }
 
-        if (event.type === "start") {
-          const id = event.testId && namesPerTest.has(event.testId) ? event.testId : attributedId;
-          namesPerTest.set(id, event.name || id);
-          startTimes.set(id, Date.now());
+        if (event.type === "start" && event.testId && namesPerTest.has(event.testId)) {
+          namesPerTest.set(event.testId, event.name || event.testId);
+          startTimes.set(event.testId, Date.now());
         }
       }
 

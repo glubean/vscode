@@ -272,10 +272,13 @@ export function activate(context: vscode.ExtensionContext): void {
     pickCodeLensProvider,
   );
 
-  // contract.http() case run buttons
+  // contract.http() case run buttons — also covers `// @flow` lenses emitted
+  // by computeContractLenses(), which lives in the same provider.
   const contractSelector: vscode.DocumentSelector = [
     { language: "typescript", pattern: "**/*.contract.ts" },
     { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
+    { language: "typescript", pattern: "**/*.flow.ts" },
+    { language: "javascript", pattern: "**/*.flow.{js,mjs}" },
   ];
   const contractCodeLensProvider = createContractCodeLensProvider("glubean.runContractCase");
   context.subscriptions.push(
@@ -523,10 +526,10 @@ export function activate(context: vscode.ExtensionContext): void {
         const fileName = uri?.fsPath ?? "";
         if (
           !uri ||
-          !/\.test\.(ts|js|mjs)$/.test(fileName)
+          !/\.(test|contract|flow)\.(ts|js|mjs)$/.test(fileName)
         ) {
           vscode.window.showWarningMessage(
-            "Open a .test.ts, .test.js, or .test.mjs file to run.",
+            "Open a .test, .contract, or .flow file (.ts/.js/.mjs) to run.",
           );
           return;
         }
@@ -638,9 +641,13 @@ export const userFlow = test("user-flow")
 
 \`\`\`typescript
 import { contract } from "@glubean/sdk";
+import { usersApi } from "./config/users-api";
+
+// Bind contract.http to a configured client once per file.
+const users = contract.http.with("users", { client: usersApi });
 
 // @contract
-export const getUser = contract.http("get-user", {
+export const getUser = users("get-user", {
   endpoint: "GET /users/:id",
   cases: {
     ok: { description: "Valid user", expect: { status: 200 } },

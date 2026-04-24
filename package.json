@@ -2,7 +2,7 @@
   "name": "glubean",
   "displayName": "Glubean — REST Client & API Test Runner",
   "description": "Code-first API test runner and REST client for TypeScript. Explore APIs, run tests, debug with breakpoints, and see traces — Postman alternative powered by AI.",
-  "version": "0.17.37",
+  "version": "0.17.38",
   "publisher": "Glubean",
   "license": "MIT",
   "icon": "icon.png",
@@ -275,7 +275,7 @@
       "editor/title/run": [
         {
           "command": "glubean.runFile",
-          "when": "resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/",
+          "when": "resourceFilename =~ /\\.(test|contract|flow)\\.(ts|js|mjs)$/",
           "group": "navigation"
         },
         {
@@ -292,12 +292,12 @@
       "explorer/context": [
         {
           "command": "glubean.runFile",
-          "when": "resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/",
+          "when": "resourceFilename =~ /\\.(test|contract|flow)\\.(ts|js|mjs)$/",
           "group": "glubean@1"
         },
         {
           "command": "glubean.pinFile",
-          "when": "resourceFilename =~ /\\.(test|explore)\\.(ts|js|mjs)$/",
+          "when": "resourceFilename =~ /\\.(test|contract|flow)\\.(ts|js|mjs)$/",
           "group": "glubean@2"
         },
         {
