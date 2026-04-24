@@ -591,13 +591,15 @@ npx @glubean/cli@latest init
 \`\`\`
 
 This will scaffold a project with:
-- \`package.json\` with \`@glubean/sdk\` dependency
+- \`package.json\` with \`@glubean/sdk\` + \`@glubean/cli\` dev dependencies
+- \`glubean.setup.ts\` — project-level plugin bootstrap (where you
+  register custom protocols like gRPC / GraphQL via \`installPlugin(...)\`)
 - \`tsconfig.json\` configured for TypeScript tests
-- \`.env\` and \`.env.secrets\` for environment variables
-- \`tests/\` directory with a starter test file
+- \`.env\` (public config) and \`.env.secrets\` (never committed)
+- \`tests/\` or \`explore/\` directory with a starter test file
 - AI instruction files for Claude / ChatGPT / Copilot
 
-## Two Ways to Write Tests
+## Three Ways to Define Behavior
 
 ### 1. Quick Mode — simple, flat tests
 
@@ -606,7 +608,7 @@ import { test } from "@glubean/sdk";
 
 export const healthCheck = test("health-check", async (ctx) => {
   const res = await ctx.http.get("https://api.example.com/health");
-  ctx.expect(res.status).toBe(200);
+  ctx.expect(res).toHaveStatus(200);
 });
 \`\`\`
 
@@ -632,6 +634,26 @@ export const userFlow = test("user-flow")
   .build();
 \`\`\`
 
+### 3. Contract Mode — declarative behavior spec (\`.contract.ts\`)
+
+\`\`\`typescript
+import { contract } from "@glubean/sdk";
+
+// @contract
+export const getUser = contract.http("get-user", {
+  endpoint: "GET /users/:id",
+  cases: {
+    ok: { description: "Valid user", expect: { status: 200 } },
+    notFound: { description: "Missing user", expect: { status: 404 } },
+  },
+});
+\`\`\`
+
+Contract files (\`.contract.ts\`) and flow files (\`.flow.ts\`) are
+discovered automatically. For plugin-registered protocols (gRPC, GraphQL,
+custom) register them in \`glubean.setup.ts\` and the extension will pick
+them up on the next run.
+
 ## Cookbook & Examples
 
 Browse real-world examples at:
@@ -640,6 +662,7 @@ https://github.com/glubean/cookbook
 Includes patterns for:
 - REST API testing (CRUD, auth, pagination)
 - GraphQL queries and mutations
+- gRPC service contracts
 - Browser automation with Puppeteer
 - Data-driven tests (CSV, JSON)
 - Multi-step workflow verification
@@ -647,7 +670,7 @@ Includes patterns for:
 ## Next Steps
 
 1. Run \`npx @glubean/cli@latest init\` in your terminal
-2. Open the generated \`.test.ts\` file
+2. Open the generated test or contract file
 3. Click the ▶ button to run your first test
 `,
       });

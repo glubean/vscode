@@ -1,5 +1,11 @@
 # VSCode Extension: Deno → Node Migration
 
+> **Historical record** — this migration shipped; the extension is now
+> pure Node.js. This document is kept as a design-decision audit trail
+> for "why is the runner an external esbuild dep?" and similar questions
+> that land here from git blame. Do not follow the steps below as if they
+> were still pending.
+
 ## Summary
 
 Migrated the VSCode extension from CLI subprocess dependency (`deno run jsr:@glubean/cli`) to direct `@glubean/runner` library import. Users only need Node.js (bundled with VS Code) — zero external dependencies.

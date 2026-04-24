@@ -1,5 +1,13 @@
 # Installation UX Flow
 
+> **Outdated** — this document describes the Deno-era auto-install flow
+> that prompted users to install `~/.deno/bin/deno` + a JSR-bridged CLI.
+> That flow was replaced after the Deno → Node migration (see
+> [nodev-migration.md](./nodev-migration.md)): the extension now relies
+> on Node.js 20+ and `@glubean/cli` as a project dev dependency; see
+> [setup.md](./setup.md) for the current user-facing story. Kept only for
+> history of earlier UX decisions.
+
 This document describes the user-facing installation experience designed into the
 Glubean VS Code extension. It's meant as a reference for reviewing the code in
 `extension.ts` — so you know *what the user sees* at each stage without having to
