@@ -446,3 +446,98 @@ describe("discoverTestIds export-scope filter", () => {
     assert.deepEqual(ids, []);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Export-fallback attribution (discovery failed + exportName set)
+// ---------------------------------------------------------------------------
+// When parent-side discovery fails for an `exportName` run, discoverTestIds
+// returns `[""]` (never `["*"]`) so the harness is invoked with
+// `testId="" + exportName=X` — narrow scope, ignoring the rest of the file.
+// The harness emits per-case events with `event.testId`; we split events
+// dynamically. Unscoped events (before any scoped start) go into a shared
+// bucket that every later-emerging scoped entry inherits — so a
+// session-setup failure before case 1 is reflected in all cases' summaries.
+
+type FallbackEvent = { testId?: string; type: string; payload?: unknown };
+
+function dispatchExportFallback(
+  events: FallbackEvent[],
+): {
+  perTest: Map<string, FallbackEvent[]>;
+  unscopedBucket: FallbackEvent[];
+} {
+  const perTest = new Map<string, FallbackEvent[]>();
+  const unscopedBucket: FallbackEvent[] = [];
+
+  for (const ev of events) {
+    if (ev.testId) {
+      if (!perTest.has(ev.testId)) {
+        // New id — seed with any accumulated unscoped events so they're
+        // visible in this case's summary too.
+        perTest.set(ev.testId, [...unscopedBucket]);
+      }
+      perTest.get(ev.testId)!.push(ev);
+    } else {
+      unscopedBucket.push(ev);
+      // Broadcast to any already-known ids.
+      for (const evs of perTest.values()) evs.push(ev);
+    }
+  }
+  return { perTest, unscopedBucket };
+}
+
+describe("export-fallback dispatch", () => {
+  it("data-driven export emitting 3 case testIds produces 3 buckets", () => {
+    const stream: FallbackEvent[] = [
+      { testId: "pick:user-alice", type: "start" },
+      { testId: "pick:user-alice", type: "assertion" },
+      { testId: "pick:user-bob", type: "start" },
+      { testId: "pick:user-bob", type: "assertion" },
+      { testId: "pick:user-carol", type: "start" },
+    ];
+    const { perTest } = dispatchExportFallback(stream);
+    assert.equal(perTest.size, 3);
+    assert.equal(perTest.get("pick:user-alice")!.length, 2);
+    assert.equal(perTest.get("pick:user-bob")!.length, 2);
+    assert.equal(perTest.get("pick:user-carol")!.length, 1);
+  });
+
+  it("unscoped-only stream (session-setup failure, no cases ran) lands in the bucket", () => {
+    const stream: FallbackEvent[] = [
+      { type: "error", payload: "session.ts threw" },
+    ];
+    const { perTest, unscopedBucket } = dispatchExportFallback(stream);
+    assert.equal(perTest.size, 0);
+    assert.equal(unscopedBucket.length, 1);
+  });
+
+  it("unscoped event BEFORE first scoped start is inherited by all later cases", () => {
+    // Pattern: file-level warning fires first, then two cases start.
+    // Both cases' result arrays should include the warning so their
+    // summaries reflect it (not just whichever arrived first).
+    const stream: FallbackEvent[] = [
+      { type: "warning", payload: "ambient" },
+      { testId: "pick:a", type: "start" },
+      { testId: "pick:b", type: "start" },
+    ];
+    const { perTest } = dispatchExportFallback(stream);
+    assert.equal(perTest.size, 2);
+    assert.ok(perTest.get("pick:a")!.some((e) => e.type === "warning"));
+    assert.ok(perTest.get("pick:b")!.some((e) => e.type === "warning"));
+  });
+
+  it("unscoped event AFTER some cases started broadcasts to all known ids", () => {
+    const stream: FallbackEvent[] = [
+      { testId: "pick:a", type: "start" },
+      { type: "error", payload: "fatal mid-run" },
+      { testId: "pick:b", type: "start" },
+    ];
+    const { perTest } = dispatchExportFallback(stream);
+    assert.equal(perTest.size, 2);
+    // "pick:a" was already known when error fired → gets it
+    assert.ok(perTest.get("pick:a")!.some((e) => e.type === "error"));
+    // "pick:b" appears AFTER the error; should still inherit via
+    // the seed-from-bucket rule (error is in unscopedBucket by then)
+    assert.ok(perTest.get("pick:b")!.some((e) => e.type === "error"));
+  });
+});

@@ -96,13 +96,22 @@ export async function executeTest(
     // in the same file.
     const idsToRun = testIds ?? (await discoverTestIds(fileUrl, options.exportName));
     const isWildcard = idsToRun.length === 1 && idsToRun[0] === "*";
+    // Export-fallback: parent-side discovery failed (or wasn't attempted)
+    // but the caller named an exportName. `discoverTestIds` returns `[""]`
+    // so we drive a single harness subprocess with `testId="" + exportName`,
+    // and the harness emits per-case events attributed by `event.testId`.
+    // We split events dynamically so a data-driven export returns one
+    // result entry per emitted case (applyResults → matchTestResults
+    // pass-2 needs per-case ids to claim results back into the TestItem).
+    const isExportFallback =
+      idsToRun.length === 1 && idsToRun[0] === "" && !!options.exportName;
 
     // PM-2d: batch multiple known testIds into ONE subprocess via the
     // `testIds` option. Previous impl spawned one harness per testId, which
     // for a 10-test file = 10 tsx subprocess boots. Keep the wildcard path
     // (discovery fallback) as a single per-testId call because "*" isn't a
     // real id and harness interprets it specially.
-    const shouldBatch = !isWildcard && idsToRun.length > 1;
+    const shouldBatch = !isWildcard && !isExportFallback && idsToRun.length > 1;
 
     if (shouldBatch) {
       const startTimes = new Map<string, number>();
@@ -171,6 +180,84 @@ export async function executeTest(
           durationMs: Date.now() - (startTimes.get(id) || Date.now()),
           events: evs,
         });
+      }
+    } else if (isExportFallback) {
+      // Single harness subprocess scoped by `exportName`. Harness emits
+      // per-case events carrying `event.testId`; we split dynamically into
+      // one testResults entry per emitted id. Unscoped events (error /
+      // file-level failure before any test started) fall into a shared
+      // bucket so `generateSummary` still reflects the failure.
+      const startedAt = Date.now();
+      const eventsPerTest = new Map<string, GlubeanEvent[]>();
+      const namesPerTest = new Map<string, string>();
+      const startTimesPer = new Map<string, number>();
+      const unscopedBucket: GlubeanEvent[] = [];
+
+      for await (const event of executor.run(fileUrl, "", context, {
+        signal: ac.signal,
+        exportName: options.exportName,
+      })) {
+        if (event.type === "error" && typeof event.message === "string" && event.message.startsWith("NODE_NOT_FOUND:")) {
+          vscode.window.showErrorMessage(
+            "Node.js 20+ is required to run Glubean tests. Install Node.js, then restart VS Code (not just Reload Window).",
+            "Download Node.js",
+          ).then((choice) => {
+            if (choice === "Download Node.js") {
+              vscode.env.openExternal(vscode.Uri.parse("https://nodejs.org"));
+            }
+          });
+        }
+
+        const line = formatEvent(event);
+        if (line) {
+          run.appendOutput(line.replace(/\n/g, "\r\n") + "\r\n");
+        }
+
+        const glubeanEvent = toGlubeanEvent(event);
+        if (!glubeanEvent) continue;
+
+        if (event.testId) {
+          if (!eventsPerTest.has(event.testId)) {
+            eventsPerTest.set(event.testId, [...unscopedBucket]);
+            namesPerTest.set(event.testId, event.testId);
+            startTimesPer.set(event.testId, Date.now());
+          }
+          eventsPerTest.get(event.testId)!.push(glubeanEvent);
+          if (event.type === "start") {
+            namesPerTest.set(event.testId, event.name || event.testId);
+          }
+        } else {
+          // Broadcast unscoped event to any already-known tests; also keep
+          // in a bucket for future-appearing ids.
+          unscopedBucket.push(glubeanEvent);
+          for (const evs of eventsPerTest.values()) evs.push(glubeanEvent);
+        }
+      }
+
+      const summaryFn = (await getRunner()).generateSummary;
+      if (eventsPerTest.size === 0) {
+        // Harness never emitted a scoped testId (e.g. session-setup failed
+        // before any case ran). Push a single fallback result keyed by
+        // exportName so applyResults still sees something.
+        const summary = summaryFn(unscopedBucket as any);
+        testResults.push({
+          testId: options.exportName || "",
+          testName: options.exportName || "",
+          success: summary.success,
+          durationMs: Date.now() - startedAt,
+          events: unscopedBucket,
+        });
+      } else {
+        for (const [id, evs] of eventsPerTest) {
+          const summary = summaryFn(evs as any);
+          testResults.push({
+            testId: id,
+            testName: namesPerTest.get(id) || id,
+            success: summary.success,
+            durationMs: Date.now() - (startTimesPer.get(id) || startedAt),
+            events: evs,
+          });
+        }
       }
     } else {
       for (const testId of idsToRun) {
@@ -279,7 +366,6 @@ export async function executeTest(
 
 /**
  * Discover test IDs from a file by dynamically importing it.
- * Falls back to running all if discovery fails.
  *
  * When `exportName` is provided, scope the result to just that export's
  * tests — essential for data-driven (`test.each` / `test.pick`) runs where
@@ -287,6 +373,14 @@ export async function executeTest(
  * same file. Without this filter, `runSingleTest()` for `each:/pick:`
  * items (passes `testIds=undefined, exportName="X"`) and `runTestByExport()`
  * for pinned data-driven tests would batch-run the whole file.
+ *
+ * **Fallback semantics when parent-side discovery fails:**
+ * - Without `exportName`: `["*"]` — harness runs all tests in the file.
+ * - With `exportName`: `[""]` — harness resolves tests by exportName
+ *   alone (testId="" tells the runner "no explicit id filter"). Critical:
+ *   returning `["*"]` here would widen scope to every test in the file
+ *   since the harness processes `*` as "run all" regardless of the
+ *   exportName hint.
  */
 async function discoverTestIds(
   fileUrl: string,
@@ -306,7 +400,10 @@ async function discoverTestIds(
   } catch {
     // Discovery failed, let the harness handle it
   }
-  return ["*"];
+  // With exportName: return [""] so the non-batched path invokes the
+  // harness with `testId="" + exportName=X`, which runs only that export.
+  // Without exportName: return ["*"] so the harness runs every test.
+  return exportName ? [""] : ["*"];
 }
 
 // ── Event Formatting ───────────────────────────────────────────────────────
