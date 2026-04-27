@@ -8,22 +8,9 @@
 import * as vscode from "vscode";
 import { pathToFileURL } from "node:url";
 import { resolve, relative } from "node:path";
-import { loadProjectEnv } from "@glubean/runner";
+import { loadRunnerForCwd } from "./loadRunner";
 import type { GlubeanResult } from "./results";
 import type { GlubeanEvent } from "../testController.utils";
-
-// ── Lazy ESM import for @glubean/runner ────────────────────────────────────
-// Runner is ESM; the VSCode extension builds as CJS.
-// We use a cached dynamic import so it resolves once.
-
-let _runnerModule: typeof import("@glubean/runner") | undefined;
-
-async function getRunner(): Promise<typeof import("@glubean/runner")> {
-  if (!_runnerModule) {
-    _runnerModule = await import("@glubean/runner");
-  }
-  return _runnerModule;
-}
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -50,7 +37,15 @@ export async function executeTest(
   run: vscode.TestRun,
   options: ExecuteTestOptions = {},
 ): Promise<GlubeanResult> {
-  const runner = await getRunner();
+  // Resolve runner cwd-aware so the harness subprocess and the user's
+  // test code resolve to the SAME `@glubean/sdk` module instance. See
+  // `loadRunner.ts` module docstring for the dual-instance regression
+  // this prevents (configure() values "can only be accessed during
+  // test execution" when vendored harness setRuntime() doesn't reach
+  // the user's SDK).
+  const runner = await loadRunnerForCwd(cwd, (msg) =>
+    run.appendOutput(`${msg}\r\n`),
+  );
 
   // Plugin bootstrap: run glubean.setup.ts so plugin-registered protocols
   // (grpc / graphql / custom) are available. Harness subprocess bootstraps
@@ -59,8 +54,11 @@ export async function executeTest(
   // Idempotent via loadState cache in @glubean/runner/bootstrap.
   await runner.bootstrap(cwd);
 
-  // Build execution context from .env files
-  const { vars, secrets } = await loadProjectEnv(cwd, options.envFile);
+  // Build execution context from .env files. Use the cwd-resolved
+  // runner's `loadProjectEnv` (project-local when available) for the
+  // same dual-instance reason — env loading is harmless either way,
+  // but consistent runner sourcing avoids future surprises.
+  const { vars, secrets } = await runner.loadProjectEnv(cwd, options.envFile);
 
   // Create executor with auto-session
   const executor = new runner.TestExecutor({
@@ -94,7 +92,7 @@ export async function executeTest(
     // that export only — otherwise a single data-driven Test Explorer click
     // (or a pinned `runTestByExport`) would batch-run every unrelated test
     // in the same file.
-    const idsToRun = testIds ?? (await discoverTestIds(fileUrl, options.exportName));
+    const idsToRun = testIds ?? (await discoverTestIds(runner, fileUrl, options.exportName));
     const isWildcard = idsToRun.length === 1 && idsToRun[0] === "*";
     // Export-fallback: parent-side discovery failed (or wasn't attempted)
     // but the caller named an exportName. `discoverTestIds` returns `[""]`
@@ -169,7 +167,7 @@ export async function executeTest(
         }
       }
 
-      const summaryFn = (await getRunner()).generateSummary;
+      const summaryFn = runner.generateSummary;
       for (const id of idsToRun) {
         const evs = eventsPerTest.get(id)!;
         const summary = summaryFn(evs as any);
@@ -234,7 +232,7 @@ export async function executeTest(
         }
       }
 
-      const summaryFn = (await getRunner()).generateSummary;
+      const summaryFn = runner.generateSummary;
       if (eventsPerTest.size === 0) {
         // Harness never emitted a scoped testId (e.g. session-setup failed
         // before any case ran). Push a single fallback result keyed by
@@ -296,7 +294,7 @@ export async function executeTest(
           }
         }
 
-        const testSummary = (await getRunner()).generateSummary(events as any);
+        const testSummary = runner.generateSummary(events as any);
         success = testSummary.success;
 
         testResults.push({
@@ -323,8 +321,7 @@ export async function executeTest(
 
   // Build summary — aggregate all test events through generateSummary
   const allEvents = testResults.flatMap((t) => t.events);
-  const { generateSummary } = await getRunner();
-  const stats = generateSummary(allEvents as any);
+  const stats = runner.generateSummary(allEvents as any);
   const passed = testResults.filter((t) => t.success).length;
   const failed = testResults.filter((t) => !t.success).length;
   const totalDuration = testResults.reduce((sum, t) => sum + t.durationMs, 0);
@@ -332,10 +329,9 @@ export async function executeTest(
   // Build run context
   let runContext: GlubeanResult["context"];
   try {
-    const { buildRunContext } = await getRunner();
     const ext = vscode.extensions.getExtension("Glubean.glubean");
     runContext = {
-      ...buildRunContext(),
+      ...runner.buildRunContext(),
       command: options.inspectBrk ? "vscode-debug" : "vscode-play",
       cwd,
       ...(options.envFile && { envFile: options.envFile }),
@@ -383,11 +379,11 @@ export async function executeTest(
  *   exportName hint.
  */
 async function discoverTestIds(
+  runner: typeof import("@glubean/runner"),
   fileUrl: string,
   exportName?: string,
 ): Promise<string[]> {
   try {
-    const runner = await getRunner();
     // resolveModuleTests is exported from @glubean/runner
     if ("resolveModuleTests" in runner) {
       const mod = await import(fileUrl);

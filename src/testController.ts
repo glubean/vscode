@@ -20,6 +20,7 @@ import {
 } from "./testController/debug-utils";
 import { extractAliasesFromSource, extractTests, type TestMeta } from "./parser";
 import { executeTest } from "./testController/executor";
+import { loadRunnerForCwd } from "./testController/loadRunner";
 import {
   applyResults,
   readResultJson,
@@ -1240,7 +1241,12 @@ async function debugHandler(
   let context: import("@glubean/runner").ExecutionContext;
   let fileUrl: string;
   try {
-    runner = await import("@glubean/runner");
+    // cwd-aware runner resolution mirrors the non-debug path in
+    // testController/executor.ts. Critical for dual-instance correctness:
+    // see src/testController/loadRunner.ts module docstring.
+    runner = await loadRunnerForCwd(cwd, (msg) =>
+      outputChannel.appendLine(`[debug] ${msg}`),
+    );
 
     // Plugin bootstrap: idempotent; harness subprocess also self-bootstraps,
     // but calling here keeps parity with the non-debug executor path in
