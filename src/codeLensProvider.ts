@@ -18,6 +18,7 @@ import { findDataLoaderCalls } from "./dataLoaderCalls";
 import { resolveDataPath } from "./data-path";
 import { extractTests } from "./parser";
 import { detectRefactorScenarios } from "./aiRefactor";
+import { workspaceRootFor } from "./workspaceRoot";
 import { listPinned, isPinned } from "./pinnedFiles";
 import { listPinnedTests, isPinnedTest } from "./pinnedTests";
 
@@ -157,10 +158,15 @@ class PickCodeLensProvider implements PickCodeLens {
     const lenses: vscode.CodeLens[] = [];
 
     // ── Data loader CodeLenses (independent of test.pick) ──────────────
+    // Resolve relative data paths against the project package root, NOT
+    // the VSCode workspace folder. In a monorepo cookbook layout the user
+    // typically opens `cookbook/` as the workspace, but `data/...` lives
+    // inside `cookbook/test-after/` (the package dir). Using the workspace
+    // folder caused "Invalid data folder path" warnings on every recipe
+    // that used relative dir/file paths.
     const dataLoaderCalls = findDataLoaderCalls(document.getText(), {
       filePath: document.uri.fsPath,
-      workspaceRoot: vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
-        path.dirname(document.uri.fsPath),
+      workspaceRoot: workspaceRootFor(document.uri.fsPath),
     });
     for (const call of dataLoaderCalls) {
       lenses.push(buildDataLoaderLens(call));
@@ -369,8 +375,7 @@ class PickCodeLensProvider implements PickCodeLens {
   ): string[] | null {
     try {
       const filePath = document.uri.fsPath;
-      const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
-        path.dirname(filePath);
+      const workspaceRoot = workspaceRootFor(filePath);
       const resolvedPath = resolveDataPath(jsonPath, {
         sourceFilePath: filePath,
         workspaceRoot,
@@ -398,8 +403,7 @@ class PickCodeLensProvider implements PickCodeLens {
   ): string[] | null {
     try {
       const filePath = document.uri.fsPath;
-      const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ??
-        path.dirname(filePath);
+      const workspaceRoot = workspaceRootFor(filePath);
       const resolvedPath = resolveDataPath(yamlPath, {
         sourceFilePath: filePath,
         workspaceRoot,
@@ -422,17 +426,15 @@ class PickCodeLensProvider implements PickCodeLens {
    * Read all data files in a directory, merge their top-level keys
    * in alphabetical order (matching SDK's _collectAndSort + Object.assign).
    *
-   * Resolves the path relative to the workspace folder containing the document.
+   * Resolves the path relative to the project package root (NOT the
+   * workspace folder — see workspaceRootFor for the monorepo case).
    */
   private resolveDirMergeKeys(
     dirPath: string,
     document: vscode.TextDocument,
   ): string[] | null {
     try {
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-      const baseDir = workspaceFolder
-        ? workspaceFolder.uri.fsPath
-        : path.dirname(document.uri.fsPath);
+      const baseDir = workspaceRootFor(document.uri.fsPath);
       const resolvedDir = resolveDataPath(dirPath, {
         sourceFilePath: document.uri.fsPath,
         workspaceRoot: baseDir,
