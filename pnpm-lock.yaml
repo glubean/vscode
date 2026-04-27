@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@glubean/runner':
-        specifier: ^0.2.4
-        version: 0.2.4
+        specifier: ^0.2.5
+        version: 0.2.5
       '@glubean/scanner':
-        specifier: ^0.2.2
-        version: 0.2.2
+        specifier: ^0.2.3
+        version: 0.2.3
       posthog-node:
         specifier: ^5.24.17
         version: 5.29.2(rxjs@7.8.2)
@@ -420,14 +420,14 @@ packages:
     resolution: {integrity: sha512-rZAP3aVgB9ds9KOeUSL+zZ21hPmo8dh6fnIFwRQj5EAZl9gzR7wxYbYXYysAM8CTqGmUGyp2S4kUdV17MnGuWQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
 
-  '@glubean/runner@0.2.4':
-    resolution: {integrity: sha512-nIuHeVU1I6HTAxElCXddudcrxarpd9hpUQm3dzaY5xMWclwVAO7gSaW33gPlOtZPdFP0nsnUUul1w7IYZzhVEw==}
+  '@glubean/runner@0.2.5':
+    resolution: {integrity: sha512-4IH2vGfzEhSTJx8k+HuGna1UDaS/u5qBAR3G3Z1eVH+5le8lISz7w9haVS0GOIGF0+tUA8NQzhBrtLhvVLnJeQ==}
 
-  '@glubean/scanner@0.2.2':
-    resolution: {integrity: sha512-WIMDZRsDP5p/n+mkKzgMm4PVuO+YBDDbUVVYDA/7slvg3/EJTQrg2xzSvd3giFTA+M4Iw2w9QaZTfmModV1fFw==}
+  '@glubean/scanner@0.2.3':
+    resolution: {integrity: sha512-bmfSNFAYmeWmlVMMSDatQ54gvzwi2ksltHvanMwpRnjetMc95qk0NC9Bq5Sbqq3/g/Aa9zq9rahCgwcxNSsYTQ==}
 
-  '@glubean/sdk@0.2.2':
-    resolution: {integrity: sha512-DqUGdNM6Z9sOc8nsoO4rhq3jxPf0ig/oXJn3+t6zb/MV4iKANei+IZz9p/C5SNjuqUQZwoZcNd5oeuRM+Td2kw==}
+  '@glubean/sdk@0.2.3':
+    resolution: {integrity: sha512-fUfW/LpnvYkPvZYML1roCk+DqGP0dhXjd2cP9Q8VJ/eUVppSY+wxOpcRJnvNbmhd8H4X1sCftpH/YabK9TLi6Q==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -1467,17 +1467,18 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@glubean/runner@0.2.4':
+  '@glubean/runner@0.2.5':
     dependencies:
-      '@glubean/sdk': 0.2.2
+      '@glubean/scanner': 0.2.3
+      '@glubean/sdk': 0.2.3
       dotenv: 16.6.1
       ky: 1.14.3
       p-queue: 9.1.2
       tsx: 4.21.0
 
-  '@glubean/scanner@0.2.2': {}
+  '@glubean/scanner@0.2.3': {}
 
-  '@glubean/sdk@0.2.2':
+  '@glubean/sdk@0.2.3':
     dependencies:
       yaml: 2.8.3
 
