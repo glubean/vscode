@@ -180,29 +180,88 @@ function computeContractLensesByMarker(
     const braceIdx = afterCases.indexOf("{");
     if (braceIdx === -1) continue;
 
+    // Walk the cases block to find top-level case keys. Two property
+    // shapes occur in cookbook v10:
+    //   - INLINE:    `key: { description: ..., expect: ... },`
+    //   - SHORTHAND: `key,`  (key references a `defineHttpCase()` value
+    //     bound elsewhere — the canonical attachment-model v10 pattern).
+    //
+    // Both must produce a clickable lens. Pre-fix only inline was
+    // supported; shorthand-only contract files had ZERO CodeLens entries.
     const casesContent = afterCases.slice(braceIdx);
-    const topLevelKeys: { key: string; offset: number }[] = [];
+    const topLevelKeys: { key: string; offset: number; shorthand: boolean }[] = [];
     let depth = 0;
+    let segmentStart = 1; // start of current top-level segment, just past the outer `{`
+    let segmentSawInlineBrace = false;
 
     for (let j = 0; j < casesContent.length; j++) {
-      if (casesContent[j] === "{") {
+      const ch = casesContent[j];
+      if (ch === "{") {
         if (depth === 1) {
+          // Inline case body — capture key by looking BACKWARDS from this `{`.
           const before = casesContent.slice(0, j).trimEnd();
           const keyMatch = before.match(/["']?(\w+)["']?\s*:\s*$/);
-          if (keyMatch) topLevelKeys.push({ key: keyMatch[1], offset: j });
+          if (keyMatch) {
+            topLevelKeys.push({ key: keyMatch[1], offset: j, shorthand: false });
+            segmentSawInlineBrace = true;
+          }
         }
         depth++;
-      } else if (casesContent[j] === "}") {
+      } else if (ch === "}") {
         depth--;
-        if (depth === 0) break;
+        if (depth === 0) {
+          // Last segment may be a trailing shorthand (no trailing comma).
+          if (!segmentSawInlineBrace) {
+            const seg = casesContent.slice(segmentStart, j);
+            const m = seg.match(/^(\s*)(\w+)\s*$/);
+            if (m) {
+              topLevelKeys.push({
+                key: m[2],
+                offset: segmentStart + m[1].length,
+                shorthand: true,
+              });
+            }
+          }
+          break;
+        }
+      } else if (ch === "," && depth === 1) {
+        // Top-level segment boundary. If the segment didn't open an
+        // inline body, treat it as a shorthand identifier.
+        if (!segmentSawInlineBrace) {
+          const seg = casesContent.slice(segmentStart, j);
+          const m = seg.match(/^(\s*)(\w+)\s*$/);
+          if (m) {
+            topLevelKeys.push({
+              key: m[2],
+              offset: segmentStart + m[1].length,
+              shorthand: true,
+            });
+          }
+        }
+        segmentStart = j + 1;
+        segmentSawInlineBrace = false;
       }
     }
 
-    for (const { key, offset } of topLevelKeys) {
+    for (const { key, offset, shorthand } of topLevelKeys) {
       const absolutePos = content.indexOf(nextLine) + casesStart + braceIdx + offset;
       const caseLine = content.substring(0, absolutePos).split("\n").length - 1; // 0-based
+      const testId = `${contractId}.${key}`;
 
-      // Extract case body
+      if (shorthand) {
+        // No inline body to scan for metadata. Plain runnable lens.
+        // (Future: walk up to `defineHttpCase()` ref to extract
+        // deferred/requires/defaultRun.)
+        items.push({
+          line: caseLine,
+          title: `▶ run ${key}`,
+          kind: "run",
+          args: { filePath, testId, exportName },
+        });
+        continue;
+      }
+
+      // Inline case — scan its body for metadata that controls lens shape.
       let caseDepth = 0;
       let caseEnd = offset;
       for (let j = offset; j < casesContent.length; j++) {
@@ -215,8 +274,6 @@ function computeContractLensesByMarker(
       const deprecatedMatch = caseBody.match(/deprecated\s*:\s*["']([^"']+)["']/);
       const requiresMatch = caseBody.match(/requires\s*:\s*["'](browser|out-of-band)["']/);
       const defaultRunMatch = caseBody.match(/defaultRun\s*:\s*["'](opt-in)["']/);
-
-      const testId = `${contractId}.${key}`;
 
       if (deferredMatch) {
         items.push({ line: caseLine, title: `\u2298 deferred: ${deferredMatch[1]}`, kind: "disabled" });

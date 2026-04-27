@@ -376,74 +376,59 @@ describe("batched-mode attribution", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Discovery scope for data-driven exportName runs
+// T3 — discoverTestIds is sync, cwd-immune, and routes via sentinels
 // ---------------------------------------------------------------------------
-// When a caller passes `testIds=undefined` + `exportName="X"` (runSingleTest
-// for each:/pick: items, pinned runTestByExport), discoverTestIds must
-// return only the ids from export X — otherwise the subsequent batched run
-// widens scope to every test in the file, executing unrelated tests.
+//
+// Locks the contract from internal/30-execution/2026-04-27-data-driven-discovery-rebuild/.
+// `discoverTestIds` MUST be a pure function that returns scope sentinels
+// without touching the filesystem or doing dynamic imports. The harness
+// owns enumeration of data-driven tests; parent only decides scope.
+//
+// Why this is a regression guard rather than an interesting unit test:
+// the prior impl had a dynamic `await import(fileUrl)` that silently
+// failed when test files had top-level `await fromCsv(...)` etc. (cwd
+// mismatch in VSCode parent process). The simpler API caught real bugs;
+// this test prevents someone from re-adding the dynamic-import "for
+// performance" or "for upfront attribution" without realizing it
+// re-introduces the cwd dependency.
+import { discoverTestIds } from "./discoverTestIds";
 
-type ResolvedTestShape = { id: string; exportName: string };
-
-/**
- * Replicate the export-filter logic from executor.ts discoverTestIds().
- * The real implementation wraps this with a dynamic import + runner API
- * call; the filter itself is the pure slice we lock in tests.
- */
-function filterByExport(
-  tests: ResolvedTestShape[],
-  exportName?: string,
-): string[] {
-  const filtered = exportName
-    ? tests.filter((t) => t.exportName === exportName)
-    : tests;
-  return filtered.map((t) => t.id);
-}
-
-describe("discoverTestIds export-scope filter", () => {
-  const file = [
-    { id: "health-check", exportName: "healthCheck" },
-    { id: "pick:users-$label", exportName: "usersData" },
-    { id: "pick:products-$label", exportName: "productsData" },
-    { id: "smoke", exportName: "smoke" },
-  ];
-
-  it("without exportName: returns every id in the file", () => {
-    const ids = filterByExport(file);
-    assert.deepEqual(ids, [
-      "health-check",
-      "pick:users-$label",
-      "pick:products-$label",
-      "smoke",
-    ]);
+describe("discoverTestIds (T3 — sync sentinel decision, no dynamic import)", () => {
+  it("with exportName: returns [\"\"] sentinel for harness exportName-only mode", () => {
+    const result = discoverTestIds("csvCases");
+    assert.deepEqual(result, [""]);
   });
 
-  it("with exportName: scopes to that export's ids only", () => {
-    const ids = filterByExport(file, "usersData");
-    assert.deepEqual(ids, ["pick:users-$label"]);
+  it("without exportName: returns [\"*\"] sentinel for harness wildcard mode", () => {
+    const result = discoverTestIds();
+    assert.deepEqual(result, ["*"]);
   });
 
-  it("data-driven export resolving to multiple case ids is preserved", () => {
-    // Simulates resolveModuleTests output for a test.each export that
-    // resolved into multiple per-case entries — they all carry the same
-    // exportName and must ALL be returned together.
-    const eachFile: ResolvedTestShape[] = [
-      { id: "health-check", exportName: "healthCheck" },
-      { id: "each:user-alice", exportName: "userMatrix" },
-      { id: "each:user-bob", exportName: "userMatrix" },
-      { id: "each:user-carol", exportName: "userMatrix" },
-    ];
-    const ids = filterByExport(eachFile, "userMatrix");
-    assert.deepEqual(ids, [
-      "each:user-alice",
-      "each:user-bob",
-      "each:user-carol",
-    ]);
+  it("is synchronous (NOT async) — proves no dynamic import lurks inside", () => {
+    // If discoverTestIds becomes async again, this assertion fails fast.
+    // A regression that re-adds `await import(fileUrl)` would also re-add
+    // the cwd dependency that bug B2 was about.
+    const result: string[] = discoverTestIds("anyExport");
+    // Type assertion: result must NOT be a Promise — readable as
+    // `string[]`, not `Promise<string[]>`. Also runtime check.
+    assert.ok(Array.isArray(result), "discoverTestIds must return string[] synchronously");
   });
 
-  it("exportName matching nothing returns empty (silent no-op)", () => {
-    const ids = filterByExport(file, "nonExistent");
-    assert.deepEqual(ids, []);
+  it("is cwd-immune: process.cwd() can be set to anything and result is unchanged", () => {
+    // Hermetic: temporarily change cwd to /tmp and back. The prior impl
+    // would have either thrown or silently failed depending on whether
+    // the dynamic import resolved fixture paths against this wrong cwd.
+    // The new impl ignores cwd entirely.
+    const originalCwd = process.cwd();
+    try {
+      process.chdir("/tmp");
+      const a = discoverTestIds("csvCases");
+      const b = discoverTestIds();
+      assert.deepEqual(a, [""]);
+      assert.deepEqual(b, ["*"]);
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 });
 

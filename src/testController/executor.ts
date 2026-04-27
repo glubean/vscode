@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import { pathToFileURL } from "node:url";
 import { resolve, relative } from "node:path";
 import { loadRunnerForCwd } from "./loadRunner";
+import { discoverTestIds } from "./discoverTestIds";
 import type { GlubeanResult } from "./results";
 import type { GlubeanEvent } from "../testController.utils";
 
@@ -88,11 +89,23 @@ export async function executeTest(
 
   try {
     // Determine which test IDs to run. When the caller passes
-    // `testIds=undefined` together with `exportName`, scope discovery to
-    // that export only — otherwise a single data-driven Test Explorer click
-    // (or a pinned `runTestByExport`) would batch-run every unrelated test
-    // in the same file.
-    const idsToRun = testIds ?? (await discoverTestIds(runner, fileUrl, options.exportName));
+    // `testIds=undefined`:
+    //   - with `exportName`: returns [""] sentinel → harness's
+    //     exportName-only mode (runner ≥0.2.6) enumerates and runs all
+    //     tests of that export, including every per-row case for
+    //     `test.each` / `test.pick`. Critical for data-driven scope.
+    //   - without `exportName`: returns ["*"] → harness wildcard mode
+    //     runs every test in the file.
+    //
+    // No dynamic import in parent process. Per-row ids of data-driven
+    // exports are runtime data — only the harness's environment can
+    // produce them correctly. Trying to discover them parent-side via
+    // `await import(fileUrl)` was the source of the cwd-mismatch bug
+    // (B2): VSCode's `process.cwd()` is its launch dir, not the
+    // project root, so SDK loaders (`fromCsv`, `fromYaml`, `fromDir`)
+    // fail at module load and discovery silently produces wrong ids.
+    // See internal/30-execution/2026-04-27-data-driven-discovery-rebuild/.
+    const idsToRun = testIds ?? discoverTestIds(options.exportName);
     const isWildcard = idsToRun.length === 1 && idsToRun[0] === "*";
     // Export-fallback: parent-side discovery failed (or wasn't attempted)
     // but the caller named an exportName. `discoverTestIds` returns `[""]`
@@ -360,47 +373,8 @@ export async function executeTest(
 
 // ── Discovery ──────────────────────────────────────────────────────────────
 
-/**
- * Discover test IDs from a file by dynamically importing it.
- *
- * When `exportName` is provided, scope the result to just that export's
- * tests — essential for data-driven (`test.each` / `test.pick`) runs where
- * one Test Explorer click should not widen to every unrelated test in the
- * same file. Without this filter, `runSingleTest()` for `each:/pick:`
- * items (passes `testIds=undefined, exportName="X"`) and `runTestByExport()`
- * for pinned data-driven tests would batch-run the whole file.
- *
- * **Fallback semantics when parent-side discovery fails:**
- * - Without `exportName`: `["*"]` — harness runs all tests in the file.
- * - With `exportName`: `[""]` — harness resolves tests by exportName
- *   alone (testId="" tells the runner "no explicit id filter"). Critical:
- *   returning `["*"]` here would widen scope to every test in the file
- *   since the harness processes `*` as "run all" regardless of the
- *   exportName hint.
- */
-async function discoverTestIds(
-  runner: typeof import("@glubean/runner"),
-  fileUrl: string,
-  exportName?: string,
-): Promise<string[]> {
-  try {
-    // resolveModuleTests is exported from @glubean/runner
-    if ("resolveModuleTests" in runner) {
-      const mod = await import(fileUrl);
-      const tests = (runner as any).resolveModuleTests(mod);
-      const filtered = exportName
-        ? tests.filter((t: any) => t.exportName === exportName)
-        : tests;
-      return filtered.map((t: any) => t.id || t.testId);
-    }
-  } catch {
-    // Discovery failed, let the harness handle it
-  }
-  // With exportName: return [""] so the non-batched path invokes the
-  // harness with `testId="" + exportName=X`, which runs only that export.
-  // Without exportName: return ["*"] so the harness runs every test.
-  return exportName ? [""] : ["*"];
-}
+// `discoverTestIds` lives in `./discoverTestIds.ts` so tests can import it
+// without pulling in `vscode` (which executor.ts depends on).
 
 // ── Event Formatting ───────────────────────────────────────────────────────
 

@@ -332,6 +332,109 @@ export const legacy = contract.http("legacy", {
     assert.equal(items[0].kind, "run");
     assert.equal(items[0].args?.testId, "legacy.ok");
   });
+
+  // ── Shorthand cases (defineHttpCase + variable references) ────────────
+  // The canonical attachment-model v10 pattern: cases bound as
+  // `defineHttpCase<{ token: string }>(...)` outside the contract literal,
+  // then referenced via shorthand property syntax inside the `cases` block.
+  // Pre-fix the parser only recognized inline `key: { ... }` shape and
+  // emitted ZERO lenses for shorthand-only contracts. Now we walk segment
+  // boundaries (commas + closing brace) and treat bare-identifier segments
+  // as shorthand cases.
+
+  it("shorthand: cases referenced as variables produce one lens per case", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("dummyjson", {});
+const authorized = defineHttpCase({ description: "ok", expect: { status: 200 } });
+const requiresAttachment = defineHttpCase({ description: "blocked", expect: { status: 200 }, runnability: { requireAttachment: true } });
+
+// @contract
+export const getMe = api("auth.me", {
+  endpoint: "GET /auth/me",
+  cases: {
+    authorized,
+    requiresAttachment,
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].kind, "run");
+    assert.equal(items[0].args?.testId, "auth.me.authorized");
+    assert.equal(items[0].args?.exportName, "getMe");
+    assert.equal(items[1].kind, "run");
+    assert.equal(items[1].args?.testId, "auth.me.requiresAttachment");
+  });
+
+  it("shorthand: trailing case without comma still captured", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+const a = defineHttpCase({ expect: { status: 200 } });
+const b = defineHttpCase({ expect: { status: 200 } });
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    a,
+    b
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].args?.testId, "svc.ep.a");
+    assert.equal(items[1].args?.testId, "svc.ep.b");
+  });
+
+  it("mixed: inline + shorthand cases in one contract both produce lenses", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+const archived = defineHttpCase({ expect: { status: 410 } });
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    fresh: {
+      description: "fresh",
+      expect: { status: 200 },
+    },
+    archived,
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 2);
+    const titles = items.map((i) => i.title).sort();
+    assert.deepEqual(titles, ["▶ run archived", "▶ run fresh"]);
+    const ids = items.map((i) => i.args?.testId).sort();
+    assert.deepEqual(ids, ["svc.ep.archived", "svc.ep.fresh"]);
+  });
+
+  it("shorthand: case key offset points at the identifier line, not the comma", () => {
+    // Lens line should be the line containing the identifier, so the
+    // ▶ button shows up on the same row as `authorized,` rather than on
+    // the comma's preceding-line empty whitespace.
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+const authorized = defineHttpCase({ expect: { status: 200 } });
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    authorized,
+  },
+});
+`;
+    const items = computeContractLenses(content, FILE_PATH);
+    assert.equal(items.length, 1);
+    // Find the line index of `    authorized,` in the content (0-based).
+    const lines = content.split("\n");
+    const expectedLine = lines.findIndex((l) => l.trim() === "authorized,");
+    assert.equal(items[0].line, expectedLine, "lens must render on the identifier's own line");
+  });
 });
 
 // ---------------------------------------------------------------------------

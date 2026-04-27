@@ -1181,10 +1181,22 @@ async function debugHandler(
     return;
   }
 
-  const filterId = normalizeFilterId(meta.id);
+  // Data-driven detection mirrors runSingleTest's logic. For
+  // `each:`/`pick:` items the testId is a normalized template (e.g.
+  // `"dj-csv-"` from `"each:dj-csv-$label"`) that no concrete `Test`
+  // matches. Pre-rebuild this silently failed: harness threw
+  // "Test not found" before any breakpoint was hit. After the rebuild,
+  // route data-driven debug through the harness's exportName-only
+  // mode — runner enumerates per-row tests and the debugger pauses on
+  // the first breakpoint reached in any row.
+  const isDataDriven = meta.id.startsWith("each:") || meta.id.startsWith("pick:");
+  const useExportName = isDataDriven && !!meta.exportName;
+  const filterId = useExportName ? "" : normalizeFilterId(meta.id);
 
   outputChannel.appendLine(
-    `\n[debug] run ${filePath} --filter ${filterId} (debug port ${port})`,
+    useExportName
+      ? `\n[debug] run ${filePath} --export ${meta.exportName} (debug port ${port})`
+      : `\n[debug] run ${filePath} --filter ${filterId} (debug port ${port})`,
   );
   outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
@@ -1240,9 +1252,15 @@ async function debugHandler(
     return;
   }
 
-  // Start the test execution (it will pause at --inspect-brk)
+  // Start the test execution (it will pause at --inspect-brk).
+  //
+  // For data-driven tests (`useExportName`), pass empty filterId +
+  // `exportName` option → triggers harness's exportName-only mode which
+  // enumerates every row of that export. For static-id tests, pass the
+  // normalized filterId as the testId (existing behavior).
   const runIterator = executor.run(fileUrl, filterId, context, {
     signal: ac.signal,
+    ...(useExportName && meta.exportName ? { exportName: meta.exportName } : {}),
   });
 
   // Kick off event consumption so the generator spawns the subprocess
