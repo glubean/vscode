@@ -517,7 +517,21 @@ class ContractCodeLensProvider implements ContractCodeLens {
     document: vscode.TextDocument,
     _token: vscode.CancellationToken,
   ): vscode.CodeLens[] {
-    const items = computeContractLenses(document.getText(), document.uri.fsPath);
+    // `readFile` callback enables `*.bootstrap.ts` lenses to resolve the
+    // target case's contractId from the imported `*.contract.ts` sibling.
+    // Pure-string fallback when the file isn't readable (e.g. removed
+    // mid-edit) — the bootstrap detector then emits a disabled hint lens.
+    const items = computeContractLenses(
+      document.getText(),
+      document.uri.fsPath,
+      (absPath) => {
+        try {
+          return fs.readFileSync(absPath, "utf-8");
+        } catch {
+          return undefined;
+        }
+      },
+    );
     return items.map((item) => {
       const range = new vscode.Range(item.line, 0, item.line, 0);
       if (item.kind === "disabled") {

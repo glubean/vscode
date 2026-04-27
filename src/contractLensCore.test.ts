@@ -425,3 +425,246 @@ export const smoke = contract
     assert.deepEqual(titles, ["▶ run ok", "▶ run ping-smoke"]);
   });
 });
+
+// ===========================================================================
+// Bootstrap (attachment-model overlay) detector tests
+// ===========================================================================
+
+describe("computeContractLenses — *.bootstrap.ts overlay detection", () => {
+  const BOOTSTRAP_PATH = "/tmp/proj/me.bootstrap.ts";
+
+  it("resolves cross-file: imports getMe, builds testId from contract id", () => {
+    const bootstrapContent = `
+import { contract } from "@glubean/sdk";
+import { getMe } from "./me.contract.ts";
+
+export const meAuthorizedOverlay = contract.bootstrap(
+  getMe.case("authorized"),
+  async (ctx) => ({ token: "tk" }),
+);
+`;
+    const contractContent = `
+import { contract } from "@glubean/sdk";
+const api = contract.http.with("dummyjson", {});
+
+// @contract
+export const getMe = api("auth.me", {
+  endpoint: "GET /auth/me",
+  cases: { authorized: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const readFile = (p: string) =>
+      p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "run");
+    assert.equal(items[0].title, "▶ run auth.me.authorized");
+    assert.deepEqual(items[0].args, {
+      filePath: BOOTSTRAP_PATH,
+      testId: "auth.me.authorized",
+      exportName: "meAuthorizedOverlay",
+    });
+  });
+
+  it("resolves import path written WITHOUT .ts extension", () => {
+    // `import { getMe } from "./me.contract"` — no extension.
+    // Resolver must try common extensions in order.
+    const bootstrapContent = `
+import { contract } from "@glubean/sdk";
+import { getMe } from "./me.contract";
+
+export const meOverlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({ x: 1 }),
+);
+`;
+    const contractContent = `
+const api = contract.http.with("svc", {});
+// @contract
+export const getMe = api("svc.thing", {
+  endpoint: "GET /x",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const readFile = (p: string) =>
+      p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, "▶ run svc.thing.ok");
+  });
+
+  it("emits multiple lenses when file has multiple bootstrap exports", () => {
+    const bootstrapContent = `
+import { contract } from "@glubean/sdk";
+import { getMe } from "./me.contract.ts";
+
+export const overlayA = contract.bootstrap(
+  getMe.case("authorized"),
+  async () => ({ token: "a" }),
+);
+
+export const overlayB = contract.bootstrap(
+  getMe.case("requiresAttachment"),
+  { params: undefined as any, run: async () => ({ token: "b" }) },
+);
+`;
+    const contractContent = `
+const api = contract.http.with("dummy", {});
+// @contract
+export const getMe = api("auth.me", {
+  endpoint: "GET /auth/me",
+  cases: {
+    authorized: { description: "a", expect: { status: 200 } },
+    requiresAttachment: { description: "b", expect: { status: 200 } },
+  },
+});
+`;
+    const readFile = (p: string) =>
+      p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+    assert.equal(items.length, 2);
+    const titles = items.map((i) => i.title).sort();
+    assert.deepEqual(titles, ["▶ run auth.me.authorized", "▶ run auth.me.requiresAttachment"]);
+  });
+
+  it("falls back to local lookup when contract is in the SAME file as the overlay", () => {
+    // Inline overlay pattern: the `.contract.ts` file declares both the
+    // contract AND its overlay. No import statement to scan.
+    const content = `
+import { contract } from "@glubean/sdk";
+const api = contract.http.with("svc", {});
+
+// @contract
+export const getMe = api("svc.me", {
+  endpoint: "GET /me",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+
+export const meOverlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({ token: "tk" }),
+);
+`;
+    // No readFile callback needed — local lookup path.
+    const items = computeContractLenses(content, "/tmp/proj/me.contract.ts");
+    // Both the contract case lens AND the bootstrap lens fire.
+    assert.equal(items.length, 2);
+    const bootstrapItem = items.find((i) =>
+      typeof i.title === "string" && i.title.includes("svc.me.ok") && i.args?.exportName === "meOverlay"
+    );
+    assert.ok(bootstrapItem, "bootstrap lens should be emitted from local lookup");
+    assert.equal(bootstrapItem!.kind, "run");
+  });
+
+  it("emits disabled hint when the imported file is unreadable", () => {
+    const bootstrapContent = `
+import { getMe } from "./me.contract.ts";
+
+export const overlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({}),
+);
+`;
+    const readFile = () => undefined; // simulates missing file
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.match(items[0].title, /target file unreadable/);
+  });
+
+  it("emits disabled hint when the contract id is missing from the target file", () => {
+    const bootstrapContent = `
+import { getMe } from "./me.contract.ts";
+
+export const overlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({}),
+);
+`;
+    const contractContent = `
+// File exists but doesn't declare \`getMe\` — maybe it was renamed.
+export const somethingElse = api("foo", { cases: {} });
+`;
+    const readFile = (p: string) =>
+      p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.match(items[0].title, /target contract id not found/);
+  });
+
+  it("handles `as` import aliases", () => {
+    const bootstrapContent = `
+import { getMe as me } from "./me.contract.ts";
+
+export const overlay = contract.bootstrap(
+  me.case("ok"),
+  async () => ({}),
+);
+`;
+    const contractContent = `
+// @contract
+export const getMe = api("svc.me", {
+  endpoint: "GET /me",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const readFile = (p: string) =>
+      p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, "▶ run svc.me.ok");
+  });
+
+  it("ignores files with no contract.bootstrap() exports", () => {
+    const content = `
+import { contract } from "@glubean/sdk";
+// Just a regular contract file with no overlays.
+const api = contract.http.with("svc", {});
+
+// @contract
+export const ping = api("svc.ping", {
+  endpoint: "GET /ping",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const items = computeContractLenses(content, "/tmp/proj/ping.contract.ts");
+    // Should produce ONLY the contract case lens (one), no bootstrap noise.
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, "▶ run ok");
+  });
+
+  it("multi-line import block with multiple names", () => {
+    const bootstrapContent = `
+import {
+  getMe,
+  somethingElse,
+} from "./me.contract.ts";
+
+export const overlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({}),
+);
+`;
+    const contractContent = `
+// @contract
+export const getMe = api("svc.me", {
+  endpoint: "GET /me",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const readFile = (p: string) =>
+      p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
+
+    const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, "▶ run svc.me.ok");
+  });
+});
