@@ -11,6 +11,7 @@ import * as testController from "./testController";
 import { activateCliStatus } from "./cliStatus";
 import { createHoverProvider } from "./hoverProvider";
 import { createPickCodeLensProvider, createContractCodeLensProvider } from "./codeLensProvider";
+import { CONTRACT_LENS_FILE_PATTERNS } from "./contractLensCore";
 import { createResultCodeLensProvider } from "./resultCodeLensProvider";
 import { activateResultNavigator } from "./resultNavigator";
 import { ResultViewerProvider } from "./resultViewerProvider";
@@ -272,13 +273,20 @@ export function activate(context: vscode.ExtensionContext): void {
     pickCodeLensProvider,
   );
 
-  // contract.http() case run buttons — also covers `// @flow` lenses emitted
-  // by computeContractLenses(), which lives in the same provider.
+  // CodeLenses for contract / flow / bootstrap files. Selector patterns are
+  // owned by `contractLensCore.ts` so the test suite can assert that
+  // `*.bootstrap.{ts,js,mjs}` is registered — without that pattern, overlay
+  // lenses are computed correctly but VSCode never invokes the provider on
+  // bootstrap files and the user sees nothing.
   const contractSelector: vscode.DocumentSelector = [
-    { language: "typescript", pattern: "**/*.contract.ts" },
-    { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
-    { language: "typescript", pattern: "**/*.flow.ts" },
-    { language: "javascript", pattern: "**/*.flow.{js,mjs}" },
+    ...CONTRACT_LENS_FILE_PATTERNS.typescript.map((pattern) => ({
+      language: "typescript",
+      pattern,
+    })),
+    ...CONTRACT_LENS_FILE_PATTERNS.javascript.map((pattern) => ({
+      language: "javascript",
+      pattern,
+    })),
   ];
   const contractCodeLensProvider = createContractCodeLensProvider("glubean.runContractCase");
   context.subscriptions.push(

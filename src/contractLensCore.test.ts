@@ -6,7 +6,11 @@
 
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { computeContractLenses } from "./contractLensCore";
+import * as path from "node:path";
+import {
+  computeContractLenses,
+  CONTRACT_LENS_FILE_PATTERNS,
+} from "./contractLensCore";
 
 const CONTRACT_IMPORT = 'import { contract } from "@glubean/sdk";\n';
 const FILE_PATH = "/tmp/create.contract.ts";
@@ -433,7 +437,14 @@ export const smoke = contract
 describe("computeContractLenses — *.bootstrap.ts overlay detection", () => {
   const BOOTSTRAP_PATH = "/tmp/proj/me.bootstrap.ts";
 
-  it("resolves cross-file: imports getMe, builds testId from contract id", () => {
+  it("resolves cross-file: lens args target the CONTRACT module, not the bootstrap module", () => {
+    // Click-level smoke: the args produced here are exactly what flows into
+    // `glubean.runContractCase` → `executeTest(filePath, [testId], ..., { exportName })`.
+    // `filePath` MUST be the contract file (so the harness imports a module
+    // that exports a real `Test`), and `exportName` MUST be the contract
+    // export — the overlay export is a `BootstrapAttachment`, not runnable.
+    // Overlay registration happens via §7.4 eager-load on the harness side
+    // for ALL `*.bootstrap.ts` files, regardless of which file we pointed at.
     const bootstrapContent = `
 import { contract } from "@glubean/sdk";
 import { getMe } from "./me.contract.ts";
@@ -462,9 +473,9 @@ export const getMe = api("auth.me", {
     assert.equal(items[0].kind, "run");
     assert.equal(items[0].title, "▶ run auth.me.authorized");
     assert.deepEqual(items[0].args, {
-      filePath: BOOTSTRAP_PATH,
+      filePath: "/tmp/proj/me.contract.ts",
       testId: "auth.me.authorized",
-      exportName: "meAuthorizedOverlay",
+      exportName: "getMe",
     });
   });
 
@@ -553,11 +564,19 @@ export const meOverlay = contract.bootstrap(
     const items = computeContractLenses(content, "/tmp/proj/me.contract.ts");
     // Both the contract case lens AND the bootstrap lens fire.
     assert.equal(items.length, 2);
-    const bootstrapItem = items.find((i) =>
-      typeof i.title === "string" && i.title.includes("svc.me.ok") && i.args?.exportName === "meOverlay"
-    );
+    // Contract case lens (// @contract path) uses the case key for the title;
+    // bootstrap lens uses the full `${contractId}.${case}` form. Distinct
+    // titles let us tell them apart without depending on line numbers.
+    const bootstrapItem = items.find((i) => i.title === "▶ run svc.me.ok");
     assert.ok(bootstrapItem, "bootstrap lens should be emitted from local lookup");
     assert.equal(bootstrapItem!.kind, "run");
+    // Same-file overlay also targets the contract export (`getMe`), not the
+    // overlay export (`meOverlay`). The harness needs a runnable `Test`.
+    assert.deepEqual(bootstrapItem!.args, {
+      filePath: "/tmp/proj/me.contract.ts",
+      testId: "svc.me.ok",
+      exportName: "getMe",
+    });
   });
 
   it("emits disabled hint when the imported file is unreadable", () => {
@@ -666,5 +685,115 @@ export const getMe = api("svc.me", {
     const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
     assert.equal(items.length, 1);
     assert.equal(items[0].title, "▶ run svc.me.ok");
+  });
+});
+
+// ===========================================================================
+// Path / platform handling
+// ===========================================================================
+//
+// VSCode `document.uri.fsPath` returns a platform-native path string —
+// posix on macOS/Linux, win32 (backslash) on Windows. The cross-file
+// overlay resolver must accept both. We simulate Windows by injecting
+// `path.win32` as the optional 4th arg to `computeContractLenses` and
+// using a `C:\…` style fsPath. (Without injection, the production code
+// uses `node:path`, which is `path.posix` when this test runs on
+// macOS/Linux — so we'd never exercise the Windows code path otherwise.)
+
+describe("computeContractLenses — Windows fsPath compatibility", () => {
+  it("resolves cross-file overlay imports under path.win32", () => {
+    const bootstrapContent = `
+import { contract } from "@glubean/sdk";
+import { getMe } from "./me.contract.ts";
+
+export const meAuthorizedOverlay = contract.bootstrap(
+  getMe.case("authorized"),
+  async () => ({ token: "tk" }),
+);
+`;
+    const contractContent = `
+// @contract
+export const getMe = api("auth.me", {
+  endpoint: "GET /auth/me",
+  cases: { authorized: { description: "ok", expect: { status: 200 } } },
+});
+`;
+
+    const winBootstrapPath = "C:\\proj\\me.bootstrap.ts";
+    const winContractPath = "C:\\proj\\me.contract.ts";
+    const readFile = (p: string) =>
+      p === winContractPath ? contractContent : undefined;
+
+    const items = computeContractLenses(
+      bootstrapContent,
+      winBootstrapPath,
+      readFile,
+      path.win32,
+    );
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "run", "Windows path should resolve, not fall to disabled hint");
+    assert.equal(items[0].title, "▶ run auth.me.authorized");
+    // The resolved target file path is the win32-joined absolute path.
+    assert.equal(items[0].args?.filePath, winContractPath);
+    assert.equal(items[0].args?.exportName, "getMe");
+  });
+
+  it("documents the bug: posix path resolution against a win32 fsPath fails", () => {
+    // Regression guard for P2: the previous impl used `posix.dirname`
+    // unconditionally, so on Windows fsPaths every cross-file overlay
+    // produced an "unreadable" disabled hint. We assert the SHAPE of
+    // the failure under path.posix — confirming that picking the wrong
+    // path lib silently breaks resolution rather than throwing.
+    const bootstrapContent = `
+import { getMe } from "./me.contract.ts";
+
+export const overlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({}),
+);
+`;
+    const winBootstrapPath = "C:\\proj\\me.bootstrap.ts";
+    const winContractPath = "C:\\proj\\me.contract.ts";
+    const readFile = (p: string) =>
+      p === winContractPath ? "// @contract\nexport const getMe = api(\"x.y\", { cases: { ok: {} } });\n" : undefined;
+
+    const items = computeContractLenses(
+      bootstrapContent,
+      winBootstrapPath,
+      readFile,
+      path.posix, // wrong path lib on purpose
+    );
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.match(items[0].title, /target file unreadable/);
+  });
+});
+
+// ===========================================================================
+// Provider registration patterns
+// ===========================================================================
+
+describe("CONTRACT_LENS_FILE_PATTERNS", () => {
+  it("registers *.bootstrap.{ts,js,mjs} so VSCode invokes the provider on overlay files", () => {
+    // Without these patterns in the DocumentSelector built in extension.ts,
+    // `computeContractLenses` would still detect overlays in `*.bootstrap.ts`
+    // files in tests, but VSCode would never call provideCodeLenses() on
+    // them in the real editor — so users would see no overlay buttons.
+    assert.ok(
+      CONTRACT_LENS_FILE_PATTERNS.typescript.includes("**/*.bootstrap.ts"),
+      "typescript selector must include **/*.bootstrap.ts",
+    );
+    assert.ok(
+      CONTRACT_LENS_FILE_PATTERNS.javascript.includes("**/*.bootstrap.{js,mjs}"),
+      "javascript selector must include **/*.bootstrap.{js,mjs}",
+    );
+  });
+
+  it("keeps existing contract / flow patterns", () => {
+    assert.ok(CONTRACT_LENS_FILE_PATTERNS.typescript.includes("**/*.contract.ts"));
+    assert.ok(CONTRACT_LENS_FILE_PATTERNS.typescript.includes("**/*.flow.ts"));
+    assert.ok(CONTRACT_LENS_FILE_PATTERNS.javascript.includes("**/*.contract.{js,mjs}"));
+    assert.ok(CONTRACT_LENS_FILE_PATTERNS.javascript.includes("**/*.flow.{js,mjs}"));
   });
 });

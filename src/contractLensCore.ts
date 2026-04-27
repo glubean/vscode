@@ -6,8 +6,44 @@
  * `vscode.CodeLens` + `vscode.Range` at render time.
  */
 
-import { posix as posixPath } from "node:path";
+import * as nodePath from "node:path";
 import { extractContractCases } from "@glubean/scanner/static";
+
+/**
+ * Glob patterns this provider's CodeLens applies to.
+ *
+ * Used both by `extension.ts` (to build the real `vscode.DocumentSelector`)
+ * and by tests (to assert that `*.bootstrap.{ts,js,mjs}` is registered —
+ * otherwise overlay lenses are computed correctly but never displayed).
+ *
+ * Three file kinds:
+ *  - `*.contract.*` — contract.http()/contract.with() declarations
+ *  - `*.flow.*`     — contract.flow() declarations
+ *  - `*.bootstrap.*` — contract.bootstrap() overlay registrations
+ *    (attachment-model §7.4)
+ */
+export const CONTRACT_LENS_FILE_PATTERNS = {
+  typescript: [
+    "**/*.contract.ts",
+    "**/*.flow.ts",
+    "**/*.bootstrap.ts",
+  ],
+  javascript: [
+    "**/*.contract.{js,mjs}",
+    "**/*.flow.{js,mjs}",
+    "**/*.bootstrap.{js,mjs}",
+  ],
+} as const;
+
+/**
+ * Subset of `node:path` used by the cross-file overlay resolver. Injectable
+ * so tests can pass `path.win32` to simulate Windows fsPaths on macOS/Linux
+ * without needing a real Windows runner.
+ */
+export interface PathLib {
+  dirname(p: string): string;
+  join(...segments: string[]): string;
+}
 
 /**
  * A computed contract CodeLens item — shape only, no vscode types.
@@ -72,13 +108,14 @@ export function computeContractLenses(
   content: string,
   filePath: string,
   readFile?: ReadFileFn,
+  pathLib: PathLib = nodePath,
 ): ContractLensItem[] {
   // Collect lens items from contract / flow / bootstrap markers — files
   // may export contracts, flows, overlays, or any combination.
   const markerItems = [
     ...computeContractLensesByMarker(content, filePath),
     ...computeFlowLensesByMarker(content, filePath),
-    ...computeBootstrapLensesByMarker(content, filePath, readFile),
+    ...computeBootstrapLensesByMarker(content, filePath, readFile, pathLib),
   ];
   if (markerItems.length > 0) return markerItems;
 
@@ -408,6 +445,7 @@ function resolveImport(
   fromFile: string,
   importPath: string,
   readFile: ReadFileFn | undefined,
+  pathLib: PathLib,
 ): { absPath: string; content: string } | undefined {
   if (!readFile) return undefined;
   if (!importPath.startsWith(".")) return undefined; // bare specifiers unsupported in v0
@@ -417,12 +455,14 @@ function resolveImport(
   // (TS-style, with extension) AND `import ... from "./foo.contract"` (no ext).
   const stripped = importPath.replace(/\.(?:ts|js|mjs|tsx)$/, "");
 
-  // `fromFile` is absolute; resolve relative to its directory.
-  // posix.join collapses `./` and `../` segments without touching cwd
-  // (unlike `path.resolve`, which is cwd-sensitive and would break
-  // hermetic tests).
-  const dir = posixPath.dirname(fromFile);
-  const base = posixPath.join(dir, stripped);
+  // `fromFile` is absolute; resolve relative to its directory using the
+  // platform-native `node:path` (or `path.win32` injected by tests). The
+  // earlier posix-only impl broke on Windows fsPaths (backslash separators)
+  // — `posix.dirname("C:\\proj\\me.bootstrap.ts")` returns "." because
+  // posix doesn't recognize "\\" as a separator, so every cross-file
+  // overlay fell into the unreadable-file disabled hint.
+  const dir = pathLib.dirname(fromFile);
+  const base = pathLib.join(dir, stripped);
 
   for (const ext of [".ts", ".tsx", ".mjs", ".js"]) {
     const candidate = `${base}${ext}`;
@@ -465,6 +505,7 @@ function computeBootstrapLensesByMarker(
   content: string,
   filePath: string,
   readFile: ReadFileFn | undefined,
+  pathLib: PathLib,
 ): ContractLensItem[] {
   const items: ContractLensItem[] = [];
   const matches = findBootstrapMatches(content);
@@ -473,9 +514,13 @@ function computeBootstrapLensesByMarker(
     const importInfo = findImportPath(content, m.targetIdent);
 
     if (!importInfo) {
-      // Common case: `contract.bootstrap()` declared in the SAME file as
-      // the contract it targets (`getX.case(...)` references a local
-      // `export const getX`). Look it up locally — no fs needed.
+      // Inline overlay pattern: `contract.bootstrap()` lives in the SAME
+      // file as the contract export it targets. Look it up locally — no
+      // fs needed. The runnable lens points at THIS file, but the
+      // exportName is the contract's own export (`m.targetIdent`), not
+      // the overlay's. Why: clicking the lens spawns a harness scoped
+      // to `{ filePath, exportName, testId }` — the harness needs to
+      // resolve a `Test`/`Contract`, not a `BootstrapAttachment`.
       const contractId = findContractIdInTarget(content, m.targetIdent);
       if (contractId) {
         items.push({
@@ -485,7 +530,7 @@ function computeBootstrapLensesByMarker(
           args: {
             filePath,
             testId: `${contractId}.${m.caseKey}`,
-            exportName: m.exportName,
+            exportName: m.targetIdent,
           },
         });
       } else {
@@ -498,7 +543,7 @@ function computeBootstrapLensesByMarker(
       continue;
     }
 
-    const target = resolveImport(filePath, importInfo.path, readFile);
+    const target = resolveImport(filePath, importInfo.path, readFile, pathLib);
     if (!target) {
       items.push({
         line: m.exportLine,
@@ -521,14 +566,24 @@ function computeBootstrapLensesByMarker(
       continue;
     }
 
+    // Cross-file overlay: the runnable lens must point at the **target
+    // contract module** (`target.absPath`) and use the **target's
+    // contract export name** (`importInfo.originalName`) — NOT the
+    // bootstrap file or the overlay export. Otherwise the harness
+    // imports `me.bootstrap.ts` and looks up `meAuthorizedOverlay`,
+    // which is a `BootstrapAttachment`, not a `Test` — `findTestById`
+    // returns undefined and the click silently fails. The overlay
+    // still registers because §7.4 eager-load runs `loadProjectOverlays`
+    // for every `*.bootstrap.ts` file regardless of which file the
+    // harness was spawned to test.
     items.push({
       line: m.exportLine,
       title: `\u25B6 run ${contractId}.${m.caseKey}`,
       kind: "run",
       args: {
-        filePath,
+        filePath: target.absPath,
         testId: `${contractId}.${m.caseKey}`,
-        exportName: m.exportName,
+        exportName: importInfo.originalName,
       },
     });
   }
