@@ -53,8 +53,28 @@ export interface RunnerResolution {
   entryPath?: string;
   /** `package.json#version` of the project-local runner. Present iff `source === "project"`. */
   version?: string;
-  /** Reason vendored was chosen — useful for log surfacing in tests / debug. */
-  vendoredReason?: "no-local-package" | "malformed-package-json" | "entry-missing";
+  /**
+   * Reason vendored was chosen.
+   *
+   * - `no-sdk-no-runner` — neither sdk nor runner present. Either scratch
+   *   mode (no `node_modules/`) or a non-Glubean project. Vendored is the
+   *   correct choice; `isScratchMode()` already surfaces a hint UI.
+   * - `sdk-without-runner` — **misconfiguration**. User has
+   *   `node_modules/@glubean/sdk` but NOT `node_modules/@glubean/runner`.
+   *   This is the dual-instance hazard: vendored harness sets runtime on
+   *   vendored sdk; user's test code reads from project sdk; configure()
+   *   lazy access throws. `loadRunnerForCwd()` emits a strong warning in
+   *   this case so any subsequent runtime error has a visible diagnosis
+   *   path. We don't block — projects that never call configure() lazy
+   *   accessors run fine on vendored.
+   * - `malformed-package-json` — runner package.json is unparseable.
+   * - `entry-missing` — package.json points at an entry file that doesn't exist.
+   */
+  vendoredReason?:
+    | "no-sdk-no-runner"
+    | "sdk-without-runner"
+    | "malformed-package-json"
+    | "entry-missing";
 }
 
 /** Minimal `fs` surface this module needs. Injectable for hermetic tests. */
@@ -69,9 +89,17 @@ export function resolveRunnerSource(
 ): RunnerResolution {
   const runnerDir = path.join(cwd, "node_modules", "@glubean", "runner");
   const pkgPath = path.join(runnerDir, "package.json");
+  const sdkPkgPath = path.join(cwd, "node_modules", "@glubean", "sdk", "package.json");
 
   if (!fsApi.existsSync(pkgPath)) {
-    return { source: "vendored", vendoredReason: "no-local-package" };
+    // Distinguish the misconfiguration shape (sdk installed but runner
+    // is missing — would dual-instance) from genuine scratch mode (neither
+    // installed). Caller surfaces a different message for each.
+    const sdkPresent = fsApi.existsSync(sdkPkgPath);
+    return {
+      source: "vendored",
+      vendoredReason: sdkPresent ? "sdk-without-runner" : "no-sdk-no-runner",
+    };
   }
 
   let pkg: { version?: string; exports?: unknown; main?: string; module?: string };
@@ -149,6 +177,29 @@ export async function loadRunnerForCwd(
   } else {
     mod = await loadVendored();
     log?.(`runner: vendored @glubean/runner (${res.vendoredReason})`);
+    if (res.vendoredReason === "sdk-without-runner") {
+      // Strong warning: this combination triggers the dual-SDK-instance
+      // bug at runtime. See module-level docstring. Don't block — projects
+      // that never call configure() lazy accessors run fine on vendored —
+      // but make sure the diagnosis path is visible if they DO hit the
+      // "configure() values can only be accessed during test execution"
+      // error later.
+      log?.(
+        `[warning] @glubean/sdk is installed in this project but @glubean/runner is not.`,
+      );
+      log?.(
+        `[warning] Falling back to vendored runner. If tests using configure() vars/secrets`,
+      );
+      log?.(
+        `[warning] fail with "configure() values can only be accessed during test execution",`,
+      );
+      log?.(
+        `[warning] install runner directly:  npm install -D @glubean/runner`,
+      );
+      log?.(
+        `[warning] Or install the CLI (which transitively pulls runner):  npm install -D @glubean/cli`,
+      );
+    }
   }
 
   _projectRunnerCache.set(cwd, mod);

@@ -32,12 +32,32 @@ const cwd = "/Users/u/proj";
 const runnerDir = path.join(cwd, "node_modules", "@glubean", "runner");
 const pkgPath = path.join(runnerDir, "package.json");
 
+const sdkPkgPath = path.join(cwd, "node_modules", "@glubean", "sdk", "package.json");
+
 describe("resolveRunnerSource", () => {
-  it("returns vendored when no project-local @glubean/runner package.json exists", () => {
+  it("returns vendored with `no-sdk-no-runner` when neither sdk nor runner is installed (true scratch shape)", () => {
     const res = resolveRunnerSource(cwd, stubFs({}));
     assert.equal(res.source, "vendored");
-    assert.equal(res.vendoredReason, "no-local-package");
+    assert.equal(res.vendoredReason, "no-sdk-no-runner");
     assert.equal(res.entryPath, undefined);
+  });
+
+  it("returns vendored with `sdk-without-runner` when sdk is installed but runner is missing (DUAL-INSTANCE HAZARD)", () => {
+    // The bug shape: user has @glubean/sdk in their project but not
+    // @glubean/runner. Loading vendored runner WOULD work for tests that
+    // never touch configure() lazy values, but configure()/vars/secrets
+    // access throws because vendored harness sets runtime on the vendored
+    // sdk while user code reads from the project sdk. This branch surfaces
+    // the misconfiguration so the loader can emit a strong warning before
+    // the runtime error occurs.
+    const res = resolveRunnerSource(
+      cwd,
+      stubFs({
+        [sdkPkgPath]: JSON.stringify({ name: "@glubean/sdk", version: "0.2.3" }),
+      }),
+    );
+    assert.equal(res.source, "vendored");
+    assert.equal(res.vendoredReason, "sdk-without-runner");
   });
 
   it("returns project when package.json + entry exist (exports['.'].import)", () => {
