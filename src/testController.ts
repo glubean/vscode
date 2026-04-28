@@ -131,6 +131,31 @@ let exploreRoot: vscode.TestItem | undefined;
 const projectNodes = new Map<string, vscode.TestItem>(); // "explore:root" or "tests:root" → project node
 const dirNodes = new Map<string, vscode.TestItem>(); // "{baseId}:{dir1/dir2}" → directory node
 
+/**
+ * Reverse index: data-file absolute path → test files that depend on it.
+ *
+ * Populated when `parseFile` materializes data-driven rows — each
+ * `dataPath` returned by `materializeDataDrivenRows` is mapped back to
+ * its parent test file's URI. The data-file watcher uses this to
+ * re-parse ONLY the dependent test files when a JSON/YAML/CSV/JSONL
+ * file changes, instead of refreshing every known test file in the
+ * workspace (which was prohibitive on monorepos where every package.json
+ * save triggered a full sweep).
+ *
+ * Keys are absolute filesystem paths so watcher events (which carry
+ * fsPath) can look up directly. Values are TestItem keys (`uri.toString()`)
+ * for `fileItems` map symmetry.
+ */
+/** Concrete data file path → test-file URIs that read it. Used for direct O(1) watcher lookup. */
+const dataFileDependents = new Map<string, Set<string>>();
+/** fromDir directory root path → test-file URIs that use it. Kept separate so the fallback can apply insideDir matching without relying on path.extname heuristics. */
+const dataFileDirDependents = new Map<string, Set<string>>();
+
+/** Test-file URI → its declared dataPaths. Used to remove stale entries from `dataFileDependents` on re-parse. */
+const testFileDataPaths = new Map<string, string[]>();
+/** Test-file URI → its declared dir roots. Used to remove stale entries from `dataFileDirDependents` on re-parse. */
+const testFileDirRoots = new Map<string, string[]>();
+
 // ---------------------------------------------------------------------------
 // Alias registry — auto-detected test.extend() / task.extend() function names
 // ---------------------------------------------------------------------------
@@ -639,18 +664,60 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(testWatcher);
 
   // Data-driven TestItems are materialized from JSON/YAML/CSV/JSONL files at
-  // parse time, so data edits need to refresh the existing test tree too.
-  const dataWatcher = vscode.workspace.createFileSystemWatcher(
-    "**/*.{json,yaml,yml,csv,jsonl}",
-  );
-  const refreshKnownTestFiles = () => {
-    for (const uriString of fileItems.keys()) {
-      debouncedParse(vscode.Uri.parse(uriString));
+  // parse time, so data edits need to refresh the existing test tree.
+  //
+  // Prior implementation: every JSON/YAML/CSV/JSONL change in the entire
+  // workspace re-parsed every known test file. That's wasteful — saving
+  // `package.json` shouldn't kick off a parse of every `*.test.ts` in a
+  // monorepo. Use the `dataFileDependents` reverse index for precise
+  // refresh.
+  //
+  // Use a broad glob and filter through dataFileDependents. A narrow extension
+  // list would silently miss custom fromDir extensions (e.g. `.txt`, `.toml`).
+  // The callback fast-paths via direct map lookup — most file saves hit nothing
+  // and return in O(1); the ancestor fallback scan is O(N) over typically <100
+  // indexed data paths.
+  const dataWatcher = vscode.workspace.createFileSystemWatcher("**/*");
+
+  const refreshDependentTestFiles = (uri: vscode.Uri): void => {
+    const fsPath = uri.fsPath;
+    const direct = dataFileDependents.get(fsPath);
+    if (direct && direct.size > 0) {
+      for (const testFileUri of direct) {
+        debouncedParse(vscode.Uri.parse(testFileUri));
+      }
+      return;
+    }
+
+    // Fallback: walk every known dataPath and refresh test files whose
+    // data lives under the same directory tree as the changed file.
+    // Catches `fromDir(...)` create/delete events. Cheap O(N) scan over
+    // dataPaths — N is the number of distinct data sources across the
+    // workspace, typically tens not thousands.
+    const changedDir = path.dirname(fsPath);
+    const matched = new Set<string>();
+    // File paths: match when the changed file is a sibling (same parent dir).
+    for (const [dataPath, dependents] of dataFileDependents) {
+      if (changedDir === path.dirname(dataPath)) {
+        for (const u of dependents) matched.add(u);
+      }
+    }
+    // Dir roots: match when the changed file is inside the registered directory.
+    // Kept in a separate map so we never apply sameDir logic to dir roots
+    // (which would match files in the PARENT of the dir, not inside it).
+    for (const [dirRoot, dependents] of dataFileDirDependents) {
+      if (changedDir === dirRoot || changedDir.startsWith(`${dirRoot}${path.sep}`)) {
+        for (const u of dependents) matched.add(u);
+      }
+    }
+    for (const testFileUri of matched) {
+      debouncedParse(vscode.Uri.parse(testFileUri));
     }
   };
-  dataWatcher.onDidChange(refreshKnownTestFiles);
-  dataWatcher.onDidCreate(refreshKnownTestFiles);
-  dataWatcher.onDidDelete(refreshKnownTestFiles);
+
+  dataWatcher.onDidChange(refreshDependentTestFiles);
+  dataWatcher.onDidCreate(refreshDependentTestFiles);
+  dataWatcher.onDidDelete(refreshDependentTestFiles);
   context.subscriptions.push(dataWatcher);
 
   // ── Layout config change listener ──────────────────────────────────────
@@ -944,6 +1011,66 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
     workspaceRoot,
   });
 
+  // Update the data-file → dependents reverse index so the file watcher
+  // can refresh only THIS test file (and its siblings sharing data) when
+  // a JSON/YAML/CSV/JSONL file changes. Drop the old entries first so
+  // the index doesn't grow stale across re-parses (e.g. user changed
+  // `fromCsv("./a.csv")` to `fromCsv("./b.csv")`).
+  const normPath = (p: string) =>
+    p.endsWith(path.sep) || p.endsWith("/") ? p.slice(0, -1) : p;
+
+  // Remove stale file-path entries.
+  for (const stale of testFileDataPaths.get(key) ?? []) {
+    const dependents = dataFileDependents.get(stale);
+    if (dependents) { dependents.delete(key); if (dependents.size === 0) dataFileDependents.delete(stale); }
+  }
+  // Remove stale dir-root entries.
+  for (const stale of testFileDirRoots.get(key) ?? []) {
+    const dependents = dataFileDirDependents.get(stale);
+    if (dependents) { dependents.delete(key); if (dependents.size === 0) dataFileDirDependents.delete(stale); }
+  }
+
+  // Normalize trailing slashes (preserveTrailingSlash in data-path.ts can add
+  // them; VSCode watcher fires without trailing slashes so lookup must match).
+  const normalizedPaths = dataDrivenRows.dataPaths.map(normPath);
+  const normalizedDirRoots = dataDrivenRows.dataDirRoots.map(normPath);
+  const dirRootSet = new Set(normalizedDirRoots);
+
+  if (normalizedPaths.length > 0) {
+    // File paths (not dir roots) → dataFileDependents for sameDir matching.
+    const filePaths = normalizedPaths.filter((p) => !dirRootSet.has(p));
+    testFileDataPaths.set(key, filePaths);
+    for (const dataPath of filePaths) {
+      let dependents = dataFileDependents.get(dataPath);
+      if (!dependents) { dependents = new Set(); dataFileDependents.set(dataPath, dependents); }
+      dependents.add(key);
+    }
+  } else {
+    testFileDataPaths.delete(key);
+  }
+
+  if (normalizedDirRoots.length > 0) {
+    // Dir roots → dataFileDirDependents for insideDir matching.
+    testFileDirRoots.set(key, normalizedDirRoots);
+    for (const dirRoot of normalizedDirRoots) {
+      let dependents = dataFileDirDependents.get(dirRoot);
+      if (!dependents) { dependents = new Set(); dataFileDirDependents.set(dirRoot, dependents); }
+      dependents.add(key);
+    }
+  } else {
+    testFileDirRoots.delete(key);
+  }
+
+  // Surface data-row diagnostics to the output channel so authors see
+  // WHY rows didn't appear (file missing, JSON parse error, row cap hit,
+  // empty file). Pre-fix these conditions were silent — `try/catch` in
+  // the loaders swallowed everything and the user just saw "no rows".
+  for (const diagnostic of dataDrivenRows.diagnostics) {
+    const tag = diagnostic.severity === "warning" ? "WARN" : "INFO";
+    const where = diagnostic.dataPath ? ` [${path.relative(workspaceRoot, diagnostic.dataPath)}]` : "";
+    outputChannel.appendLine(`[data-rows ${tag}] ${path.basename(uri.fsPath)}${where}: ${diagnostic.message}`);
+  }
+
   // Bootstrap shadow TestItems — resolve overlay markers in *.bootstrap.ts
   // files to their target case, register a TestItem in this file pointing
   // at the target. Click → runs the target case (overlay registers via
@@ -992,6 +1119,16 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
     // line is 1-based from parser, VS Code Range is 0-based
     const line = test.line - 1;
     testItem.range = new vscode.Range(line, 0, line, 999);
+
+    // Attach a per-export data diagnostic to the TestItem description so
+    // the warning is visible in Test Explorer next to the export name —
+    // not just in the output channel. `description` is rendered as a dim
+    // suffix by VSCode (e.g. `csvCases     ⚠ Failed to read ./missing.csv`).
+    const exportDiagnostic = dataDrivenRows.diagnostics.find((d) => d.exportName === test.exportName);
+    if (exportDiagnostic) {
+      const icon = exportDiagnostic.severity === "warning" ? "⚠" : "ⓘ";
+      testItem.description = `${icon} ${exportDiagnostic.message}`;
+    }
 
     const rows = dataDrivenRows.rowsByParentId.get(test.id) ?? [];
     if (rows.length > 0) {

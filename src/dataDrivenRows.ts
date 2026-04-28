@@ -1,8 +1,17 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as ts from "typescript";
 import { parse as parseYaml } from "yaml";
 import { resolveDataPath } from "./data-path";
+import {
+  forEachExportedConst,
+  parseSource,
+  propertyNameText,
+  stringFromExpression as astStringFromExpression,
+  unwrapExpression as astUnwrap,
+  walk,
+  type AnyNode,
+  type SourceFile,
+} from "./ast";
 import type { TestMeta } from "./parser";
 
 export interface DataDrivenRow {
@@ -17,7 +26,44 @@ export interface DataDrivenRow {
 export interface MaterializedDataDrivenRows {
   rowsByParentId: Map<string, DataDrivenRow[]>;
   dataPaths: string[];
+  /**
+   * Subset of `dataPaths` that are directory roots (from `fromDir(...)` loaders).
+   * Separated so `testController` can use the correct watcher matching strategy:
+   * `sameDir` for concrete files, `insideDir` for directory roots. Using
+   * `path.extname` to infer kind is unreliable for dirs with a dot in the name
+   * (e.g. `./data.v1/`).
+   */
+  dataDirRoots: string[];
+  /**
+   * Diagnostics surfaced during materialisation — used by `testController`
+   * to render gentle warnings (status-bar / file-level marker) when a
+   * data file is malformed, exceeds the row cap, or otherwise can't be
+   * fully turned into TestItems. Pre-fix these failures were silent —
+   * the test row simply didn't appear and the user had no signal.
+   */
+  diagnostics: DataRowDiagnostic[];
 }
+
+export interface DataRowDiagnostic {
+  /** Test export the diagnostic relates to — e.g. `csvCases`. */
+  exportName: string;
+  /** Severity. `warning` = degraded (row cap hit, parse error), `info` = informational. */
+  severity: "warning" | "info";
+  /** Short human-readable message ready to surface in a notification or status bar. */
+  message: string;
+  /** Optional path of the data file that triggered the diagnostic. */
+  dataPath?: string;
+}
+
+/**
+ * Hard cap on rows materialised per data-driven export. 100k-row CSVs
+ * would otherwise create 100k VSCode TestItems and freeze the Test
+ * Explorer. 5000 was picked as a practical ceiling — large enough for
+ * realistic API parameter sweeps, small enough for VSCode to render
+ * the tree without lag. Authors hitting the cap see an `info` diagnostic
+ * suggesting they `--filter` to a subset.
+ */
+export const ROW_CAP = 5000;
 
 interface RowData {
   index: number;
@@ -43,13 +89,13 @@ type SourceRef =
 
 interface DataCall {
   kind: "each" | "pick";
-  dataArg: ts.Expression;
+  dataArg: AnyNode;
 }
 
 interface AstIndex {
-  sourceFile: ts.SourceFile;
+  source: SourceFile;
   jsonImports: Map<string, string>;
-  bindings: Map<string, ts.Expression>;
+  bindings: Map<string, AnyNode>;
   dataCallsByExport: Map<string, DataCall>;
 }
 
@@ -62,7 +108,10 @@ export function materializeDataDrivenRows(
 ): MaterializedDataDrivenRows {
   const rowsByParentId = new Map<string, DataDrivenRow[]>();
   const dataPaths = new Set<string>();
+  const dataDirRoots = new Set<string>();
+  const diagnostics: DataRowDiagnostic[] = [];
   const index = buildAstIndex(content, options.filePath);
+  if (!index) return { rowsByParentId, dataPaths: [], dataDirRoots: [], diagnostics };
 
   for (const test of tests) {
     const kind = test.id.startsWith("each:")
@@ -80,13 +129,50 @@ export function materializeDataDrivenRows(
 
     const resolved = readRows(source, kind, options);
     for (const dataPath of resolved.dataPaths) dataPaths.add(dataPath);
-    if (resolved.rows.length === 0) continue;
+    if (resolved.dirRoot) dataDirRoots.add(resolved.dirRoot);
+
+    // Surface read-time errors (parse failure, missing file, malformed
+    // YAML, etc) as a warning so the user sees WHY rows didn't appear.
+    if (resolved.error) {
+      diagnostics.push({
+        exportName: test.exportName,
+        severity: "warning",
+        message: resolved.error,
+        dataPath: resolved.dataPaths[0],
+      });
+      continue;
+    }
+
+    if (resolved.rows.length === 0) {
+      // Successfully read but the file was empty / picked path resolved
+      // to nothing. Distinct from `error` — the user's setup is correct,
+      // just the data is empty.
+      if (resolved.dataPaths.length > 0) {
+        diagnostics.push({
+          exportName: test.exportName,
+          severity: "info",
+          message: `${test.exportName}: data file produced 0 rows.`,
+          dataPath: resolved.dataPaths[0],
+        });
+      }
+      continue;
+    }
+
+    // Hard cap so a malformed (or just very large) data source can't
+    // freeze the Test Explorer. We materialise the first `ROW_CAP` rows
+    // and emit an `info` diagnostic with the truncated count.
+    let truncated = false;
+    let scannedRows = resolved.rows;
+    if (scannedRows.length > ROW_CAP) {
+      truncated = true;
+      scannedRows = scannedRows.slice(0, ROW_CAP);
+    }
 
     const templateId = stripDataPrefix(test.id);
     const labelTemplate = stripDataSuffix(test.name ?? templateId);
     const rows: DataDrivenRow[] = [];
 
-    for (const row of resolved.rows) {
+    for (const row of scannedRows) {
       const id = interpolateTemplate(templateId, row.data, row.index);
       if (hasUnresolvedTemplate(id)) continue;
 
@@ -101,136 +187,188 @@ export function materializeDataDrivenRows(
       });
     }
 
+    if (truncated) {
+      diagnostics.push({
+        exportName: test.exportName,
+        severity: "info",
+        message: `${test.exportName}: data source has ${resolved.rows.length} rows; only the first ${ROW_CAP} are materialised in the Test Explorer. Use --filter to run others.`,
+        dataPath: resolved.dataPaths[0],
+      });
+    }
+
     if (rows.length > 0) {
       rowsByParentId.set(test.id, rows);
     }
   }
 
-  return { rowsByParentId, dataPaths: [...dataPaths].sort() };
+  return { rowsByParentId, dataPaths: [...dataPaths].sort(), dataDirRoots: [...dataDirRoots], diagnostics };
 }
 
-function buildAstIndex(content: string, filePath: string): AstIndex {
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
+function buildAstIndex(content: string, filePath: string): AstIndex | undefined {
+  let source: SourceFile;
+  try {
+    source = parseSource(content, filePath);
+  } catch {
+    // Acorn throws on syntax errors. Treat unparseable as "no rows" — the
+    // user is editing and the AST will rebuild on next save.
+    return undefined;
+  }
+
   const index: AstIndex = {
-    sourceFile,
+    source,
     jsonImports: new Map(),
     bindings: new Map(),
     dataCallsByExport: new Map(),
   };
 
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node)) {
-      const importName = node.importClause?.name;
-      const modulePath = stringFromExpression(node.moduleSpecifier);
-      if (importName && modulePath?.endsWith(".json")) {
-        index.jsonImports.set(importName.text, modulePath);
+  // Walk top-level statements only — bindings declared inside functions
+  // can't be referenced by an exported `test.each(value)`, so the
+  // restriction matches what's actually resolvable.
+  for (const statement of source.program.body) {
+    if (statement.type === "ImportDeclaration") {
+      // `import data from "./x.json"` — capture the local binding name
+      // so `test.each(data)` can resolve to the JSON file path.
+      const specifiers = (statement as AnyNode).specifiers as AnyNode[] | undefined;
+      const sourceNode = (statement as AnyNode).source as AnyNode | undefined;
+      const modulePath = sourceNode ? astStringFromExpression(sourceNode) : undefined;
+      if (modulePath?.endsWith(".json") && specifiers) {
+        for (const specifier of specifiers) {
+          if (specifier.type !== "ImportDefaultSpecifier") continue;
+          const local = (specifier as AnyNode).local as AnyNode;
+          if (local.type === "Identifier") {
+            index.jsonImports.set(local.name as string, modulePath);
+          }
+        }
       }
+      continue;
     }
 
-    if (ts.isVariableStatement(node)) {
-      const exported = hasExportModifier(node);
-      for (const declaration of node.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
-          continue;
-        }
+    // Capture bindings declared by ANY top-level `const x = ...`. Both
+    // `export const` and bare `const` are valid sources for the
+    // identifier-based resolution path. `let`/`var` are intentionally
+    // skipped — those imply reassignment and we can't trust the static
+    // initializer to match the runtime value.
+    const declarationNode = pickVariableDeclaration(statement);
+    if (declarationNode) {
+      const declarators = (declarationNode as AnyNode).declarations as AnyNode[] | undefined;
+      if (!declarators) continue;
+      for (const declarator of declarators) {
+        const id = (declarator as AnyNode).id as AnyNode | undefined;
+        const init = (declarator as AnyNode).init as AnyNode | undefined;
+        if (!id || id.type !== "Identifier" || !init) continue;
+        index.bindings.set((id as AnyNode).name as string, init);
+      }
+    }
+  }
 
-        index.bindings.set(declaration.name.text, declaration.initializer);
-        if (exported) {
-          const dataCall = findDataCall(declaration.initializer);
-          if (dataCall) {
-            index.dataCallsByExport.set(declaration.name.text, dataCall);
+  // Now find exported data-driven exports (`export const X = test.each(...)`).
+  forEachExportedConst(source, (_statement, declarator) => {
+    const id = (declarator as AnyNode).id as AnyNode | undefined;
+    const init = (declarator as AnyNode).init as AnyNode | undefined;
+    if (!id || id.type !== "Identifier" || !init) return;
+
+    const dataCall = findDataCall(init);
+    if (dataCall) index.dataCallsByExport.set((id as AnyNode).name as string, dataCall);
+  });
+
+  return index;
+}
+
+/**
+ * Return the `VariableDeclaration` node carried by a top-level statement,
+ * regardless of whether it's exported. Handles plain `const x = …` and
+ * `export const x = …`.
+ */
+function pickVariableDeclaration(statement: AnyNode): AnyNode | undefined {
+  if (statement.type === "VariableDeclaration") return statement;
+  if (statement.type === "ExportNamedDeclaration") {
+    const inner = (statement as AnyNode).declaration as AnyNode | undefined;
+    if (inner?.type === "VariableDeclaration") return inner;
+  }
+  return undefined;
+}
+
+/**
+ * Walk an expression looking for the outermost `.each(...)` / `.pick(...)`
+ * call. Returns `{ kind, dataArg }` — `dataArg` is the first argument,
+ * which is what we'll resolve to a SourceRef.
+ *
+ * The walker stops at the first match (outermost) so chains like
+ * `test.each(await fromCsv(path))` yield `{ kind: "each", dataArg: <await> }`.
+ */
+function findDataCall(expr: AnyNode): DataCall | undefined {
+  // Walk only the callee chain — never descend into arguments or callback
+  // bodies. This prevents a nested `.each()` inside a test callback from
+  // shadowing the real data source call on the callee side.
+  //
+  // Handles both forms:
+  //   test.each(cases)               — direct: init IS the data call
+  //   test.each(cases)(desc, async() => { … helper.each(…) … })
+  //                                  — curried: data call is the callee
+  let current = unwrapCallee(expr);
+  while (current.type === "CallExpression") {
+    const callee = unwrapCallee((current as AnyNode).callee as AnyNode);
+    if (callee.type === "MemberExpression") {
+      const property = (callee as AnyNode).property as AnyNode;
+      if (property.type === "Identifier") {
+        const name = (property as AnyNode).name as string;
+        if (name === "each" || name === "pick") {
+          const args = (current as AnyNode).arguments as AnyNode[] | undefined;
+          if (args && args.length > 0) {
+            return { kind: name as "each" | "pick", dataArg: args[0]! };
           }
         }
       }
     }
-
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-  return index;
-}
-
-function hasExportModifier(node: ts.Node): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    !!ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-  );
-}
-
-function findDataCall(expr: ts.Expression): DataCall | undefined {
-  let found: DataCall | undefined;
-
-  const visit = (node: ts.Node): void => {
-    if (found) return;
-
-    if (ts.isCallExpression(node)) {
-      const callee = unwrapExpression(node.expression);
-      if (
-        ts.isPropertyAccessExpression(callee) &&
-        (callee.name.text === "each" || callee.name.text === "pick") &&
-        node.arguments.length > 0
-      ) {
-        found = {
-          kind: callee.name.text as "each" | "pick",
-          dataArg: node.arguments[0],
-        };
-        return;
-      }
-    }
-
-    ts.forEachChild(node, visit);
-  };
-
-  visit(expr);
-  return found;
+    current = unwrapCallee((current as AnyNode).callee as AnyNode);
+  }
+  return undefined;
 }
 
 function sourceRefFromExpression(
-  expression: ts.Expression,
+  expression: AnyNode,
   index: AstIndex,
   visited = new Set<string>(),
 ): SourceRef | undefined {
-  const expr = unwrapExpression(expression);
+  const expr = unwrapAll(expression);
+  if (!expr) return undefined;
 
-  if (ts.isIdentifier(expr)) {
-    const jsonPath = index.jsonImports.get(expr.text);
+  if (expr.type === "Identifier") {
+    const ident = (expr as AnyNode).name as string;
+    const jsonPath = index.jsonImports.get(ident);
     if (jsonPath) return { kind: "json-import", rawPath: jsonPath };
 
-    if (visited.has(expr.text)) return undefined;
-    const bound = index.bindings.get(expr.text);
+    if (visited.has(ident)) return undefined;
+    const bound = index.bindings.get(ident);
     if (!bound) return undefined;
 
-    visited.add(expr.text);
+    visited.add(ident);
     return sourceRefFromExpression(bound, index, visited);
   }
 
-  if (ts.isArrayLiteralExpression(expr) || ts.isObjectLiteralExpression(expr)) {
+  if (expr.type === "ArrayExpression" || expr.type === "ObjectExpression") {
     const value = literalValue(expr);
     return value === UNREADABLE ? undefined : { kind: "inline", value };
   }
 
-  if (ts.isCallExpression(expr)) {
+  if (expr.type === "CallExpression") {
     return loaderSourceRef(expr);
   }
 
   return undefined;
 }
 
-function loaderSourceRef(call: ts.CallExpression): SourceRef | undefined {
-  const name = loaderName(call.expression);
+function loaderSourceRef(call: AnyNode): SourceRef | undefined {
+  const callee = unwrapAll((call as AnyNode).callee as AnyNode);
+  const name = callee ? loaderName(callee) : undefined;
   if (!name) return undefined;
 
-  const rawPath = stringFromExpression(call.arguments[0]);
+  const args = (call as AnyNode).arguments as AnyNode[] | undefined;
+  if (!args || args.length === 0) return undefined;
+  const rawPath = astStringFromExpression(args[0]);
   if (!rawPath) return undefined;
 
-  const options = objectOptions(call.arguments[1]);
+  const options = objectOptions(args[1]);
 
   switch (name) {
     case "fromCsv":
@@ -278,30 +416,22 @@ function loaderSourceRef(call: ts.CallExpression): SourceRef | undefined {
   }
 }
 
-function loaderName(expression: ts.Expression): string | undefined {
-  const expr = unwrapExpression(expression);
-  if (ts.isIdentifier(expr)) {
-    return [
-      "fromCsv",
-      "fromJson",
-      "fromJsonl",
-      "fromYaml",
-      "fromDir",
-    ].includes(expr.text)
-      ? expr.text
+function loaderName(callee: AnyNode): string | undefined {
+  if (callee.type === "Identifier") {
+    const text = (callee as AnyNode).name as string;
+    return ["fromCsv", "fromJson", "fromJsonl", "fromYaml", "fromDir"].includes(text)
+      ? text
       : undefined;
   }
 
-  if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
-    const base = expr.expression.text;
-    const prop = expr.name.text;
+  if (callee.type === "MemberExpression") {
+    const object = (callee as AnyNode).object as AnyNode;
+    const property = (callee as AnyNode).property as AnyNode;
+    if (object.type !== "Identifier" || property.type !== "Identifier") return undefined;
+    const base = (object as AnyNode).name as string;
+    const prop = (property as AnyNode).name as string;
     const name = `${base}.${prop}`;
-    return [
-      "fromJson.map",
-      "fromYaml.map",
-      "fromDir.concat",
-      "fromDir.merge",
-    ].includes(name)
+    return ["fromJson.map", "fromYaml.map", "fromDir.concat", "fromDir.merge"].includes(name)
       ? name
       : undefined;
   }
@@ -309,48 +439,62 @@ function loaderName(expression: ts.Expression): string | undefined {
   return undefined;
 }
 
-function objectOptions(expression: ts.Expression | undefined): {
+function objectOptions(expression: AnyNode | undefined): {
   pick?: string;
   separator?: string;
   headers?: boolean;
   ext?: string[];
   recursive?: boolean;
 } {
-  const expr = expression ? unwrapExpression(expression) : undefined;
-  if (!expr || !ts.isObjectLiteralExpression(expr)) return {};
+  const expr = expression ? unwrapAll(expression) : undefined;
+  if (!expr || expr.type !== "ObjectExpression") return {};
 
   const out: ReturnType<typeof objectOptions> = {};
-  for (const property of expr.properties) {
-    if (!ts.isPropertyAssignment(property)) continue;
-    const key = propertyNameText(property.name);
+  const properties = (expr as AnyNode).properties as AnyNode[] | undefined;
+  if (!properties) return out;
+
+  for (const property of properties) {
+    if (property.type !== "Property") continue;
+    const key = propertyNameText(property);
     if (!key) continue;
+    const value = (property as AnyNode).value as AnyNode | undefined;
+    if (!value) continue;
 
     if (key === "pick") {
-      const pick = stringFromExpression(property.initializer);
+      const pick = astStringFromExpression(value);
       if (pick) out.pick = pick;
     } else if (key === "separator") {
-      const separator = stringFromExpression(property.initializer);
+      const separator = astStringFromExpression(value);
       if (separator) out.separator = separator;
     } else if (key === "headers") {
-      const value = booleanFromExpression(property.initializer);
-      if (value !== undefined) out.headers = value;
+      const v = booleanFromExpression(value);
+      if (v !== undefined) out.headers = v;
     } else if (key === "recursive") {
-      const value = booleanFromExpression(property.initializer);
-      if (value !== undefined) out.recursive = value;
+      const v = booleanFromExpression(value);
+      if (v !== undefined) out.recursive = v;
     } else if (key === "ext") {
-      const value = stringArrayFromExpression(property.initializer);
-      if (value.length > 0) out.ext = value;
+      const v = stringArrayFromExpression(value);
+      if (v.length > 0) out.ext = v;
     }
   }
 
   return out;
 }
 
+interface ReadRowsResult {
+  rows: RowData[];
+  dataPaths: string[];
+  /** Set for `dir` loaders: the resolved directory root (first element of `dataPaths`). */
+  dirRoot?: string;
+  /** Populated when the data source could not be read or parsed. Surfaces as a `warning` diagnostic. */
+  error?: string;
+}
+
 function readRows(
   source: SourceRef,
   kind: "each" | "pick",
   options: { filePath: string; workspaceRoot: string },
-): { rows: RowData[]; dataPaths: string[] } {
+): ReadRowsResult {
   try {
     switch (source.kind) {
       case "inline":
@@ -394,8 +538,37 @@ function readRows(
       case "dir":
         return readDirRows(source, kind, options);
     }
-  } catch {
-    return { rows: [], dataPaths: [] };
+  } catch (error) {
+    // Surface the failure to the diagnostics pipeline. Most common
+    // cases: file not found, JSON.parse SyntaxError, malformed YAML.
+    //
+    // Crucially: resolve the path even on failure so the watcher dependency
+    // is registered. Without this, fixing a malformed file would not trigger
+    // a re-parse because the test controller never learned which data file
+    // was involved. resolveLoaderPath is a pure path computation; it won't
+    // throw for a missing file.
+    const message = error instanceof Error ? error.message : String(error);
+    let failedPaths: string[] = [];
+    let failedDirRoot: string | undefined;
+    if (source.kind !== "inline") {
+      try {
+        const resolved = resolveLoaderPath(source.rawPath, options);
+        failedPaths = [resolved];
+        // For dir loaders: propagate dirRoot even on failure so the watcher
+        // dependency is registered. Without this, fixing a malformed file
+        // inside the directory would never trigger a re-parse.
+        if (source.kind === "dir") failedDirRoot = resolved;
+      } catch {
+        /* rawPath unresolvable — no watcher dependency registered */
+      }
+    }
+    const displayPath = failedPaths[0] ?? (source.kind !== "inline" ? source.rawPath : undefined);
+    return {
+      rows: [],
+      dataPaths: failedPaths,
+      dirRoot: failedDirRoot,
+      error: displayPath ? `Failed to read ${displayPath}: ${message}` : `Failed to read data: ${message}`,
+    };
   }
 }
 
@@ -403,10 +576,13 @@ function readDirRows(
   source: Extract<SourceRef, { kind: "dir" }>,
   kind: "each" | "pick",
   options: { filePath: string; workspaceRoot: string },
-): { rows: RowData[]; dataPaths: string[] } {
+): ReadRowsResult {
   const dirPath = resolveLoaderPath(source.rawPath, options);
   const files = collectFiles(dirPath, source.ext, source.recursive);
-  const dataPaths = [...files];
+  // Include the directory root so the watcher has an entry even for empty
+  // dirs. `dirRoot` is surfaced separately so testController can use the
+  // correct matching strategy (insideDir) without relying on path.extname.
+  const dataPaths = [dirPath, ...files];
 
   if (source.mode === "merge") {
     const merged: Record<string, unknown> = {};
@@ -414,7 +590,7 @@ function readDirRows(
       const value = loadSingleFile(file);
       if (isPlainObject(value)) Object.assign(merged, value);
     }
-    return { rows: rowsFromValue(merged, kind), dataPaths };
+    return { rows: rowsFromValue(merged, kind), dataPaths, dirRoot: dirPath };
   }
 
   if (source.mode === "concat") {
@@ -423,7 +599,7 @@ function readDirRows(
       const value = loadFileAuto(file, source.pick);
       if (Array.isArray(value)) rows.push(...value);
     }
-    return { rows: rowsFromValue(rows, kind), dataPaths };
+    return { rows: rowsFromValue(rows, kind), dataPaths, dirRoot: dirPath };
   }
 
   const rows = files.map((file) => {
@@ -436,7 +612,7 @@ function readDirRows(
       ...(isPlainObject(content) ? content : { data: content }),
     };
   });
-  return { rows: rowsFromValue(rows, kind), dataPaths };
+  return { rows: rowsFromValue(rows, kind), dataPaths, dirRoot: dirPath };
 }
 
 function resolveLoaderPath(
@@ -460,11 +636,11 @@ function collectFiles(
   ).map((ext) => ext.toLowerCase());
   const out: string[] = [];
 
-  const walk = (dir: string): void => {
+  const walkDir = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (recursive) walk(fullPath);
+        if (recursive) walkDir(fullPath);
         continue;
       }
 
@@ -477,7 +653,7 @@ function collectFiles(
     }
   };
 
-  walk(dirPath);
+  walkDir(dirPath);
   return out.sort();
 }
 
@@ -654,34 +830,61 @@ function fileNameWithoutExt(filePath: string): string {
   return dot === -1 ? filename : filename.slice(0, dot);
 }
 
-function literalValue(node: ts.Expression): unknown | typeof UNREADABLE {
-  const expr = unwrapExpression(node);
+/**
+ * Try to read a static value out of an expression. Returns `UNREADABLE`
+ * for anything that can't be reduced to a primitive / array / object —
+ * caller should fall through to "no rows" rather than guess.
+ *
+ * The previous TS-API version handled `+/-` numeric prefixes. We keep
+ * that here so authors can write `[-1, 0, 1]` inline.
+ */
+function literalValue(node: AnyNode): unknown | typeof UNREADABLE {
+  const expr = unwrapAll(node);
+  if (!expr) return UNREADABLE;
 
-  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
-    return expr.text;
-  }
-  if (ts.isNumericLiteral(expr)) {
-    return Number(expr.text);
-  }
-  if (expr.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (expr.kind === ts.SyntaxKind.FalseKeyword) return false;
-  if (expr.kind === ts.SyntaxKind.NullKeyword) return null;
-  if (ts.isIdentifier(expr) && expr.text === "undefined") return undefined;
-
-  if (
-    ts.isPrefixUnaryExpression(expr) &&
-    ts.isNumericLiteral(expr.operand) &&
-    (expr.operator === ts.SyntaxKind.MinusToken ||
-      expr.operator === ts.SyntaxKind.PlusToken)
-  ) {
-    const value = Number(expr.operand.text);
-    return expr.operator === ts.SyntaxKind.MinusToken ? -value : value;
+  if (expr.type === "Literal") {
+    const value = (expr as AnyNode).value;
+    // acorn `Literal` covers strings, numbers, booleans, null, regex.
+    // Regex is the only unhelpful kind; we treat it as unreadable so a
+    // regex sneaking into inline data doesn't get materialised as `{}`.
+    if (value instanceof RegExp) return UNREADABLE;
+    return value;
   }
 
-  if (ts.isArrayLiteralExpression(expr)) {
+  if (expr.type === "TemplateLiteral") {
+    const expressions = (expr as AnyNode).expressions as AnyNode[] | undefined;
+    const quasis = (expr as AnyNode).quasis as AnyNode[] | undefined;
+    if (expressions && expressions.length === 0 && quasis && quasis.length === 1) {
+      return (quasis[0]!.value as { cooked?: string }).cooked ?? "";
+    }
+    return UNREADABLE;
+  }
+
+  if (expr.type === "Identifier") {
+    if ((expr as AnyNode).name === "undefined") return undefined;
+    return UNREADABLE;
+  }
+
+  if (expr.type === "UnaryExpression") {
+    const operator = (expr as AnyNode).operator as string;
+    if (operator !== "+" && operator !== "-") return UNREADABLE;
+    const argument = (expr as AnyNode).argument as AnyNode;
+    if (argument.type !== "Literal") return UNREADABLE;
+    const raw = (argument as AnyNode).value;
+    if (typeof raw !== "number") return UNREADABLE;
+    return operator === "-" ? -raw : raw;
+  }
+
+  if (expr.type === "ArrayExpression") {
+    const elements = (expr as AnyNode).elements as Array<AnyNode | null> | undefined;
+    if (!elements) return [];
     const values: unknown[] = [];
-    for (const element of expr.elements) {
-      if (ts.isSpreadElement(element)) return UNREADABLE;
+    for (const element of elements) {
+      if (!element) {
+        values.push(undefined);
+        continue;
+      }
+      if (element.type === "SpreadElement") return UNREADABLE;
       const value = literalValue(element);
       if (value === UNREADABLE) return UNREADABLE;
       values.push(value);
@@ -689,13 +892,17 @@ function literalValue(node: ts.Expression): unknown | typeof UNREADABLE {
     return values;
   }
 
-  if (ts.isObjectLiteralExpression(expr)) {
+  if (expr.type === "ObjectExpression") {
+    const properties = (expr as AnyNode).properties as AnyNode[] | undefined;
     const out: Record<string, unknown> = {};
-    for (const property of expr.properties) {
-      if (!ts.isPropertyAssignment(property)) return UNREADABLE;
-      const key = propertyNameText(property.name);
+    if (!properties) return out;
+    for (const property of properties) {
+      if (property.type !== "Property") return UNREADABLE;
+      const key = propertyNameText(property);
       if (!key) return UNREADABLE;
-      const value = literalValue(property.initializer);
+      const valueNode = (property as AnyNode).value as AnyNode | undefined;
+      if (!valueNode) return UNREADABLE;
+      const value = literalValue(valueNode);
       if (value === UNREADABLE) return UNREADABLE;
       out[key] = value;
     }
@@ -705,60 +912,59 @@ function literalValue(node: ts.Expression): unknown | typeof UNREADABLE {
   return UNREADABLE;
 }
 
-function unwrapExpression(expression: ts.Expression): ts.Expression {
-  let current = expression;
-  while (true) {
-    if (ts.isParenthesizedExpression(current)) {
-      current = current.expression;
-    } else if (ts.isAwaitExpression(current)) {
-      current = current.expression;
-    } else if (ts.isAsExpression(current)) {
-      current = current.expression;
-    } else if (ts.isTypeAssertionExpression(current)) {
-      current = current.expression;
-    } else if (ts.isSatisfiesExpression(current)) {
-      current = current.expression;
-    } else if (ts.isNonNullExpression(current)) {
-      current = current.expression;
-    } else {
-      return current;
+/**
+ * Strip type wrappers AND `await`. Cookbook commonly writes
+ * `test.each(await fromCsv(...))` so the data argument we receive is an
+ * `AwaitExpression` — for the purposes of "what's the runtime
+ * expression?" await is the same as a wrapper.
+ */
+function unwrapAll(expr: AnyNode | undefined): AnyNode | undefined {
+  let current: AnyNode | undefined = expr;
+  while (current) {
+    const next = astUnwrap(current);
+    if (!next) return undefined;
+    if (next.type === "AwaitExpression") {
+      current = (next as AnyNode).argument as AnyNode;
+      continue;
     }
+    if (next === current) return current;
+    current = next;
   }
+  return current;
 }
 
-function propertyNameText(name: ts.PropertyName): string | undefined {
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
-    return name.text;
-  }
-  return undefined;
+/**
+ * Slimmer unwrap for callee position — the AST helper handles the type
+ * cases; await on the callee is exotic enough we don't bother.
+ */
+function unwrapCallee(callee: AnyNode): AnyNode {
+  return astUnwrap(callee) ?? callee;
 }
 
-function stringFromExpression(expression: ts.Expression | undefined): string | undefined {
-  const expr = expression ? unwrapExpression(expression) : undefined;
+function booleanFromExpression(expression: AnyNode): boolean | undefined {
+  const expr = unwrapAll(expression);
   if (!expr) return undefined;
-  if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
-    return expr.text;
+  if (expr.type === "Literal") {
+    const value = (expr as AnyNode).value;
+    if (typeof value === "boolean") return value;
   }
   return undefined;
 }
 
-function booleanFromExpression(expression: ts.Expression): boolean | undefined {
-  const expr = unwrapExpression(expression);
-  if (expr.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (expr.kind === ts.SyntaxKind.FalseKeyword) return false;
-  return undefined;
-}
-
-function stringArrayFromExpression(expression: ts.Expression): string[] {
-  const expr = unwrapExpression(expression);
-  const scalar = stringFromExpression(expr);
+function stringArrayFromExpression(expression: AnyNode): string[] {
+  const expr = unwrapAll(expression);
+  if (!expr) return [];
+  const scalar = astStringFromExpression(expr);
   if (scalar) return [scalar];
-  if (!ts.isArrayLiteralExpression(expr)) return [];
+  if (expr.type !== "ArrayExpression") return [];
 
+  const elements = (expr as AnyNode).elements as Array<AnyNode | null> | undefined;
+  if (!elements) return [];
   const values: string[] = [];
-  for (const element of expr.elements) {
-    if (ts.isSpreadElement(element)) return [];
-    const value = stringFromExpression(element);
+  for (const element of elements) {
+    if (!element) return [];
+    if (element.type === "SpreadElement") return [];
+    const value = astStringFromExpression(element);
     if (!value) return [];
     values.push(value);
   }

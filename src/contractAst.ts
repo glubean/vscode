@@ -1,4 +1,28 @@
-import * as ts from "typescript";
+/**
+ * Contract / flow / bootstrap extraction from `.contract.ts` / `.flow.ts` /
+ * `.bootstrap.ts` files. Replaces the previous regex + char-walker with a
+ * real AST traversal via the shared `ast.ts` helper (acorn + acorn-typescript).
+ *
+ * Public API and behaviour are unchanged — the rewrite is bundle-only:
+ * the old version pulled in the full `typescript` module (~3 MB). This
+ * version uses acorn (~600 KB total).
+ */
+
+import {
+  forEachExportedConst,
+  findPropertyCall,
+  hasLeadingMarker,
+  lineOf,
+  objectFromExpression,
+  objectProperty,
+  parseSource,
+  propertyNameText,
+  stringFromExpression,
+  stringProperty,
+  unwrapExpression,
+  type AnyNode,
+  type SourceFile,
+} from "./ast";
 
 export interface AstContractCase {
   key: string;
@@ -39,23 +63,31 @@ export function extractMarkedContracts(content: string, filePath = "input.ts"): 
   return extractContracts(content, filePath, true);
 }
 
-export function extractContracts(content: string, filePath = "input.ts", requireMarker = false): AstContract[] {
-  const source = parseSource(content, filePath);
+export function extractContracts(
+  content: string,
+  filePath = "input.ts",
+  requireMarker = false,
+): AstContract[] {
+  const source = safeParse(content, filePath);
+  if (!source) return [];
   const contracts: AstContract[] = [];
 
   forEachExportedConst(source, (statement, declaration) => {
     if (requireMarker && !hasLeadingMarker(source, statement, "contract")) return;
-    if (!declaration.initializer || !ts.isIdentifier(declaration.name)) return;
+    const name = nameOf(declaration);
+    if (!name) return;
+    const initializer = (declaration as AnyNode).init as AnyNode | undefined;
+    if (!initializer) return;
 
-    const spec = readContractCall(source, declaration.initializer);
+    const spec = readContractCall(initializer);
     if (!spec) return;
 
     contracts.push({
-      exportName: declaration.name.text,
-      line: lineOf(source, declaration.name),
+      exportName: name.text,
+      line: lineOf(name.node),
       contractId: spec.contractId,
-      endpoint: stringProperty(source, spec.spec, "endpoint"),
-      cases: readCases(source, spec.spec),
+      endpoint: stringProperty(spec.spec, "endpoint"),
+      cases: readCases(spec.spec),
     });
   });
 
@@ -63,54 +95,75 @@ export function extractContracts(content: string, filePath = "input.ts", require
 }
 
 export function extractMarkedFlows(content: string, filePath = "input.ts"): AstFlow[] {
-  const source = parseSource(content, filePath);
+  const source = safeParse(content, filePath);
+  if (!source) return [];
   const flows: AstFlow[] = [];
 
   forEachExportedConst(source, (statement, declaration) => {
     if (!hasLeadingMarker(source, statement, "flow")) return;
-    if (!declaration.initializer || !ts.isIdentifier(declaration.name)) return;
+    const name = nameOf(declaration);
+    if (!name) return;
+    const initializer = (declaration as AnyNode).init as AnyNode | undefined;
+    if (!initializer) return;
 
-    const flowCall = findPropertyCall(declaration.initializer, "flow");
-    const flowId = flowCall ? stringFromExpression(flowCall.arguments[0]) : undefined;
+    const flowCall = findPropertyCall(initializer, "flow");
+    const flowArgs = flowCall ? ((flowCall as AnyNode).arguments as AnyNode[]) : undefined;
+    const flowId = flowArgs ? stringFromExpression(flowArgs[0]) : undefined;
     if (!flowId) return;
 
-    const metaCall = findPropertyCall(declaration.initializer, "meta");
-    const meta = metaCall ? objectFromExpression(metaCall.arguments[0]) : undefined;
+    const metaCall = findPropertyCall(initializer, "meta");
+    const metaArgs = metaCall ? ((metaCall as AnyNode).arguments as AnyNode[]) : undefined;
+    const meta = metaArgs ? objectFromExpression(metaArgs[0]) : undefined;
 
     flows.push({
-      exportName: declaration.name.text,
-      line: lineOf(source, declaration.name),
+      exportName: name.text,
+      line: lineOf(name.node),
       flowId,
-      skip: meta ? stringProperty(source, meta, "skip") : undefined,
+      skip: meta ? stringProperty(meta, "skip") : undefined,
     });
   });
 
   return flows;
 }
 
-export function extractBootstrapMarkers(content: string, filePath = "input.ts"): BootstrapMarker[] {
-  const source = parseSource(content, filePath);
+export function extractBootstrapMarkers(
+  content: string,
+  filePath = "input.ts",
+): BootstrapMarker[] {
+  const source = safeParse(content, filePath);
+  if (!source) return [];
   const markers: BootstrapMarker[] = [];
 
   forEachExportedConst(source, (_statement, declaration) => {
-    if (!declaration.initializer || !ts.isIdentifier(declaration.name)) return;
+    const name = nameOf(declaration);
+    if (!name) return;
+    const initializer = (declaration as AnyNode).init as AnyNode | undefined;
+    if (!initializer) return;
 
-    const bootstrapCall = findPropertyCall(declaration.initializer, "bootstrap");
+    const bootstrapCall = findPropertyCall(initializer, "bootstrap");
     if (!bootstrapCall) return;
 
-    const firstArg = unwrapExpression(bootstrapCall.arguments[0]);
-    if (!firstArg || !ts.isCallExpression(firstArg)) return;
-    if (!ts.isPropertyAccessExpression(firstArg.expression)) return;
-    if (firstArg.expression.name.text !== "case") return;
-    if (!ts.isIdentifier(firstArg.expression.expression)) return;
+    const args = (bootstrapCall as AnyNode).arguments as AnyNode[] | undefined;
+    if (!args || args.length === 0) return;
 
-    const caseKey = stringFromExpression(firstArg.arguments[0]);
+    const firstArg = unwrapExpression(args[0]);
+    if (!firstArg || firstArg.type !== "CallExpression") return;
+    const callee = firstArg.callee as AnyNode;
+    if (callee.type !== "MemberExpression") return;
+    const calleeProperty = callee.property as AnyNode;
+    if (calleeProperty.type !== "Identifier" || (calleeProperty as AnyNode).name !== "case") return;
+    const calleeObject = callee.object as AnyNode;
+    if (calleeObject.type !== "Identifier") return;
+
+    const caseArgs = (firstArg as AnyNode).arguments as AnyNode[] | undefined;
+    if (!caseArgs || caseArgs.length === 0) return;
+    const caseKey = stringFromExpression(caseArgs[0]);
     if (!caseKey) return;
 
     markers.push({
-      exportName: declaration.name.text,
-      exportLine: lineOf(source, declaration.name),
-      targetIdent: firstArg.expression.expression.text,
+      exportName: name.text,
+      exportLine: lineOf(name.node),
+      targetIdent: calleeObject.name as string,
       caseKey,
     });
   });
@@ -123,21 +176,33 @@ export function findImportPath(
   localIdent: string,
   filePath = "input.ts",
 ): { path: string; originalName: string } | undefined {
-  const source = parseSource(content, filePath);
+  const source = safeParse(content, filePath);
+  if (!source) return undefined;
 
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    if (!statement.importClause?.namedBindings) continue;
-    if (!ts.isNamedImports(statement.importClause.namedBindings)) continue;
-    const path = stringFromExpression(statement.moduleSpecifier);
+  for (const statement of source.program.body) {
+    if (statement.type !== "ImportDeclaration") continue;
+    const specifiers = (statement as AnyNode).specifiers as AnyNode[] | undefined;
+    const sourceNode = (statement as AnyNode).source as AnyNode | undefined;
+    if (!specifiers || !sourceNode) continue;
+    const path = stringFromExpression(sourceNode);
     if (!path) continue;
 
-    for (const element of statement.importClause.namedBindings.elements) {
-      if (element.name.text !== localIdent) continue;
-      return {
-        path,
-        originalName: element.propertyName?.text ?? element.name.text,
-      };
+    for (const specifier of specifiers) {
+      // Only `ImportSpecifier` uses named import — skip `ImportDefaultSpecifier`
+      // and `ImportNamespaceSpecifier`. Matches old TS-API behavior.
+      if (specifier.type !== "ImportSpecifier") continue;
+      const local = specifier.local as AnyNode;
+      const imported = specifier.imported as AnyNode;
+      if (local.type !== "Identifier" || (local as AnyNode).name !== localIdent) continue;
+      // `imported` can be Identifier (named import) or Literal (string-named
+      // re-export — `import { "x" as y } from "..."` is rare but legal).
+      const originalName =
+        imported.type === "Identifier"
+          ? (imported as AnyNode).name as string
+          : imported.type === "Literal" && typeof (imported as AnyNode).value === "string"
+            ? ((imported as AnyNode).value as string)
+            : (local as AnyNode).name as string;
+      return { path, originalName };
     }
   }
 
@@ -149,104 +214,115 @@ export function findContractIdInTarget(
   exportName: string,
   filePath = "input.ts",
 ): string | undefined {
-  const source = parseSource(content, filePath);
+  const source = safeParse(content, filePath);
+  if (!source) return undefined;
 
   let contractId: string | undefined;
   forEachExportedConst(source, (_statement, declaration) => {
     if (contractId) return;
-    if (!declaration.initializer || !ts.isIdentifier(declaration.name)) return;
-    if (declaration.name.text !== exportName) return;
-    contractId = readContractCall(source, declaration.initializer)?.contractId;
+    const name = nameOf(declaration);
+    if (!name || name.text !== exportName) return;
+    const initializer = (declaration as AnyNode).init as AnyNode | undefined;
+    if (!initializer) return;
+    contractId = readContractCall(initializer)?.contractId;
   });
 
   return contractId;
 }
 
-function parseSource(content: string, filePath: string): ts.SourceFile {
-  const kind =
-    filePath.endsWith(".js") || filePath.endsWith(".mjs")
-      ? ts.ScriptKind.JS
-      : filePath.endsWith(".jsx")
-        ? ts.ScriptKind.JSX
-        : filePath.endsWith(".tsx")
-          ? ts.ScriptKind.TSX
-          : ts.ScriptKind.TS;
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
 
-  return ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, kind);
-}
-
-function forEachExportedConst(
-  source: ts.SourceFile,
-  cb: (statement: ts.VariableStatement, declaration: ts.VariableDeclaration) => void,
-): void {
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    if (!hasModifier(statement, ts.SyntaxKind.ExportKeyword)) continue;
-    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
-
-    for (const declaration of statement.declarationList.declarations) {
-      cb(statement, declaration);
-    }
+/**
+ * Acorn throws on syntax errors. The previous TS-API version was tolerant
+ * (parsed permissively, returned what it could). Match that — invalid
+ * input means the file isn't ready and we return no extractions rather
+ * than blowing up the calling CodeLens / Test Explorer pass.
+ */
+function safeParse(content: string, filePath: string): SourceFile | undefined {
+  try {
+    return parseSource(content, filePath);
+  } catch {
+    return undefined;
   }
 }
 
-function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
-  return ts.canHaveModifiers(node) && (ts.getModifiers(node) ?? []).some((m) => m.kind === kind);
+interface IdentifierBinding {
+  text: string;
+  node: AnyNode;
 }
 
-function hasLeadingMarker(source: ts.SourceFile, node: ts.Node, marker: "contract" | "flow"): boolean {
-  const ranges = ts.getLeadingCommentRanges(source.text, node.getFullStart()) ?? [];
-  const markerRe = new RegExp(String.raw`^\s*//\s*@${marker}\s*$`);
-
-  return ranges.some((range) => {
-    if (range.kind !== ts.SyntaxKind.SingleLineCommentTrivia) return false;
-    const text = source.text.slice(range.pos, range.end);
-    return markerRe.test(text);
-  });
+/**
+ * A `VariableDeclarator` may have an identifier or a destructuring pattern
+ * in `id`. We only handle plain identifiers — destructuring exports
+ * aren't a contract pattern we need to detect. Returns `undefined` for
+ * anything else so the caller skips it.
+ */
+function nameOf(declaration: AnyNode): IdentifierBinding | undefined {
+  const id = declaration.id as AnyNode | undefined;
+  if (!id || id.type !== "Identifier") return undefined;
+  return { text: (id as AnyNode).name as string, node: id };
 }
 
+/**
+ * Recognise the call shape of `<contractFactory>(<id>, <spec>)` where the
+ * factory is anything (`contract.http("...", spec)`, `myApi("...", spec)`,
+ * etc.) and `<spec>` carries a `cases:` property — that last gate is the
+ * cheapest "this looks like a Glubean contract" check available without
+ * type info.
+ */
 function readContractCall(
-  source: ts.SourceFile,
-  expression: ts.Expression,
-): { contractId: string; spec: ts.ObjectLiteralExpression } | undefined {
+  expression: AnyNode,
+): { contractId: string; spec: AnyNode } | undefined {
   const unwrapped = unwrapExpression(expression);
-  if (!unwrapped || !ts.isCallExpression(unwrapped)) return undefined;
+  if (!unwrapped || unwrapped.type !== "CallExpression") return undefined;
 
-  const contractId = stringFromExpression(unwrapped.arguments[0]);
-  const spec = objectFromExpression(unwrapped.arguments[1]);
+  const args = (unwrapped as AnyNode).arguments as AnyNode[] | undefined;
+  if (!args || args.length < 2) return undefined;
+
+  const contractId = stringFromExpression(args[0]);
+  const spec = objectFromExpression(args[1]);
   if (!contractId || !spec) return undefined;
   if (!objectProperty(spec, "cases")) return undefined;
 
   return { contractId, spec };
 }
 
-function readCases(source: ts.SourceFile, spec: ts.ObjectLiteralExpression): AstContractCase[] {
+function readCases(spec: AnyNode): AstContractCase[] {
   const casesProp = objectProperty(spec, "cases");
-  if (!casesProp || !ts.isPropertyAssignment(casesProp)) return [];
-  const casesObject = objectFromExpression(casesProp.initializer);
+  if (!casesProp) return [];
+  const initializer = (casesProp as AnyNode).value as AnyNode | undefined;
+  if (!initializer) return [];
+  const casesObject = objectFromExpression(initializer);
   if (!casesObject) return [];
 
   const cases: AstContractCase[] = [];
-  for (const property of casesObject.properties) {
-    if (ts.isSpreadAssignment(property)) continue;
-    const key = propertyNameText(source, property.name);
+  const properties = casesObject.properties as AnyNode[] | undefined;
+  if (!properties) return cases;
+
+  for (const property of properties) {
+    // Spread (`...sharedCases`) is silently skipped — same behavior as
+    // the previous detector. The cookbook-shared-cases flow won't show
+    // shared cases under the local contract's gutter ▶ button.
+    if (property.type === "SpreadElement") continue;
+    if (property.type !== "Property") continue;
+    const key = propertyNameText(property);
     if (!key) continue;
 
-    const inline =
-      ts.isPropertyAssignment(property)
-        ? objectFromExpression(property.initializer)
-        : undefined;
+    const valueNode = (property as AnyNode).value as AnyNode | undefined;
+    const inline = valueNode ? objectFromExpression(valueNode) : undefined;
 
     const caseMeta: AstContractCase = {
       key,
-      line: lineOf(source, property.name),
+      line: lineOf((property as AnyNode).key as AnyNode),
     };
 
     if (inline) {
-      const deferred = stringProperty(source, inline, "deferred");
-      const deprecated = stringProperty(source, inline, "deprecated");
-      const requires = stringProperty(source, inline, "requires");
-      const defaultRun = stringProperty(source, inline, "defaultRun");
+      const deferred = stringProperty(inline, "deferred");
+      const deprecated = stringProperty(inline, "deprecated");
+      const requires = stringProperty(inline, "requires");
+      const defaultRun = stringProperty(inline, "defaultRun");
       if (deferred) caseMeta.deferred = deferred;
       if (deprecated) caseMeta.deprecated = deprecated;
       if (requires) caseMeta.requires = requires;
@@ -257,86 +333,4 @@ function readCases(source: ts.SourceFile, spec: ts.ObjectLiteralExpression): Ast
   }
 
   return cases;
-}
-
-function objectProperty(
-  object: ts.ObjectLiteralExpression,
-  name: string,
-): ts.ObjectLiteralElementLike | undefined {
-  return object.properties.find((property) => propertyNameText(undefined, property.name) === name);
-}
-
-function stringProperty(
-  source: ts.SourceFile,
-  object: ts.ObjectLiteralExpression,
-  name: string,
-): string | undefined {
-  const property = objectProperty(object, name);
-  if (!property || !ts.isPropertyAssignment(property)) return undefined;
-  return stringFromExpression(property.initializer);
-}
-
-function propertyNameText(
-  source: ts.SourceFile | undefined,
-  name: ts.PropertyName | undefined,
-): string | undefined {
-  if (!name) return undefined;
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
-  if (ts.isNoSubstitutionTemplateLiteral(name)) return name.text;
-  if (ts.isComputedPropertyName(name)) return stringFromExpression(name.expression);
-  return source ? name.getText(source) : undefined;
-}
-
-function stringFromExpression(expression: ts.Expression | undefined): string | undefined {
-  const unwrapped = expression ? unwrapExpression(expression) : undefined;
-  if (!unwrapped) return undefined;
-  if (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) {
-    return unwrapped.text;
-  }
-  return undefined;
-}
-
-function objectFromExpression(expression: ts.Expression | undefined): ts.ObjectLiteralExpression | undefined {
-  const unwrapped = expression ? unwrapExpression(expression) : undefined;
-  return unwrapped && ts.isObjectLiteralExpression(unwrapped) ? unwrapped : undefined;
-}
-
-function unwrapExpression(expression: ts.Expression | undefined): ts.Expression | undefined {
-  let current = expression;
-  while (current) {
-    if (ts.isParenthesizedExpression(current)) {
-      current = current.expression;
-    } else if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isSatisfiesExpression(current)) {
-      current = current.expression;
-    } else if (ts.isNonNullExpression(current)) {
-      current = current.expression;
-    } else {
-      return current;
-    }
-  }
-  return current;
-}
-
-function findPropertyCall(expression: ts.Node, name: string): ts.CallExpression | undefined {
-  let found: ts.CallExpression | undefined;
-
-  const visit = (node: ts.Node): void => {
-    if (found) return;
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === name
-    ) {
-      found = node;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-
-  visit(expression);
-  return found;
-}
-
-function lineOf(source: ts.SourceFile, node: ts.Node): number {
-  return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 }
