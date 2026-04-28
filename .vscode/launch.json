@@ -6,7 +6,6 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--disable-extension", "glubean.glubean",
         "--extensionDevelopmentPath=${workspaceFolder}",
         "/Users/peisong/glubean/cookbook"
       ],

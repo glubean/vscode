@@ -79,22 +79,28 @@ export type ReadFileFn = (absolutePath: string) => string | undefined;
 /**
  * Compute contract lens items for a document's source content.
  *
+ * Lens output is **disabled-hints only** — running tests is owned by the
+ * Test Explorer / gutter ▶ button, which is registered via `parser.ts` +
+ * `testController.parseFile`. Duplicating the run action as a CodeLens
+ * created visual noise and confused users into thinking they were two
+ * different things; we keep CodeLens reserved for status flags the
+ * gutter can't surface (deferred, deprecated, requires, skip, overlay
+ * resolution failures).
+ *
  * Rules:
- * - Each contract case becomes one lens item at `caseLine - 1` (0-based).
+ * - Default-runnable case → no lens (gutter ▶ runs it).
  * - `deferred` → `⊘ deferred: <reason>` (disabled).
  * - `deprecated` → `⊘ deprecated: <reason>` (disabled). Takes precedence
  *   over `defaultRun` / `requires` since the user shouldn't be routed to
  *   "run anyway" on a case whose code is marked for removal.
  * - `requires: "browser" | "out-of-band"` → `⊘ requires: <cap>` (disabled).
- * - `defaultRun: "opt-in"` → `▶ run <key> (opt-in)` (runnable).
- * - Otherwise → `▶ run <key>` (runnable).
  *
- * For `*.bootstrap.ts` files (attachment-model overlays), the third
- * detector (`computeBootstrapLensesByMarker`) emits a lens above each
- * `contract.bootstrap(IDENT.case("KEY"), ...)` export. Clicking it
- * runs the **target case** (the overlay registers automatically because
- * the harness eager-loads `*.bootstrap.ts` files per attachment-model
- * §7.4 — see `internal/10-architecture/sdk/attachment-model.md`).
+ * For `*.bootstrap.ts` files (attachment-model overlays), the gutter ▶
+ * button is materialized via `testController.parseFile` registering a
+ * shadow TestItem. CodeLens only surfaces resolution failures
+ * (`⊘ overlay: target file unreadable`, etc.) so the user sees why
+ * an overlay isn't runnable when its target import or contract id can't
+ * be resolved.
  *
  * @param content - Source of a `.contract.ts` / `.bootstrap.ts` file
  * @param filePath - Absolute path of the document (for run args)
@@ -126,8 +132,6 @@ export function computeContractLenses(
   for (const contract of contracts) {
     for (const c of contract.cases) {
       const line = c.line - 1;
-      const testId = `${contract.contractId}.${c.key}`;
-
       if (c.deferred) {
         items.push({ line, title: `\u2298 deferred: ${c.deferred}`, kind: "disabled" });
         continue;
@@ -139,8 +143,7 @@ export function computeContractLenses(
         items.push({ line, title: `\u2298 requires: ${c.requires}`, kind: "disabled" });
         continue;
       }
-      const suffix = c.defaultRun === "opt-in" ? " (opt-in)" : "";
-      items.push({ line, title: `\u25B6 run ${c.key}${suffix}`, kind: "run", args: { filePath, testId, exportName: contract.exportName } });
+      // No runnable lens — gutter ▶ runs default cases.
     }
   }
 
@@ -249,15 +252,12 @@ function computeContractLensesByMarker(
       const testId = `${contractId}.${key}`;
 
       if (shorthand) {
-        // No inline body to scan for metadata. Plain runnable lens.
-        // (Future: walk up to `defineHttpCase()` ref to extract
-        // deferred/requires/defaultRun.)
-        items.push({
-          line: caseLine,
-          title: `▶ run ${key}`,
-          kind: "run",
-          args: { filePath, testId, exportName },
-        });
+        // Shorthand cases reference `defineHttpCase()` declared elsewhere —
+        // we have no inline body to scan for deferred/requires/skip flags,
+        // so no lens is emitted. Gutter ▶ runs the case.
+        void caseLine;
+        void testId;
+        void exportName;
         continue;
       }
 
@@ -281,10 +281,12 @@ function computeContractLensesByMarker(
         items.push({ line: caseLine, title: `\u2298 deprecated: ${deprecatedMatch[1]}`, kind: "disabled" });
       } else if (requiresMatch) {
         items.push({ line: caseLine, title: `\u2298 requires: ${requiresMatch[1]}`, kind: "disabled" });
-      } else {
-        const suffix = defaultRunMatch ? " (opt-in)" : "";
-        items.push({ line: caseLine, title: `\u25B6 run ${key}${suffix}`, kind: "run", args: { filePath, testId, exportName } });
       }
+      // Default / opt-in cases emit no runnable lens — gutter ▶ owns the run action.
+      void defaultRunMatch;
+      void key;
+      void testId;
+      void exportName;
     }
   }
 
@@ -349,14 +351,10 @@ function computeFlowLensesByMarker(
         title: `\u2298 skip: ${skipMatch[1]}`,
         kind: "disabled",
       });
-    } else {
-      items.push({
-        line,
-        title: `\u25B6 run ${flowId}`,
-        kind: "run",
-        args: { filePath, testId: flowId, exportName },
-      });
     }
+    // Flow runnable lens dropped — gutter ▶ on the flow's TestItem runs it.
+    void flowId;
+    void exportName;
   }
 
   return items;
@@ -579,24 +577,15 @@ function computeBootstrapLensesByMarker(
       // to `{ filePath, exportName, testId }` — the harness needs to
       // resolve a `Test`/`Contract`, not a `BootstrapAttachment`.
       const contractId = findContractIdInTarget(content, m.targetIdent);
-      if (contractId) {
-        items.push({
-          line: m.exportLine,
-          title: `\u25B6 run ${contractId}.${m.caseKey}`,
-          kind: "run",
-          args: {
-            filePath,
-            testId: `${contractId}.${m.caseKey}`,
-            exportName: m.targetIdent,
-          },
-        });
-      } else {
+      if (!contractId) {
         items.push({
           line: m.exportLine,
           title: `\u2298 overlay: target import not resolvable (${m.targetIdent}.case("${m.caseKey}"))`,
           kind: "disabled",
         });
       }
+      // Resolvable overlays emit no runnable lens — the gutter ▶ on the
+      // shadow TestItem (registered by testController.parseFile) runs it.
       continue;
     }
 
@@ -633,16 +622,10 @@ function computeBootstrapLensesByMarker(
     // still registers because §7.4 eager-load runs `loadProjectOverlays`
     // for every `*.bootstrap.ts` file regardless of which file the
     // harness was spawned to test.
-    items.push({
-      line: m.exportLine,
-      title: `\u25B6 run ${contractId}.${m.caseKey}`,
-      kind: "run",
-      args: {
-        filePath: target.absPath,
-        testId: `${contractId}.${m.caseKey}`,
-        exportName: importInfo.originalName,
-      },
-    });
+    // Resolvable cross-file overlays emit no runnable lens — gutter ▶ on
+    // the shadow TestItem (registered by testController.parseFile) runs it.
+    void contractId;
+    void target;
   }
 
   return items;

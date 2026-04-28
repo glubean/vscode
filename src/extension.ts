@@ -250,6 +250,8 @@ export function activate(context: vscode.ExtensionContext): void {
     { language: "javascript", pattern: "**/*.contract.{js,mjs}" },
     { language: "typescript", pattern: "**/*.flow.ts" },
     { language: "javascript", pattern: "**/*.flow.{js,mjs}" },
+    { language: "typescript", pattern: "**/*.bootstrap.ts" },
+    { language: "javascript", pattern: "**/*.bootstrap.{js,mjs}" },
   ];
 
   // Result history buttons (shown on all tests)
@@ -534,10 +536,10 @@ export function activate(context: vscode.ExtensionContext): void {
         const fileName = uri?.fsPath ?? "";
         if (
           !uri ||
-          !/\.(test|contract|flow)\.(ts|js|mjs)$/.test(fileName)
+          !/\.(test|contract|flow|bootstrap)\.(ts|js|mjs)$/.test(fileName)
         ) {
           vscode.window.showWarningMessage(
-            "Open a .test, .contract, or .flow file (.ts/.js/.mjs) to run.",
+            "Open a .test, .contract, .flow, or .bootstrap file (.ts/.js/.mjs) to run.",
           );
           return;
         }

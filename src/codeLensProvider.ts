@@ -16,7 +16,12 @@ import { parse as parseYaml } from "yaml";
 import { getAliases } from "./testController";
 import { findDataLoaderCalls } from "./dataLoaderCalls";
 import { resolveDataPath } from "./data-path";
-import { extractTests } from "./parser";
+import {
+  extractTests,
+  extractBootstrapMarkers,
+  findImportPath,
+  findContractIdInTarget,
+} from "./parser";
 import { detectRefactorScenarios } from "./aiRefactor";
 import { workspaceRootFor } from "./workspaceRoot";
 import { listPinned, isPinned } from "./pinnedFiles";
@@ -320,6 +325,70 @@ class PickCodeLensProvider implements PickCodeLens {
                   testId: meta.id,
                   exportName: meta.exportName,
                   label: meta.name ?? meta.id,
+                },
+              ],
+            }),
+          );
+        }
+      }
+    }
+
+    // ── Bootstrap overlay Pin CodeLenses ───────────────────────────────
+    // For *.bootstrap.ts files, extractTests returns [] (no test() calls).
+    // Each overlay export has a target contract case. The pin stores the
+    // TARGET contract file + testId so runPinnedTest dispatches directly
+    // to the contract (same as how the shadow TestItem redirect works).
+    if (tests.length === 0 && wsFolder) {
+      const wsRoot = wsFolder.uri.fsPath;
+      const currentPinnedTests = listPinnedTests();
+      const dir = path.dirname(document.uri.fsPath);
+      const markers = extractBootstrapMarkers(content);
+
+      for (const marker of markers) {
+        const importInfo = findImportPath(content, marker.targetIdent);
+        let targetFilePath: string | undefined;
+        let targetContent: string | undefined;
+        let targetExportName: string | undefined;
+
+        if (importInfo && importInfo.path.startsWith(".")) {
+          const stripped = importInfo.path.replace(/\.(?:ts|js|mjs|tsx)$/, "");
+          const base = path.resolve(dir, stripped);
+          for (const ext of [".ts", ".tsx", ".mjs", ".js"]) {
+            const candidate = `${base}${ext}`;
+            try {
+              targetContent = fs.readFileSync(candidate, "utf-8");
+              targetFilePath = candidate;
+              targetExportName = importInfo.originalName;
+              break;
+            } catch { /* next ext */ }
+          }
+        } else if (!importInfo) {
+          targetContent = content;
+          targetFilePath = document.uri.fsPath;
+          targetExportName = marker.targetIdent;
+        }
+
+        if (!targetContent || !targetFilePath || !targetExportName) continue;
+        const contractId = findContractIdInTarget(targetContent, targetExportName);
+        if (!contractId) continue;
+
+        const targetTestId = `${contractId}.${marker.caseKey}`;
+        const targetUri = vscode.Uri.file(targetFilePath);
+        const targetRelPath = vscode.workspace.asRelativePath(targetUri, false);
+
+        if (!isPinnedTest(currentPinnedTests, wsRoot, targetRelPath, targetTestId)) {
+          const line = marker.exportLine - 1; // 0-based
+          const range = new vscode.Range(line, 0, line, 0);
+          lenses.push(
+            new vscode.CodeLens(range, {
+              title: "$(pin) Pin",
+              command: "glubean.pinTest",
+              arguments: [
+                {
+                  uri: targetUri,
+                  testId: targetTestId,
+                  exportName: targetExportName,
+                  label: targetTestId,
                 },
               ],
             }),
