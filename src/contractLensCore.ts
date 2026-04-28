@@ -7,7 +7,14 @@
  */
 
 import * as nodePath from "node:path";
-import { extractContractCases } from "@glubean/scanner/static";
+import {
+  extractBootstrapMarkers as extractBootstrapMarkersAst,
+  extractContracts,
+  extractMarkedContracts,
+  extractMarkedFlows,
+  findContractIdInTarget as findContractIdInTargetAst,
+  findImportPath as findImportPathAst,
+} from "./contractAst";
 
 /**
  * Glob patterns this provider's CodeLens applies to.
@@ -125,9 +132,9 @@ export function computeContractLenses(
   ];
   if (markerItems.length > 0) return markerItems;
 
-  // Fallback: old regex (contract.http("id", {))
+  // Fallback: unmarked contract declarations such as `contract.http("id", {...})`.
   const items: ContractLensItem[] = [];
-  const contracts = extractContractCases(content);
+  const contracts = extractContracts(content);
 
   for (const contract of contracts) {
     for (const c of contract.cases) {
@@ -136,9 +143,10 @@ export function computeContractLenses(
         items.push({ line, title: `\u2298 deferred: ${c.deferred}`, kind: "disabled" });
         continue;
       }
-      // Note: scanner's static `extractContractCases` declares `deprecated` on
-      // the type but does not yet populate it — only the marker path detects
-      // deprecated. Covered by `computeContractLensesByMarker` below.
+      if (c.deprecated) {
+        items.push({ line, title: `\u2298 deprecated: ${c.deprecated}`, kind: "disabled" });
+        continue;
+      }
       if (c.requires === "browser" || c.requires === "out-of-band") {
         items.push({ line, title: `\u2298 requires: ${c.requires}`, kind: "disabled" });
         continue;
@@ -159,134 +167,21 @@ function computeContractLensesByMarker(
   filePath: string,
 ): ContractLensItem[] {
   const items: ContractLensItem[] = [];
-  const lines = content.split("\n");
+  const contracts = extractMarkedContracts(content, filePath);
 
-  for (let i = 0; i < lines.length; i++) {
-    if (!/\/\/\s*@contract\s*$/.test(lines[i])) continue;
+  for (const contract of contracts) {
+    for (const c of contract.cases) {
+      const caseLine = c.line - 1;
 
-    const nextLine = lines[i + 1];
-    if (!nextLine) continue;
-    const exportMatch = nextLine.match(/export\s+const\s+(\w+)/);
-    if (!exportMatch) continue;
-    const exportName = exportMatch[1];
-
-    // Find contract body
-    const afterExport = content.slice(content.indexOf(nextLine));
-    const idMatch = afterExport.match(/\(\s*["']([^"']+)["']\s*,\s*\{/);
-    if (!idMatch) continue;
-    const contractId = idMatch[1];
-
-    // Find cases block
-    const casesStart = afterExport.indexOf("cases:");
-    if (casesStart === -1) continue;
-    const afterCases = afterExport.slice(casesStart);
-    const braceIdx = afterCases.indexOf("{");
-    if (braceIdx === -1) continue;
-
-    // Walk the cases block to find top-level case keys. Two property
-    // shapes occur in cookbook v10:
-    //   - INLINE:    `key: { description: ..., expect: ... },`
-    //   - SHORTHAND: `key,`  (key references a `defineHttpCase()` value
-    //     bound elsewhere — the canonical attachment-model v10 pattern).
-    //
-    // Both must produce a clickable lens. Pre-fix only inline was
-    // supported; shorthand-only contract files had ZERO CodeLens entries.
-    const casesContent = afterCases.slice(braceIdx);
-    const topLevelKeys: { key: string; offset: number; shorthand: boolean }[] = [];
-    let depth = 0;
-    let segmentStart = 1; // start of current top-level segment, just past the outer `{`
-    let segmentSawInlineBrace = false;
-
-    for (let j = 0; j < casesContent.length; j++) {
-      const ch = casesContent[j];
-      if (ch === "{") {
-        if (depth === 1) {
-          // Inline case body — capture key by looking BACKWARDS from this `{`.
-          const before = casesContent.slice(0, j).trimEnd();
-          const keyMatch = before.match(/["']?(\w+)["']?\s*:\s*$/);
-          if (keyMatch) {
-            topLevelKeys.push({ key: keyMatch[1], offset: j, shorthand: false });
-            segmentSawInlineBrace = true;
-          }
-        }
-        depth++;
-      } else if (ch === "}") {
-        depth--;
-        if (depth === 0) {
-          // Last segment may be a trailing shorthand (no trailing comma).
-          if (!segmentSawInlineBrace) {
-            const seg = casesContent.slice(segmentStart, j);
-            const m = seg.match(/^(\s*)(\w+)\s*$/);
-            if (m) {
-              topLevelKeys.push({
-                key: m[2],
-                offset: segmentStart + m[1].length,
-                shorthand: true,
-              });
-            }
-          }
-          break;
-        }
-      } else if (ch === "," && depth === 1) {
-        // Top-level segment boundary. If the segment didn't open an
-        // inline body, treat it as a shorthand identifier.
-        if (!segmentSawInlineBrace) {
-          const seg = casesContent.slice(segmentStart, j);
-          const m = seg.match(/^(\s*)(\w+)\s*$/);
-          if (m) {
-            topLevelKeys.push({
-              key: m[2],
-              offset: segmentStart + m[1].length,
-              shorthand: true,
-            });
-          }
-        }
-        segmentStart = j + 1;
-        segmentSawInlineBrace = false;
-      }
-    }
-
-    for (const { key, offset, shorthand } of topLevelKeys) {
-      const absolutePos = content.indexOf(nextLine) + casesStart + braceIdx + offset;
-      const caseLine = content.substring(0, absolutePos).split("\n").length - 1; // 0-based
-      const testId = `${contractId}.${key}`;
-
-      if (shorthand) {
-        // Shorthand cases reference `defineHttpCase()` declared elsewhere —
-        // we have no inline body to scan for deferred/requires/skip flags,
-        // so no lens is emitted. Gutter ▶ runs the case.
-        void caseLine;
-        void testId;
-        void exportName;
-        continue;
-      }
-
-      // Inline case — scan its body for metadata that controls lens shape.
-      let caseDepth = 0;
-      let caseEnd = offset;
-      for (let j = offset; j < casesContent.length; j++) {
-        if (casesContent[j] === "{") caseDepth++;
-        else if (casesContent[j] === "}") { caseDepth--; if (caseDepth === 0) { caseEnd = j; break; } }
-      }
-      const caseBody = casesContent.slice(offset, caseEnd + 1);
-
-      const deferredMatch = caseBody.match(/deferred\s*:\s*["']([^"']+)["']/);
-      const deprecatedMatch = caseBody.match(/deprecated\s*:\s*["']([^"']+)["']/);
-      const requiresMatch = caseBody.match(/requires\s*:\s*["'](browser|out-of-band)["']/);
-      const defaultRunMatch = caseBody.match(/defaultRun\s*:\s*["'](opt-in)["']/);
-
-      if (deferredMatch) {
-        items.push({ line: caseLine, title: `\u2298 deferred: ${deferredMatch[1]}`, kind: "disabled" });
-      } else if (deprecatedMatch) {
-        items.push({ line: caseLine, title: `\u2298 deprecated: ${deprecatedMatch[1]}`, kind: "disabled" });
-      } else if (requiresMatch) {
-        items.push({ line: caseLine, title: `\u2298 requires: ${requiresMatch[1]}`, kind: "disabled" });
+      if (c.deferred) {
+        items.push({ line: caseLine, title: `\u2298 deferred: ${c.deferred}`, kind: "disabled" });
+      } else if (c.deprecated) {
+        items.push({ line: caseLine, title: `\u2298 deprecated: ${c.deprecated}`, kind: "disabled" });
+      } else if (c.requires === "browser" || c.requires === "out-of-band") {
+        items.push({ line: caseLine, title: `\u2298 requires: ${c.requires}`, kind: "disabled" });
       }
       // Default / opt-in cases emit no runnable lens — gutter ▶ owns the run action.
-      void defaultRunMatch;
-      void key;
-      void testId;
-      void exportName;
+      void c.defaultRun;
     }
   }
 
@@ -316,45 +211,17 @@ function computeFlowLensesByMarker(
   filePath: string,
 ): ContractLensItem[] {
   const items: ContractLensItem[] = [];
-  const lines = content.split("\n");
+  const flows = extractMarkedFlows(content, filePath);
 
-  for (let i = 0; i < lines.length; i++) {
-    if (!/\/\/\s*@flow\s*$/.test(lines[i])) continue;
-
-    const nextLine = lines[i + 1];
-    if (!nextLine) continue;
-    const exportMatch = nextLine.match(/export\s+const\s+(\w+)/);
-    if (!exportMatch) continue;
-    const exportName = exportMatch[1];
-
-    // Find .flow("<id>") anywhere in the tail of the file from the export
-    // line onwards. This tolerates the canonical multi-line style
-    // (`contract\n  .flow("id")\n  .meta(...)\n  .step(...)`) where the
-    // call sits on a later line than `export const`.
-    const afterExport = content.slice(content.indexOf(nextLine));
-    const flowIdMatch = afterExport.match(/\.flow\s*\(\s*["']([^"']+)["']/);
-    if (!flowIdMatch) continue;
-    const flowId = flowIdMatch[1];
-
-    // Scope the .meta({...}) search to the first call on this export —
-    // a reasonable approximation that avoids crossing into later exports.
-    // Matches `.meta({ ... skip: "reason" ... })` with a literal string.
-    const metaCall = afterExport.match(/\.meta\s*\(\s*\{([\s\S]*?)\}\s*\)/);
-    const skipMatch = metaCall?.[1].match(/skip\s*:\s*["']([^"']+)["']/);
-
-    // Lens renders at the `export const` line (0-based).
-    const line = i + 1;
-
-    if (skipMatch) {
+  for (const flow of flows) {
+    if (flow.skip) {
       items.push({
-        line,
-        title: `\u2298 skip: ${skipMatch[1]}`,
+        line: flow.line - 1,
+        title: `\u2298 skip: ${flow.skip}`,
         kind: "disabled",
       });
     }
     // Flow runnable lens dropped — gutter ▶ on the flow's TestItem runs it.
-    void flowId;
-    void exportName;
   }
 
   return items;
@@ -373,10 +240,9 @@ function computeFlowLensesByMarker(
 //     async (ctx) => { ... },
 //   );
 //
-// One CodeLens above each `contract.bootstrap(...)` export. Clicking it
-// runs the **target case** (`getMe.case("authorized")` resolves at
-// runtime to testId `auth.me.authorized`) — the overlay registers
-// automatically thanks to §7.4 eager-load in the harness.
+// Resolvable overlays are represented by shadow TestItems in the gutter.
+// CodeLens only surfaces resolution failures so authors can see why an
+// overlay is not runnable from the Test Explorer.
 //
 // Resolution algorithm:
 //   1. Find every `export const NAME = contract.bootstrap(IDENT.case("KEY"), ...)`
@@ -385,7 +251,8 @@ function computeFlowLensesByMarker(
 //   4. Read the target file via the optional `readFile` callback
 //   5. In that file, find `export const IDENT = <factory>("contract-id", { ... })`
 //      to extract the contractId
-//   6. Build `testId = "${contractId}.${KEY}"` and emit a runnable lens
+//   6. If resolution succeeds, emit no CodeLens; if it fails, emit a disabled
+//      diagnostic lens on the overlay export line
 //
 // Failure modes (each falls back to a disabled hint lens, not a hard error):
 //   - Import not found → "⊘ overlay: target import not resolvable"
@@ -411,41 +278,12 @@ interface BootstrapMatch {
  * misattributed to an earlier non-overlay export.
  */
 function findBootstrapMatches(content: string): BootstrapMatch[] {
-  const lines = content.split("\n");
-  const matches: BootstrapMatch[] = [];
-
-  // Pre-compute all `export const NAME` line indices so we can bound
-  // each export body at the NEXT one without an O(n²) re-scan.
-  const exportLines: { line: number; name: string }[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^\s*export\s+const\s+(\w+)\s*=/);
-    if (m) exportLines.push({ line: i, name: m[1] });
-  }
-
-  for (let idx = 0; idx < exportLines.length; idx++) {
-    const { line: i, name: exportName } = exportLines[idx];
-    const next = exportLines[idx + 1];
-    const endLine = next ? next.line : lines.length;
-
-    // Slice the export body — from `export const` line (inclusive) to
-    // the line BEFORE the next `export const`. Bounds the window so
-    // a sibling overlay isn't credited to a preceding non-overlay export.
-    const body = lines.slice(i, endLine).join("\n");
-
-    const bsMatch = body.match(
-      /\bcontract\s*\.\s*bootstrap\s*\(\s*(\w+)\s*\.\s*case\s*\(\s*["']([^"']+)["']\s*\)/,
-    );
-    if (!bsMatch) continue;
-
-    matches.push({
-      exportName,
-      exportLine: i,
-      targetIdent: bsMatch[1],
-      caseKey: bsMatch[2],
-    });
-  }
-
-  return matches;
+  return extractBootstrapMarkersAst(content).map((marker) => ({
+    exportName: marker.exportName,
+    exportLine: marker.exportLine - 1,
+    targetIdent: marker.targetIdent,
+    caseKey: marker.caseKey,
+  }));
 }
 
 /**
@@ -464,28 +302,7 @@ function findImportPath(
   content: string,
   localIdent: string,
 ): { path: string; originalName: string } | undefined {
-  const importBlocks = content.matchAll(
-    /import\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s+["']([^"']+)["']/g,
-  );
-  for (const block of importBlocks) {
-    const names = block[1].split(",").map((s) => s.trim());
-    for (const name of names) {
-      // `original as alias` form — split into both sides.
-      const aliasMatch = name.match(/^(\w+)\s+as\s+(\w+)$/);
-      if (aliasMatch) {
-        const [, original, alias] = aliasMatch;
-        if (alias === localIdent) {
-          return { path: block[2], originalName: original };
-        }
-      } else {
-        const cleaned = name.replace(/\s+/g, "");
-        if (cleaned === localIdent) {
-          return { path: block[2], originalName: cleaned };
-        }
-      }
-    }
-  }
-  return undefined;
+  return findImportPathAst(content, localIdent);
 }
 
 /**
@@ -535,14 +352,7 @@ function findContractIdInTarget(
   content: string,
   exportName: string,
 ): string | undefined {
-  // Match `export const NAME = X("id", {` where X may be a chain like
-  // `dummyApi("id", {)` — we only need the first string literal arg.
-  const escaped = exportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(
-    String.raw`export\s+const\s+${escaped}\s*=\s*[\w.]+\s*\(\s*["']([^"']+)["']\s*,`,
-  );
-  const m = content.match(re);
-  return m?.[1];
+  return findContractIdInTargetAst(content, exportName);
 }
 
 /**
@@ -571,11 +381,8 @@ function computeBootstrapLensesByMarker(
     if (!importInfo) {
       // Inline overlay pattern: `contract.bootstrap()` lives in the SAME
       // file as the contract export it targets. Look it up locally — no
-      // fs needed. The runnable lens points at THIS file, but the
-      // exportName is the contract's own export (`m.targetIdent`), not
-      // the overlay's. Why: clicking the lens spawns a harness scoped
-      // to `{ filePath, exportName, testId }` — the harness needs to
-      // resolve a `Test`/`Contract`, not a `BootstrapAttachment`.
+      // fs needed. Resolvable overlays stay silent because the gutter
+      // shadow TestItem (registered by testController.parseFile) owns runs.
       const contractId = findContractIdInTarget(content, m.targetIdent);
       if (!contractId) {
         items.push({
@@ -612,16 +419,9 @@ function computeBootstrapLensesByMarker(
       continue;
     }
 
-    // Cross-file overlay: the runnable lens must point at the **target
-    // contract module** (`target.absPath`) and use the **target's
-    // contract export name** (`importInfo.originalName`) — NOT the
-    // bootstrap file or the overlay export. Otherwise the harness
-    // imports `me.bootstrap.ts` and looks up `meAuthorizedOverlay`,
-    // which is a `BootstrapAttachment`, not a `Test` — `findTestById`
-    // returns undefined and the click silently fails. The overlay
-    // still registers because §7.4 eager-load runs `loadProjectOverlays`
-    // for every `*.bootstrap.ts` file regardless of which file the
-    // harness was spawned to test.
+    // Cross-file overlay resolved. The gutter shadow TestItem targets the
+    // contract module/export, while CodeLens remains silent unless resolution
+    // fails and the author needs a diagnostic hint.
     // Resolvable cross-file overlays emit no runnable lens — gutter ▶ on
     // the shadow TestItem (registered by testController.parseFile) runs it.
     void contractId;

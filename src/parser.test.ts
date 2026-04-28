@@ -753,7 +753,7 @@ const notExported = contract.http.with("x", {})("test", {
     assert.equal(tests.length, 0);
   });
 
-  it("falls back to old regex when no markers present", () => {
+  it("falls back to unmarked AST contracts when no markers present", () => {
     const content = SDK_IMPORT + `
 export const legacy = contract.http("legacy-test", {
   endpoint: "GET /legacy",
@@ -769,10 +769,7 @@ export const legacy = contract.http("legacy-test", {
   });
 
   // Shorthand cases (defineHttpCase + variable references) — v10 canonical
-  // pattern from cookbook contract-first/contracts/attachment-model/. Pre-fix
-  // the parser only recognized inline `key: { ... }` and emitted ZERO
-  // TestItems for shorthand-only contracts. Mirrors the contractLensCore
-  // shorthand fix landed 2026-04-27.
+  // pattern from cookbook contract-first/contracts/attachment-model/.
 
   it("shorthand: cases referenced as variables produce one TestItem per case", () => {
     const content = SDK_IMPORT + `
@@ -860,6 +857,32 @@ export const ep = api("svc.ep", {
     const lines = content.split("\n");
     const expectedLine = lines.findIndex((l) => l.trim() === "authorized,") + 1;
     assert.equal(tests[0].line, expectedLine);
+  });
+
+  it("AST: case extraction ignores strings, templates, comments, and nested braces", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    "literal-key": {
+      description: "contains fake }, commas, and cases: { nope: {} } text",
+      body: () => ({ text: \`template with } and , and \${"expr"}\` }),
+      expect: { status: 200 },
+    },
+    after: {
+      // parser must not treat this comment as syntax: },
+      description: "second case",
+      expect: { status: 200 },
+    },
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    assert.deepEqual(tests.map((t) => t.id), ["svc.ep.literal-key", "svc.ep.after"]);
   });
 });
 

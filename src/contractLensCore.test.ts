@@ -16,7 +16,7 @@ const CONTRACT_IMPORT = 'import { contract } from "@glubean/sdk";\n';
 const FILE_PATH = "/tmp/create.contract.ts";
 
 describe("computeContractLenses", () => {
-  it("emits one run item per regular case", () => {
+  it("emits no CodeLens for regular cases", () => {
     const content = CONTRACT_IMPORT + `
 export const createProject = contract.http("create-project", {
   endpoint: "POST /projects",
@@ -33,19 +33,7 @@ export const createProject = contract.http("create-project", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 2);
-
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].title, "\u25B6 run success");
-    assert.deepEqual(items[0].args, {
-      filePath: FILE_PATH,
-      testId: "create-project.success",
-      exportName: "createProject",
-    });
-
-    assert.equal(items[1].kind, "run");
-    assert.equal(items[1].title, "\u25B6 run notFound");
-    assert.equal(items[1].args?.testId, "create-project.notFound");
+    assert.equal(items.length, 0);
   });
 
   it("emits disabled item for deferred case", () => {
@@ -107,7 +95,7 @@ export const c = contract.http("sms", {
     assert.equal(items[0].title, "\u2298 requires: out-of-band");
   });
 
-  it("labels opt-in cases with (opt-in) suffix but keeps them runnable", () => {
+  it("emits no CodeLens for opt-in cases", () => {
     const content = CONTRACT_IMPORT + `
 export const c = contract.http("stripe", {
   endpoint: "POST /charge",
@@ -121,13 +109,10 @@ export const c = contract.http("stripe", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 1);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].title, "\u25B6 run liveCharge (opt-in)");
-    assert.equal(items[0].args?.testId, "stripe.liveCharge");
+    assert.equal(items.length, 0);
   });
 
-  it("places each case at its own 0-based line", () => {
+  it("places disabled case lenses at their own 0-based lines", () => {
     // line 1: import
     // line 2: blank
     // line 3: export const
@@ -138,14 +123,13 @@ export const c = contract.http("stripe", {
 export const c = contract.http("my", {
   endpoint: "GET /",
   cases: {
-    a: { description: "first", expect: { status: 200 } },
-    b: { description: "second", expect: { status: 200 } },
+    a: { description: "first", deferred: "later", expect: { status: 200 } },
+    b: { description: "second", requires: "browser", expect: { status: 200 } },
   },
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
     assert.equal(items.length, 2);
-    // Both should be at distinct, positive (0-based) lines
     assert.ok(items[0].line >= 0);
     assert.ok(items[1].line > items[0].line, "second case should be on a later line");
   });
@@ -161,26 +145,24 @@ export const c = contract.http("my", {
 export const a = contract.http("a-contract", {
   endpoint: "GET /a",
   cases: {
-    one: { description: "a one", expect: { status: 200 } },
+    one: { description: "a one", deferred: "todo", expect: { status: 200 } },
   },
 });
 
 export const b = contract.http("b-contract", {
   endpoint: "GET /b",
   cases: {
-    two: { description: "b two", expect: { status: 200 } },
+    two: { description: "b two", requires: "out-of-band", expect: { status: 200 } },
   },
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
     assert.equal(items.length, 2);
-    assert.equal(items[0].args?.testId, "a-contract.one");
-    assert.equal(items[0].args?.exportName, "a");
-    assert.equal(items[1].args?.testId, "b-contract.two");
-    assert.equal(items[1].args?.exportName, "b");
+    assert.equal(items[0].title, "\u2298 deferred: todo");
+    assert.equal(items[1].title, "\u2298 requires: out-of-band");
   });
 
-  it("mixes disabled and runnable items correctly", () => {
+  it("emits disabled metadata lenses only", () => {
     const content = CONTRACT_IMPORT + `
 export const c = contract.http("mixed", {
   endpoint: "POST /x",
@@ -203,10 +185,9 @@ export const c = contract.http("mixed", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 3);
-    assert.equal(items[0].kind, "run");
+    assert.equal(items.length, 2);
+    assert.equal(items[0].kind, "disabled");
     assert.equal(items[1].kind, "disabled");
-    assert.equal(items[2].kind, "disabled");
   });
 });
 
@@ -217,7 +198,7 @@ export const c = contract.http("mixed", {
 describe("computeContractLenses — // @contract marker", () => {
   const SDK_IMPORT = 'import { contract, configure } from "@glubean/sdk";\n';
 
-  it("emits run items for marker-based .with() contracts", () => {
+  it("emits no CodeLens for marker-based default-runnable contracts", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("test", {});
 
@@ -237,14 +218,7 @@ export const getMe = api("get-me", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 2);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].title, "▶ run ok");
-    assert.equal(items[0].args?.testId, "get-me.ok");
-    assert.equal(items[0].args?.exportName, "getMe");
-    assert.equal(items[1].kind, "run");
-    assert.equal(items[1].title, "▶ run notFound");
-    assert.equal(items[1].args?.testId, "get-me.notFound");
+    assert.equal(items.length, 0);
   });
 
   it("handles deferred cases with marker", () => {
@@ -268,10 +242,9 @@ export const send = api("send", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 2);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[1].kind, "disabled");
-    assert.ok(items[1].title.includes("deferred: backend pending"));
+    assert.equal(items.length, 1);
+    assert.equal(items[0].kind, "disabled");
+    assert.ok(items[0].title.includes("deferred: backend pending"));
   });
 
   it("handles deprecated cases with marker", () => {
@@ -318,7 +291,7 @@ export const oauth = api("oauth", {
     assert.ok(items[0].title.includes("requires: browser"));
   });
 
-  it("falls back to old regex when no markers present", () => {
+  it("falls back to unmarked AST contracts when no markers present", () => {
     const content = CONTRACT_IMPORT + `
 export const legacy = contract.http("legacy", {
   endpoint: "GET /legacy",
@@ -328,21 +301,17 @@ export const legacy = contract.http("legacy", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 1);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].args?.testId, "legacy.ok");
+    assert.equal(items.length, 0);
   });
 
   // ── Shorthand cases (defineHttpCase + variable references) ────────────
   // The canonical attachment-model v10 pattern: cases bound as
   // `defineHttpCase<{ token: string }>(...)` outside the contract literal,
   // then referenced via shorthand property syntax inside the `cases` block.
-  // Pre-fix the parser only recognized inline `key: { ... }` shape and
-  // emitted ZERO lenses for shorthand-only contracts. Now we walk segment
-  // boundaries (commas + closing brace) and treat bare-identifier segments
-  // as shorthand cases.
+  // Runnable TestItems are owned by the Test Explorer parser. CodeLens is
+  // intentionally silent for default-runnable shorthand cases.
 
-  it("shorthand: cases referenced as variables produce one lens per case", () => {
+  it("shorthand: cases referenced as variables produce no CodeLens", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("dummyjson", {});
 const authorized = defineHttpCase({ description: "ok", expect: { status: 200 } });
@@ -358,15 +327,10 @@ export const getMe = api("auth.me", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 2);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].args?.testId, "auth.me.authorized");
-    assert.equal(items[0].args?.exportName, "getMe");
-    assert.equal(items[1].kind, "run");
-    assert.equal(items[1].args?.testId, "auth.me.requiresAttachment");
+    assert.equal(items.length, 0);
   });
 
-  it("shorthand: trailing case without comma still captured", () => {
+  it("shorthand: trailing case without comma stays silent", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("svc", {});
 const a = defineHttpCase({ expect: { status: 200 } });
@@ -382,12 +346,10 @@ export const ep = api("svc.ep", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 2);
-    assert.equal(items[0].args?.testId, "svc.ep.a");
-    assert.equal(items[1].args?.testId, "svc.ep.b");
+    assert.equal(items.length, 0);
   });
 
-  it("mixed: inline + shorthand cases in one contract both produce lenses", () => {
+  it("mixed: inline + shorthand default cases produce no CodeLens", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("svc", {});
 const archived = defineHttpCase({ expect: { status: 410 } });
@@ -405,35 +367,32 @@ export const ep = api("svc.ep", {
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 2);
-    const titles = items.map((i) => i.title).sort();
-    assert.deepEqual(titles, ["▶ run archived", "▶ run fresh"]);
-    const ids = items.map((i) => i.args?.testId).sort();
-    assert.deepEqual(ids, ["svc.ep.archived", "svc.ep.fresh"]);
+    assert.equal(items.length, 0);
   });
 
-  it("shorthand: case key offset points at the identifier line, not the comma", () => {
-    // Lens line should be the line containing the identifier, so the
-    // ▶ button shows up on the same row as `authorized,` rather than on
-    // the comma's preceding-line empty whitespace.
+  it("AST: disabled case key line ignores strings, templates, and nested braces", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("svc", {});
-const authorized = defineHttpCase({ expect: { status: 200 } });
 
 // @contract
 export const ep = api("svc.ep", {
   endpoint: "GET /x",
   cases: {
-    authorized,
+    "literal-key": {
+      description: "contains fake }, commas, and cases: { nope: {} } text",
+      deferred: "not ready",
+      body: () => ({ text: \`template with } and , and \${"expr"}\` }),
+      expect: { status: 200 },
+    },
   },
 });
 `;
     const items = computeContractLenses(content, FILE_PATH);
     assert.equal(items.length, 1);
-    // Find the line index of `    authorized,` in the content (0-based).
     const lines = content.split("\n");
-    const expectedLine = lines.findIndex((l) => l.trim() === "authorized,");
-    assert.equal(items[0].line, expectedLine, "lens must render on the identifier's own line");
+    const expectedLine = lines.findIndex((l) => l.includes('"literal-key"'));
+    assert.equal(items[0].line, expectedLine, "lens must render on the case key line");
+    assert.equal(items[0].title, "⊘ deferred: not ready");
   });
 });
 
@@ -445,7 +404,7 @@ describe("computeContractLenses — // @flow marker", () => {
   const FILE_PATH = "/abs/path/to/flow.contract.ts";
   const SDK_IMPORT = 'import { contract, configure } from "@glubean/sdk";\n';
 
-  it("emits a single run item for a flow with a literal id", () => {
+  it("emits no CodeLens for a default-runnable flow with a literal id", () => {
     const content = SDK_IMPORT + `
 import { login } from "./auth.contract.ts";
 import { getProfile } from "./profile.contract.ts";
@@ -463,17 +422,7 @@ export const loginThenGetProfile = contract
   });
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    assert.equal(items.length, 1);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].title, "▶ run login-then-profile");
-    assert.equal(items[0].args?.testId, "login-then-profile");
-    assert.equal(items[0].args?.exportName, "loginThenGetProfile");
-    // Lens should sit on the `export const` line (0-based).
-    // Count lines up to `export const loginThenGetProfile` in the content.
-    const expectedLine = content.split("\n").findIndex((l) =>
-      l.includes("export const loginThenGetProfile")
-    );
-    assert.equal(items[0].line, expectedLine);
+    assert.equal(items.length, 0);
   });
 
   it("emits a disabled item when flow is marked skip via .meta({ skip: \"...\" })", () => {
@@ -510,7 +459,7 @@ export const dynamic = contract.flow(dynamicId).setup(async () => ({}));
     assert.equal(items.length, 0);
   });
 
-  it("emits contract AND flow lenses when a file declares both", () => {
+  it("emits no CodeLens when a file declares default-runnable contract and flow", () => {
     const content = SDK_IMPORT + `
 const api = contract.http.with("demo", {});
 
@@ -526,10 +475,7 @@ export const smoke = contract
   .step(ping.case("ok"));
 `;
     const items = computeContractLenses(content, FILE_PATH);
-    // Contract case "ok" + flow "ping-smoke" = 2 items.
-    assert.equal(items.length, 2);
-    const titles = items.map((i) => i.title).sort();
-    assert.deepEqual(titles, ["▶ run ok", "▶ run ping-smoke"]);
+    assert.equal(items.length, 0);
   });
 });
 
@@ -540,14 +486,10 @@ export const smoke = contract
 describe("computeContractLenses — *.bootstrap.ts overlay detection", () => {
   const BOOTSTRAP_PATH = "/tmp/proj/me.bootstrap.ts";
 
-  it("resolves cross-file: lens args target the CONTRACT module, not the bootstrap module", () => {
-    // Click-level smoke: the args produced here are exactly what flows into
-    // `glubean.runContractCase` → `executeTest(filePath, [testId], ..., { exportName })`.
-    // `filePath` MUST be the contract file (so the harness imports a module
-    // that exports a real `Test`), and `exportName` MUST be the contract
-    // export — the overlay export is a `BootstrapAttachment`, not runnable.
-    // Overlay registration happens via §7.4 eager-load on the harness side
-    // for ALL `*.bootstrap.ts` files, regardless of which file we pointed at.
+  it("resolves cross-file overlays without emitting a diagnostic lens", () => {
+    // Resolved overlays are represented as shadow TestItems by the Test
+    // Explorer; CodeLens only emits disabled diagnostics for resolution
+    // failures.
     const bootstrapContent = `
 import { contract } from "@glubean/sdk";
 import { getMe } from "./me.contract.ts";
@@ -572,14 +514,7 @@ export const getMe = api("auth.me", {
 
     const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
 
-    assert.equal(items.length, 1);
-    assert.equal(items[0].kind, "run");
-    assert.equal(items[0].title, "▶ run auth.me.authorized");
-    assert.deepEqual(items[0].args, {
-      filePath: "/tmp/proj/me.contract.ts",
-      testId: "auth.me.authorized",
-      exportName: "getMe",
-    });
+    assert.equal(items.length, 0);
   });
 
   it("resolves import path written WITHOUT .ts extension", () => {
@@ -606,11 +541,10 @@ export const getMe = api("svc.thing", {
       p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
 
     const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
-    assert.equal(items.length, 1);
-    assert.equal(items[0].title, "▶ run svc.thing.ok");
+    assert.equal(items.length, 0);
   });
 
-  it("emits multiple lenses when file has multiple bootstrap exports", () => {
+  it("stays silent when file has multiple resolvable bootstrap exports", () => {
     const bootstrapContent = `
 import { contract } from "@glubean/sdk";
 import { getMe } from "./me.contract.ts";
@@ -640,9 +574,7 @@ export const getMe = api("auth.me", {
       p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
 
     const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
-    assert.equal(items.length, 2);
-    const titles = items.map((i) => i.title).sort();
-    assert.deepEqual(titles, ["▶ run auth.me.authorized", "▶ run auth.me.requiresAttachment"]);
+    assert.equal(items.length, 0);
   });
 
   it("falls back to local lookup when contract is in the SAME file as the overlay", () => {
@@ -665,21 +597,7 @@ export const meOverlay = contract.bootstrap(
 `;
     // No readFile callback needed — local lookup path.
     const items = computeContractLenses(content, "/tmp/proj/me.contract.ts");
-    // Both the contract case lens AND the bootstrap lens fire.
-    assert.equal(items.length, 2);
-    // Contract case lens (// @contract path) uses the case key for the title;
-    // bootstrap lens uses the full `${contractId}.${case}` form. Distinct
-    // titles let us tell them apart without depending on line numbers.
-    const bootstrapItem = items.find((i) => i.title === "▶ run svc.me.ok");
-    assert.ok(bootstrapItem, "bootstrap lens should be emitted from local lookup");
-    assert.equal(bootstrapItem!.kind, "run");
-    // Same-file overlay also targets the contract export (`getMe`), not the
-    // overlay export (`meOverlay`). The harness needs a runnable `Test`.
-    assert.deepEqual(bootstrapItem!.args, {
-      filePath: "/tmp/proj/me.contract.ts",
-      testId: "svc.me.ok",
-      exportName: "getMe",
-    });
+    assert.equal(items.length, 0);
   });
 
   it("emits disabled hint when the imported file is unreadable", () => {
@@ -741,8 +659,7 @@ export const getMe = api("svc.me", {
       p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
 
     const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
-    assert.equal(items.length, 1);
-    assert.equal(items[0].title, "▶ run svc.me.ok");
+    assert.equal(items.length, 0);
   });
 
   it("ignores files with no contract.bootstrap() exports", () => {
@@ -758,9 +675,7 @@ export const ping = api("svc.ping", {
 });
 `;
     const items = computeContractLenses(content, "/tmp/proj/ping.contract.ts");
-    // Should produce ONLY the contract case lens (one), no bootstrap noise.
-    assert.equal(items.length, 1);
-    assert.equal(items[0].title, "▶ run ok");
+    assert.equal(items.length, 0);
   });
 
   it("multi-line import block with multiple names", () => {
@@ -786,8 +701,7 @@ export const getMe = api("svc.me", {
       p === "/tmp/proj/me.contract.ts" ? contractContent : undefined;
 
     const items = computeContractLenses(bootstrapContent, BOOTSTRAP_PATH, readFile);
-    assert.equal(items.length, 1);
-    assert.equal(items[0].title, "▶ run svc.me.ok");
+    assert.equal(items.length, 0);
   });
 });
 
@@ -834,12 +748,7 @@ export const getMe = api("auth.me", {
       path.win32,
     );
 
-    assert.equal(items.length, 1);
-    assert.equal(items[0].kind, "run", "Windows path should resolve, not fall to disabled hint");
-    assert.equal(items[0].title, "▶ run auth.me.authorized");
-    // The resolved target file path is the win32-joined absolute path.
-    assert.equal(items[0].args?.filePath, winContractPath);
-    assert.equal(items[0].args?.exportName, "getMe");
+    assert.equal(items.length, 0, "Windows path should resolve, not fall to disabled hint");
   });
 
   it("documents the bug: posix path resolution against a win32 fsPath fails", () => {
