@@ -31,6 +31,11 @@ interface TestMeta {
   name?: string;
   exportName: string;
   line: number;
+  dataDrivenRow?: {
+    kind: "each" | "pick";
+    parentId: string;
+    pickKey?: string;
+  };
 }
 
 /**
@@ -40,6 +45,7 @@ interface TestMeta {
 interface ExecuteTestCall {
   testIds: string[] | undefined;
   exportName: string | undefined;
+  pick: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +62,7 @@ function buildRunFileCall(_tests: TestMeta[]): ExecuteTestCall {
   return {
     testIds: undefined, // whole-file run — wildcard mode
     exportName: undefined,
+    pick: undefined,
   };
 }
 
@@ -63,21 +70,28 @@ function buildRunFileCall(_tests: TestMeta[]): ExecuteTestCall {
  * Replicate runSingleTest's executeTest call (testController.ts:1416-1444).
  */
 function buildRunSingleTestCall(meta: TestMeta): ExecuteTestCall {
+  const row = meta.dataDrivenRow;
   const isDataDriven = meta.id.startsWith("each:") || meta.id.startsWith("pick:");
-  const filterId = normalizeFilterId(meta.id);
-  const useExportName = isDataDriven && meta.exportName;
+  const filterId = row ? meta.id : normalizeFilterId(meta.id);
+  const useExportName = !row && isDataDriven && meta.exportName;
+  const pickKey = row?.kind === "pick" ? row.pickKey : undefined;
 
   return {
     testIds: useExportName ? undefined : [filterId],
-    exportName: useExportName ? meta.exportName : undefined,
+    exportName: useExportName || row ? meta.exportName : undefined,
+    pick: pickKey,
   };
 }
 
 /**
  * Replicate isWholeFile check (testController.ts:1083-1085).
  */
-function isWholeFile(selectedCount: number, totalChildCount: number): boolean {
-  return selectedCount === totalChildCount;
+function isWholeFile(selectedIds: string[], topLevelIds: string[]): boolean {
+  const selected = new Set(selectedIds);
+  return (
+    selectedIds.length === topLevelIds.length &&
+    topLevelIds.every((id) => selected.has(id))
+  );
 }
 
 /**
@@ -85,9 +99,10 @@ function isWholeFile(selectedCount: number, totalChildCount: number): boolean {
  */
 function dispatchRun(
   tests: TestMeta[],
-  totalChildCount: number,
+  selectedIds: string[],
+  topLevelIds: string[],
 ): ExecuteTestCall[] {
-  if (isWholeFile(tests.length, totalChildCount)) {
+  if (isWholeFile(selectedIds, topLevelIds)) {
     return [buildRunFileCall(tests)];
   }
   return tests.map(buildRunSingleTestCall);
@@ -106,6 +121,7 @@ describe("runFile dispatch (whole-file wildcard)", () => {
     const call = buildRunFileCall(tests);
     assert.equal(call.testIds, undefined);
     assert.equal(call.exportName, undefined);
+    assert.equal(call.pick, undefined);
   });
 
   it("passes undefined even when file has only data-driven tests", () => {
@@ -133,6 +149,7 @@ describe("runSingleTest dispatch", () => {
     const call = buildRunSingleTestCall(meta);
     assert.deepEqual(call.testIds, ["health-check"]);
     assert.equal(call.exportName, undefined);
+    assert.equal(call.pick, undefined);
   });
 
   it("uses exportName for each: data-driven test", () => {
@@ -140,6 +157,7 @@ describe("runSingleTest dispatch", () => {
     const call = buildRunSingleTestCall(meta);
     assert.equal(call.testIds, undefined);
     assert.equal(call.exportName, "csvCases");
+    assert.equal(call.pick, undefined);
   });
 
   it("uses exportName for pick: data-driven test", () => {
@@ -147,6 +165,7 @@ describe("runSingleTest dispatch", () => {
     const call = buildRunSingleTestCall(meta);
     assert.equal(call.testIds, undefined);
     assert.equal(call.exportName, "searchProducts");
+    assert.equal(call.pick, undefined);
   });
 
   it("falls back to filterId when each: test has no exportName", () => {
@@ -155,6 +174,7 @@ describe("runSingleTest dispatch", () => {
     // empty exportName is falsy, so useExportName = false
     assert.deepEqual(call.testIds, ["user-"]);
     assert.equal(call.exportName, undefined);
+    assert.equal(call.pick, undefined);
   });
 
   it("normalizes filterId by stripping prefix and template vars", () => {
@@ -162,24 +182,60 @@ describe("runSingleTest dispatch", () => {
     const call = buildRunSingleTestCall(meta);
     assert.deepEqual(call.testIds, ["item--"]);
   });
+
+  it("runs a materialized each row by concrete id and exportName", () => {
+    const meta: TestMeta = {
+      type: "test",
+      id: "user-42",
+      exportName: "userTests",
+      line: 1,
+      dataDrivenRow: { kind: "each", parentId: "each:user-$id" },
+    };
+    const call = buildRunSingleTestCall(meta);
+    assert.deepEqual(call.testIds, ["user-42"]);
+    assert.equal(call.exportName, "userTests");
+    assert.equal(call.pick, undefined);
+  });
+
+  it("runs a materialized pick row by concrete id, exportName, and pick key", () => {
+    const meta: TestMeta = {
+      type: "test",
+      id: "search-by-name",
+      exportName: "searchProducts",
+      line: 1,
+      dataDrivenRow: {
+        kind: "pick",
+        parentId: "pick:search-$_pick",
+        pickKey: "by-name",
+      },
+    };
+    const call = buildRunSingleTestCall(meta);
+    assert.deepEqual(call.testIds, ["search-by-name"]);
+    assert.equal(call.exportName, "searchProducts");
+    assert.equal(call.pick, "by-name");
+  });
 });
 
 describe("isWholeFile detection", () => {
   it("returns true when all children are selected", () => {
-    assert.equal(isWholeFile(3, 3), true);
+    assert.equal(isWholeFile(["a", "b", "c"], ["a", "b", "c"]), true);
   });
 
   it("returns false when subset of children is selected", () => {
-    assert.equal(isWholeFile(1, 3), false);
+    assert.equal(isWholeFile(["a"], ["a", "b", "c"]), false);
   });
 
   it("returns true for single-test file with that test selected", () => {
     // This is the csv.test.ts case — only one export, clicking it = whole file
-    assert.equal(isWholeFile(1, 1), true);
+    assert.equal(isWholeFile(["each:dj-csv-$label"], ["each:dj-csv-$label"]), true);
   });
 
   it("returns false when no tests selected (edge case)", () => {
-    assert.equal(isWholeFile(0, 3), false);
+    assert.equal(isWholeFile([], ["a", "b", "c"]), false);
+  });
+
+  it("returns false when a materialized row is selected under a single parent", () => {
+    assert.equal(isWholeFile(["dj-csv-mascara"], ["each:dj-csv-$label"]), false);
   });
 });
 
@@ -188,7 +244,7 @@ describe("dispatch decision (runFile vs runSingleTest)", () => {
     const tests: TestMeta[] = [
       { type: "test", id: "each:dj-csv-$label", exportName: "csvCases", line: 1 },
     ];
-    const calls = dispatchRun(tests, 1);
+    const calls = dispatchRun(tests, ["each:dj-csv-$label"], ["each:dj-csv-$label"]);
     // Single runFile call with undefined testIds
     assert.equal(calls.length, 1);
     assert.equal(calls[0].testIds, undefined);
@@ -200,7 +256,7 @@ describe("dispatch decision (runFile vs runSingleTest)", () => {
       { type: "test", id: "health", exportName: "healthCheck", line: 1 },
       { type: "test", id: "each:user-$id", exportName: "userTests", line: 10 },
     ];
-    const calls = dispatchRun(tests, 5); // 5 total children, 2 selected = not whole file
+    const calls = dispatchRun(tests, ["health", "each:user-$id"], ["health", "each:user-$id", "other", "more", "last"]);
     assert.equal(calls.length, 2);
     // First: plain test
     assert.deepEqual(calls[0].testIds, ["health"]);
@@ -217,7 +273,7 @@ describe("dispatch decision (runFile vs runSingleTest)", () => {
     const tests: TestMeta[] = [
       { type: "test", id: "each:dj-csv-$label", exportName: "csvCases", line: 18 },
     ];
-    const calls = dispatchRun(tests, 1);
+    const calls = dispatchRun(tests, ["each:dj-csv-$label"], ["each:dj-csv-$label"]);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].testIds, undefined, "runFile must pass undefined testIds, not template IDs");
   });

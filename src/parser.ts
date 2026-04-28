@@ -43,6 +43,12 @@ export interface TestMeta {
   line: number;
   /** Builder steps (for multi-step tests) */
   steps?: string[];
+  /** Concrete row metadata for a materialized test.each/test.pick child. */
+  dataDrivenRow?: {
+    kind: "each" | "pick";
+    parentId: string;
+    pickKey?: string;
+  };
 }
 
 const DIRECT_SDK_IMPORT_PATTERN =

@@ -26,6 +26,7 @@ import {
   findImportPath,
   type TestMeta,
 } from "./parser";
+import { materializeDataDrivenRows } from "./dataDrivenRows";
 import { executeTest } from "./testController/executor";
 import { loadRunnerForCwd } from "./testController/loadRunner";
 import { workspaceRootFor } from "./workspaceRoot";
@@ -637,6 +638,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(testWatcher);
 
+  // Data-driven TestItems are materialized from JSON/YAML/CSV/JSONL files at
+  // parse time, so data edits need to refresh the existing test tree too.
+  const dataWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/*.{json,yaml,yml,csv,jsonl}",
+  );
+  const refreshKnownTestFiles = () => {
+    for (const uriString of fileItems.keys()) {
+      debouncedParse(vscode.Uri.parse(uriString));
+    }
+  };
+  dataWatcher.onDidChange(refreshKnownTestFiles);
+  dataWatcher.onDidCreate(refreshKnownTestFiles);
+  dataWatcher.onDidDelete(refreshKnownTestFiles);
+  context.subscriptions.push(dataWatcher);
+
   // ── Layout config change listener ──────────────────────────────────────
   // When testExplorerLayout changes, rebuild the entire tree.
   context.subscriptions.push(
@@ -920,8 +936,13 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
 
   const aliases = getAliases();
   const key = uri.toString();
+  const workspaceRoot = workspaceRootFor(uri.fsPath);
 
   const tests = extractTests(content, aliases);
+  const dataDrivenRows = materializeDataDrivenRows(content, tests, {
+    filePath: uri.fsPath,
+    workspaceRoot,
+  });
 
   // Bootstrap shadow TestItems — resolve overlay markers in *.bootstrap.ts
   // files to their target case, register a TestItem in this file pointing
@@ -950,7 +971,6 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
   }
 
   // Determine grouping by directory: files under explore/ go to Explore group
-  const workspaceRoot = workspaceRootFor(uri.fsPath);
   const relPath = path.relative(workspaceRoot, uri.fsPath);
   const isExplore =
     relPath.startsWith("explore/") || relPath.startsWith("explore\\");
@@ -973,8 +993,43 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
     const line = test.line - 1;
     testItem.range = new vscode.Range(line, 0, line, 999);
 
-    // Add step children for builder-style tests
-    if (test.steps && test.steps.length > 0) {
+    const rows = dataDrivenRows.rowsByParentId.get(test.id) ?? [];
+    if (rows.length > 0) {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowItem = controller.createTestItem(
+          `${key}#${test.id}#row-${i}-${encodeURIComponent(row.id)}`,
+          row.label,
+          uri,
+        );
+        rowItem.range = testItem.range;
+
+        if (test.steps && test.steps.length > 0) {
+          for (let stepIndex = 0; stepIndex < test.steps.length; stepIndex++) {
+            const stepItem = controller.createTestItem(
+              `${rowItem.id}#step-${stepIndex}`,
+              `step: ${test.steps[stepIndex]}`,
+              uri,
+            );
+            rowItem.children.add(stepItem);
+          }
+        }
+
+        const rowMeta: TestMeta = {
+          ...test,
+          id: row.id,
+          name: row.label,
+          dataDrivenRow: {
+            kind: row.kind,
+            parentId: row.parentId,
+            ...(row.pickKey !== undefined ? { pickKey: row.pickKey } : {}),
+          },
+        };
+        testItemMeta.set(rowItem, rowMeta);
+        testItem.children.add(rowItem);
+      }
+    } else if (test.steps && test.steps.length > 0) {
+      // Add step children for non-data-driven builder-style tests.
       for (let i = 0; i < test.steps.length; i++) {
         const stepItem = controller.createTestItem(
           `${key}#${test.id}#step-${i}`,
@@ -1229,9 +1284,7 @@ async function runHandler(
     }
 
     // If running all tests in a file, don't filter
-    const isWholeFile =
-      tests.length ===
-      (fileItems.get(vscode.Uri.file(filePath).toString())?.children.size ?? 0);
+    const isWholeFile = isWholeFileSelection(filePath, tests);
 
     if (isWholeFile) {
       await runFile(filePath, tests, run, cancellation);
@@ -1350,12 +1403,16 @@ async function debugHandler(
   // route data-driven debug through the harness's exportName-only
   // mode — runner enumerates per-row tests and the debugger pauses on
   // the first breakpoint reached in any row.
+  const row = meta.dataDrivenRow;
   const isDataDriven = meta.id.startsWith("each:") || meta.id.startsWith("pick:");
-  const useExportName = isDataDriven && !!meta.exportName;
-  const filterId = useExportName ? "" : normalizeFilterId(meta.id);
+  const useExportName = !row && isDataDriven && !!meta.exportName;
+  const filterId = row ? meta.id : useExportName ? "" : normalizeFilterId(meta.id);
+  const pickKey = row?.kind === "pick" ? row.pickKey : undefined;
 
   outputChannel.appendLine(
-    useExportName
+    pickKey
+      ? `\n[debug] run ${filePath} --filter ${filterId} --pick ${pickKey} (debug port ${port})`
+      : useExportName
       ? `\n[debug] run ${filePath} --export ${meta.exportName} (debug port ${port})`
       : `\n[debug] run ${filePath} --filter ${filterId} (debug port ${port})`,
   );
@@ -1365,6 +1422,10 @@ async function debugHandler(
   // harness subprocess directly (no CLI wrapper needed).
   const ac = new AbortController();
   const cancelDisposable = cancellation.onCancellationRequested(() => ac.abort());
+  const previousPick = process.env["GLUBEAN_PICK"];
+  if (pickKey) {
+    process.env["GLUBEAN_PICK"] = pickKey;
+  }
 
   let debugEndedDisposable: vscode.Disposable | undefined;
   let safetyTimeoutHandle: NodeJS.Timeout | undefined;
@@ -1408,6 +1469,13 @@ async function debugHandler(
     const message = err instanceof Error ? err.message : String(err);
     run.errored(item, new vscode.TestMessage(`Debug setup failed: ${message}`));
     outputChannel.appendLine(`[debug] Setup error: ${message}`);
+    if (pickKey) {
+      if (previousPick !== undefined) {
+        process.env["GLUBEAN_PICK"] = previousPick;
+      } else {
+        delete process.env["GLUBEAN_PICK"];
+      }
+    }
     cancelDisposable.dispose();
     run.end();
     return;
@@ -1421,7 +1489,7 @@ async function debugHandler(
   // normalized filterId as the testId (existing behavior).
   const runIterator = executor.run(fileUrl, filterId, context, {
     signal: ac.signal,
-    ...(useExportName && meta.exportName ? { exportName: meta.exportName } : {}),
+    ...((useExportName || row) && meta.exportName ? { exportName: meta.exportName } : {}),
   });
 
   // Kick off event consumption so the generator spawns the subprocess
@@ -1530,6 +1598,13 @@ async function debugHandler(
     run.errored(item, new vscode.TestMessage(`Debug error: ${message}`));
     outputChannel.appendLine(`[debug] Error: ${message}`);
   } finally {
+    if (pickKey) {
+      if (previousPick !== undefined) {
+        process.env["GLUBEAN_PICK"] = previousPick;
+      } else {
+        delete process.env["GLUBEAN_PICK"];
+      }
+    }
     cancelDisposable.dispose();
     debugEndedDisposable?.dispose();
     if (safetyTimeoutHandle) {
@@ -1555,6 +1630,47 @@ function collectTests(
     // It's a file-level or step-level item — recurse into children
     item.children.forEach((child) => collectTests(child, out));
   }
+}
+
+function isWholeFileSelection(
+  filePath: string,
+  tests: Array<{ item: vscode.TestItem }>,
+): boolean {
+  const fileItem = fileItems.get(vscode.Uri.file(filePath).toString());
+  if (!fileItem) return false;
+
+  const selectedIds = new Set(tests.map((t) => t.item.id));
+  let topLevelCount = 0;
+  let allTopLevelSelected = true;
+  fileItem.children.forEach((child) => {
+    topLevelCount++;
+    if (!selectedIds.has(child.id)) {
+      allTopLevelSelected = false;
+    }
+  });
+
+  return tests.length === topLevelCount && allTopLevelSelected;
+}
+
+function expandResultTargets(
+  tests: Array<{ item: vscode.TestItem; meta: TestMeta }>,
+  run: vscode.TestRun,
+): Array<{ item: vscode.TestItem; meta: TestMeta }> {
+  const out = [...tests];
+  const seen = new Set(tests.map((t) => t.item.id));
+
+  for (const test of tests) {
+    test.item.children.forEach((child) => {
+      if (seen.has(child.id)) return;
+      const meta = testItemMeta.get(child);
+      if (!meta?.dataDrivenRow) return;
+      seen.add(child.id);
+      run.started(child);
+      out.push({ item: child, meta });
+    });
+  }
+
+  return out;
 }
 
 
@@ -1599,7 +1715,7 @@ async function runFile(
         { envFile: envFileProvider?.() },
       );
 
-      applyResults(regularTests, parsed, run);
+      applyResults(expandResultTargets(regularTests, run), parsed, run);
       const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
       lastResultJsonPath = resultJsonPath;
 
@@ -1660,17 +1776,21 @@ async function runSingleTest(
     };
   }
 
+  const row = test.meta.dataDrivenRow;
   const isDataDriven = test.meta.id.startsWith("each:") || test.meta.id.startsWith("pick:");
-  const filterId = normalizeFilterId(test.meta.id);
+  const filterId = row ? test.meta.id : normalizeFilterId(test.meta.id);
   const cwd = workspaceRootFor(filePath);
 
   // For data-driven tests (test.each/test.pick), run by exportName
   // instead of filterId — the template ID (e.g. "dj-yaml-$label") can't
   // be matched as a literal testId by the runner.
-  const useExportName = isDataDriven && test.meta.exportName;
+  const useExportName = !row && isDataDriven && test.meta.exportName;
+  const pickKey = row?.kind === "pick" ? row.pickKey : undefined;
 
   outputChannel.appendLine(
-    useExportName
+    pickKey
+      ? `\n▶ run ${filePath} --filter ${filterId} --pick ${pickKey}`
+      : useExportName
       ? `\n▶ run ${filePath} --export ${test.meta.exportName}`
       : `\n▶ run ${filePath} --filter ${filterId}`,
   );
@@ -1686,11 +1806,12 @@ async function runSingleTest(
       run,
       {
         envFile: envFileProvider?.(),
-        exportName: useExportName ? test.meta.exportName : undefined,
+        exportName: useExportName || row ? test.meta.exportName : undefined,
+        pick: pickKey,
       },
     );
 
-    applyResults([test], parsed, run);
+    applyResults(expandResultTargets([test], run), parsed, run);
     const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
     lastResultJsonPath = resultJsonPath;
 
