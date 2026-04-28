@@ -18,7 +18,14 @@ import {
   findFreePort,
   pollInspectorReady,
 } from "./testController/debug-utils";
-import { extractAliasesFromSource, extractTests, type TestMeta } from "./parser";
+import {
+  extractAliasesFromSource,
+  extractBootstrapMarkers,
+  extractTests,
+  findContractIdInTarget,
+  findImportPath,
+  type TestMeta,
+} from "./parser";
 import { executeTest } from "./testController/executor";
 import { loadRunnerForCwd } from "./testController/loadRunner";
 import { workspaceRootFor } from "./workspaceRoot";
@@ -88,6 +95,34 @@ let outputChannel: vscode.OutputChannel;
 
 /** Map from file URI string to its TestItem */
 const fileItems = new Map<string, vscode.TestItem>();
+
+/**
+ * Per-TestItem-id metadata for bootstrap shadow items.
+ *
+ * A bootstrap shadow is a TestItem registered against a `*.bootstrap.ts`
+ * file (so gutter ▶ renders next to the overlay export and Test Explorer
+ * lists the file) that, when run, dispatches the **target contract case**
+ * — not the bootstrap file itself. The target lives in a sibling
+ * `*.contract.ts`; the harness's §7.4 eager-load wires the overlay in
+ * automatically when running the target.
+ *
+ * The Map is consulted by `runFile` / `runSingleTest` to redirect the
+ * `executeTest()` invocation to the target contract file + testId +
+ * exportName, rather than spawning a harness on the bootstrap module
+ * (which exports a `BootstrapAttachment`, not a `Test` — same dual-
+ * instance hazard pattern as v0.17.42 round 2).
+ *
+ * Keyed by TestItem `id` (= `<bootstrapURI>#bootstrap:<exportName>`).
+ */
+interface BootstrapTarget {
+  /** Absolute filesystem path of the target contract file. */
+  targetFilePath: string;
+  /** Test id of the target case (e.g. `"auth.me.authorized"`). */
+  targetTestId: string;
+  /** Target's exported name in its contract file (e.g. `"getMe"`). */
+  targetExportName: string;
+}
+const overlayTargets = new Map<string, BootstrapTarget>();
 
 /** Root group nodes for Test Explorer tree */
 let testsRoot: vscode.TestItem | undefined;
@@ -790,6 +825,83 @@ function getOrCreateDirNode(
 }
 
 /**
+ * Resolve bootstrap markers in a `*.bootstrap.ts` file to their target
+ * contract case + file. Returns one entry per successfully-resolved
+ * marker; drops markers where the target import is unresolvable, the
+ * target file is unreadable, or the contractId can't be found in the
+ * target. CodeLens already surfaces those as `⊘ overlay: ...` disabled
+ * lenses, so we don't double-report by registering disabled TestItems.
+ *
+ * Mirrors the resolution path in `contractLensCore.ts:computeBootstrapLensesByMarker`
+ * but produces the metadata needed to register a Test Explorer / gutter
+ * shadow item rather than a CodeLens entry.
+ *
+ * Side-effect-free except for filesystem reads of the resolved target file.
+ */
+function resolveBootstrapShadows(
+  content: string,
+  filePath: string,
+): Array<{
+  marker: { exportName: string; exportLine: number; targetIdent: string; caseKey: string };
+  target: BootstrapTarget;
+}> {
+  const out: ReturnType<typeof resolveBootstrapShadows> = [];
+  const markers = extractBootstrapMarkers(content);
+  if (markers.length === 0) return out;
+
+  const dir = path.dirname(filePath);
+
+  for (const marker of markers) {
+    // 1. Find the local import that introduced `marker.targetIdent`.
+    const importInfo = findImportPath(content, marker.targetIdent);
+    let targetFilePath: string | undefined;
+    let targetContent: string | undefined;
+    let targetExportName: string | undefined;
+
+    if (importInfo) {
+      // Cross-file: resolve the import path relative to the bootstrap
+      // file's directory and read the target. Try common extensions.
+      if (!importInfo.path.startsWith(".")) continue; // bare specifiers unsupported
+      const stripped = importInfo.path.replace(/\.(?:ts|js|mjs|tsx)$/, "");
+      const base = path.resolve(dir, stripped);
+      for (const ext of [".ts", ".tsx", ".mjs", ".js"]) {
+        const candidate = `${base}${ext}`;
+        try {
+          targetContent = fs.readFileSync(candidate, "utf-8");
+          targetFilePath = candidate;
+          targetExportName = importInfo.originalName;
+          break;
+        } catch {
+          // try next extension
+        }
+      }
+      if (!targetContent || !targetFilePath || !targetExportName) continue;
+    } else {
+      // No import: maybe the contract is declared in this same bootstrap
+      // file. Look it up locally. (Cookbook §9.3 same-file pattern.)
+      targetContent = content;
+      targetFilePath = filePath;
+      targetExportName = marker.targetIdent;
+    }
+
+    // 2. Find the contractId in the target file's `export const NAME = X("id", { ... })`.
+    const contractId = findContractIdInTarget(targetContent, targetExportName);
+    if (!contractId) continue;
+
+    out.push({
+      marker,
+      target: {
+        targetFilePath,
+        targetTestId: `${contractId}.${marker.caseKey}`,
+        targetExportName,
+      },
+    });
+  }
+
+  return out;
+}
+
+/**
  * Parse a single test file and update the Test Controller tree.
  */
 async function parseFile(uri: vscode.Uri): Promise<void> {
@@ -810,8 +922,22 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
   const key = uri.toString();
 
   const tests = extractTests(content, aliases);
-  if (tests.length === 0) {
-    // No test exports found — clean up any previously discovered items
+
+  // Bootstrap shadow TestItems — resolve overlay markers in *.bootstrap.ts
+  // files to their target case, register a TestItem in this file pointing
+  // at the target. Click → runs the target case (overlay registers via
+  // §7.4 eager-load on the harness side).
+  const shadows = resolveBootstrapShadows(content, uri.fsPath);
+
+  // Drop any previously-registered shadow targets for this file so a
+  // re-parse doesn't accumulate stale entries. Shadow ids encode
+  // `${key}#bootstrap:${exportName}`; strip every entry under that prefix.
+  for (const id of [...overlayTargets.keys()]) {
+    if (id.startsWith(`${key}#bootstrap:`)) overlayTargets.delete(id);
+  }
+
+  if (tests.length === 0 && shadows.length === 0) {
+    // No runnables found — clean up any previously discovered items
     // so they don't linger as ghost nodes.
     const existing = fileItems.get(key);
     if (existing) {
@@ -863,6 +989,41 @@ async function parseFile(uri: vscode.Uri): Promise<void> {
     testItemMeta.set(testItem, test);
 
     fileItem.children.add(testItem);
+  }
+
+  // Register bootstrap shadow TestItems. Each shadow:
+  //   - lives in the bootstrap file's tree (uri = bootstrap file URI)
+  //   - gutter ▶ shows next to the overlay export line
+  //   - id encodes the overlay export name (collision-free with regular tests)
+  //   - dispatched via overlayTargets map → runFile/runSingleTest redirect
+  //     execute against the target contract file
+  //
+  // Label uses an arrow to visually distinguish shadow items from regular
+  // test cases ("→ run X" vs "X").
+  for (const shadow of shadows) {
+    const shadowId = `${key}#bootstrap:${shadow.marker.exportName}`;
+    const shadowItem = controller.createTestItem(
+      shadowId,
+      `→ run ${shadow.target.targetTestId}`,
+      uri,
+    );
+    const line = shadow.marker.exportLine - 1; // 0-based
+    shadowItem.range = new vscode.Range(line, 0, line, 999);
+
+    // Attach a TestMeta so collectTests / dispatch finds it as runnable.
+    // The id field carries the TARGET testId so downstream code that
+    // derives filterId from meta.id (e.g. runSingleTest) routes correctly.
+    const shadowMeta: TestMeta = {
+      type: "test",
+      id: shadow.target.targetTestId,
+      name: `→ run ${shadow.target.targetTestId}`,
+      exportName: shadow.target.targetExportName,
+      line: shadow.marker.exportLine,
+    };
+    testItemMeta.set(shadowItem, shadowMeta);
+    overlayTargets.set(shadowId, shadow.target);
+
+    fileItem.children.add(shadowItem);
   }
 
   // Route to the appropriate root group node based on directory
@@ -1406,35 +1567,68 @@ async function runFile(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
-  const cwd = workspaceRootFor(filePath);
+  // Split shadow items (bootstrap-file overlays pointing at target cases
+  // in *other* contract files) from regular tests. Wildcard whole-file
+  // execution doesn't work for `*.bootstrap.ts` files — the harness
+  // imports the file and finds no `Test`/`Contract` exports (they're
+  // `BootstrapAttachment`s). Each shadow runs as an individual targeted
+  // case via runSingleTest.
+  const shadowTests: typeof tests = [];
+  const regularTests: typeof tests = [];
+  for (const t of tests) {
+    if (overlayTargets.has(t.item.id)) shadowTests.push(t);
+    else regularTests.push(t);
+  }
 
-  outputChannel.appendLine(`\n▶ run ${filePath}`);
-  outputChannel.appendLine(`  cwd: ${cwd}\n`);
+  // Regular tests path: existing wildcard whole-file run.
+  if (regularTests.length > 0) {
+    const cwd = workspaceRootFor(filePath);
 
-  if (isScratchMode(filePath)) showScratchModeHint();
+    outputChannel.appendLine(`\n▶ run ${filePath}`);
+    outputChannel.appendLine(`  cwd: ${cwd}\n`);
 
-  try {
-    const parsed = await executeTest(
-      filePath,
-      undefined, // whole-file run — let harness discover all tests (wildcard)
-      cwd,
-      cancellation,
-      run,
-      { envFile: envFileProvider?.() },
-    );
+    if (isScratchMode(filePath)) showScratchModeHint();
 
-    applyResults(tests, parsed, run);
-    const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
-    lastResultJsonPath = resultJsonPath;
+    try {
+      const parsed = await executeTest(
+        filePath,
+        undefined, // whole-file run — let harness discover all tests (wildcard)
+        cwd,
+        cancellation,
+        run,
+        { envFile: envFileProvider?.() },
+      );
 
-    writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
-    await openPostRunViewer(filePath, resultJsonPath, parsed);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    for (const { item } of tests) {
-      run.errored(item, new vscode.TestMessage(`Execution error: ${message}`));
+      applyResults(regularTests, parsed, run);
+      const resultJsonPath = filePath.replace(/\.(ts|js|mjs)$/, ".result.json");
+      lastResultJsonPath = resultJsonPath;
+
+      writeRunArtifacts(filePath, resultJsonPath, parsed, cwd);
+      await openPostRunViewer(filePath, resultJsonPath, parsed);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      for (const { item } of regularTests) {
+        run.errored(item, new vscode.TestMessage(`Execution error: ${message}`));
+      }
+      outputChannel.appendLine(`Error: ${message}`);
     }
-    outputChannel.appendLine(`Error: ${message}`);
+  }
+
+  // Shadow path: dispatch each as its own targeted run via runSingleTest.
+  // De-dupe by target testId so two overlays pointing at the same case
+  // (rare misconfiguration, but possible) only run once. Multiple shadows
+  // with distinct targets each spawn their own harness — same cost as
+  // running them one by one from the contract file.
+  if (shadowTests.length > 0) {
+    const seenTargets = new Set<string>();
+    for (const shadow of shadowTests) {
+      if (cancellation.isCancellationRequested) break;
+      const target = overlayTargets.get(shadow.item.id);
+      if (!target) continue;
+      if (seenTargets.has(target.targetTestId)) continue;
+      seenTargets.add(target.targetTestId);
+      await runSingleTest(filePath, shadow, run, cancellation);
+    }
   }
 }
 
@@ -1447,6 +1641,25 @@ async function runSingleTest(
   run: vscode.TestRun,
   cancellation: vscode.CancellationToken,
 ): Promise<void> {
+  // Bootstrap shadow redirect: if this TestItem is a shadow registered
+  // against a `*.bootstrap.ts` file, override filePath/testId/exportName
+  // to point at the target contract case. The harness's §7.4 eager-load
+  // wires the overlay in automatically when running the target, so this
+  // dispatches through the same case the user would get from clicking
+  // ▶ next to the case in the contract file. See `overlayTargets` decl.
+  const shadow = overlayTargets.get(test.item.id);
+  if (shadow) {
+    filePath = shadow.targetFilePath;
+    test = {
+      ...test,
+      meta: {
+        ...test.meta,
+        id: shadow.targetTestId,
+        exportName: shadow.targetExportName,
+      },
+    };
+  }
+
   const isDataDriven = test.meta.id.startsWith("each:") || test.meta.id.startsWith("pick:");
   const filterId = normalizeFilterId(test.meta.id);
   const cwd = workspaceRootFor(filePath);

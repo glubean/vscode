@@ -767,4 +767,273 @@ export const legacy = contract.http("legacy-test", {
     assert.equal(tests[0].id, "legacy-test.ok");
     assert.equal(tests[0].exportName, "legacy");
   });
+
+  // Shorthand cases (defineHttpCase + variable references) — v10 canonical
+  // pattern from cookbook contract-first/contracts/attachment-model/. Pre-fix
+  // the parser only recognized inline `key: { ... }` and emitted ZERO
+  // TestItems for shorthand-only contracts. Mirrors the contractLensCore
+  // shorthand fix landed 2026-04-27.
+
+  it("shorthand: cases referenced as variables produce one TestItem per case", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("dummyjson", {});
+const authorized = defineHttpCase({ description: "ok", expect: { status: 200 } });
+const requiresAttachment = defineHttpCase({ description: "blocked", expect: { status: 200 }, runnability: { requireAttachment: true } });
+
+// @contract
+export const getMe = api("auth.me", {
+  endpoint: "GET /auth/me",
+  cases: {
+    authorized,
+    requiresAttachment,
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    assert.equal(tests[0].id, "auth.me.authorized");
+    assert.equal(tests[0].exportName, "getMe");
+    assert.equal(tests[0].name, "GET /auth/me — authorized");
+    assert.equal(tests[1].id, "auth.me.requiresAttachment");
+  });
+
+  it("shorthand: trailing case without comma still captured", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+const a = defineHttpCase({ expect: { status: 200 } });
+const b = defineHttpCase({ expect: { status: 200 } });
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    a,
+    b
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    assert.equal(tests[0].id, "svc.ep.a");
+    assert.equal(tests[1].id, "svc.ep.b");
+  });
+
+  it("mixed: inline + shorthand cases in one contract both produce TestItems", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+const archived = defineHttpCase({ expect: { status: 410 } });
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    fresh: {
+      description: "fresh",
+      expect: { status: 200 },
+    },
+    archived,
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 2);
+    const ids = tests.map((t) => t.id).sort();
+    assert.deepEqual(ids, ["svc.ep.archived", "svc.ep.fresh"]);
+  });
+
+  it("shorthand: case line points at the identifier line, not a comma or brace", () => {
+    const content = SDK_IMPORT + `
+const api = contract.http.with("svc", {});
+const authorized = defineHttpCase({ expect: { status: 200 } });
+
+// @contract
+export const ep = api("svc.ep", {
+  endpoint: "GET /x",
+  cases: {
+    authorized,
+  },
+});
+`;
+    const tests = extractTests(content);
+    assert.equal(tests.length, 1);
+    // Find the line with `    authorized,` in the content (1-based — parser line is 1-based).
+    const lines = content.split("\n");
+    const expectedLine = lines.findIndex((l) => l.trim() === "authorized,") + 1;
+    assert.equal(tests[0].line, expectedLine);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bootstrap marker extraction (v10 attachment-model §7.4)
+// ---------------------------------------------------------------------------
+
+import { extractBootstrapMarkers, findImportPath, findContractIdInTarget } from "./parser";
+
+describe("extractBootstrapMarkers", () => {
+  it("extracts a single overlay export with simple targetIdent", () => {
+    const content = `
+import { contract } from "@glubean/sdk";
+import { getMe } from "./me.contract.ts";
+
+export const meAuthorizedOverlay = contract.bootstrap(
+  getMe.case("authorized"),
+  async (ctx) => ({ token: "tk" }),
+);
+`;
+    const markers = extractBootstrapMarkers(content);
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].exportName, "meAuthorizedOverlay");
+    assert.equal(markers[0].targetIdent, "getMe");
+    assert.equal(markers[0].caseKey, "authorized");
+  });
+
+  it("extracts multiple overlays in one file", () => {
+    const content = `
+import { contract } from "@glubean/sdk";
+import { getMe } from "./me.contract.ts";
+
+export const meAuthorizedOverlay = contract.bootstrap(
+  getMe.case("authorized"),
+  async () => ({ token: "a" }),
+);
+
+export const meAttachOverlay = contract.bootstrap(
+  getMe.case("requiresAttachment"),
+  { params: undefined as any, run: async () => ({ token: "b" }) },
+);
+`;
+    const markers = extractBootstrapMarkers(content);
+    assert.equal(markers.length, 2);
+    const keys = markers.map((m) => m.caseKey).sort();
+    assert.deepEqual(keys, ["authorized", "requiresAttachment"]);
+  });
+
+  it("attributes to the correct export when multiple `export const` are present", () => {
+    // Bounded body window — bootstrap call in second export must not be
+    // misattributed to the first.
+    const content = `
+import { getMe } from "./me.contract.ts";
+
+export const meAuthorizedOverlay = contract.bootstrap(
+  getMe.case("authorized"),
+  async () => ({ token: "a" }),
+);
+
+export const helperConst = 42;
+
+export const meSecondOverlay = contract.bootstrap(
+  getMe.case("requiresAttachment"),
+  async () => ({ token: "b" }),
+);
+`;
+    const markers = extractBootstrapMarkers(content);
+    assert.equal(markers.length, 2);
+    assert.equal(markers[0].exportName, "meAuthorizedOverlay");
+    assert.equal(markers[0].caseKey, "authorized");
+    assert.equal(markers[1].exportName, "meSecondOverlay");
+    assert.equal(markers[1].caseKey, "requiresAttachment");
+  });
+
+  it("handles multi-line contract.bootstrap() call form", () => {
+    const content = `
+import { getMe } from "./me.contract.ts";
+
+export const meOverlay = contract
+  .bootstrap(
+    getMe.case("ok"),
+    async (ctx) => ({}),
+  );
+`;
+    const markers = extractBootstrapMarkers(content);
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].targetIdent, "getMe");
+    assert.equal(markers[0].caseKey, "ok");
+  });
+
+  it("returns empty for files with no contract.bootstrap() exports", () => {
+    const content = `
+import { contract } from "@glubean/sdk";
+const api = contract.http.with("svc", {});
+// @contract
+export const ping = api("svc.ping", {
+  endpoint: "GET /ping",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    const markers = extractBootstrapMarkers(content);
+    assert.equal(markers.length, 0);
+  });
+
+  it("exportLine is 1-based (matches other detectors)", () => {
+    const content = `
+import { getMe } from "./me.contract.ts";
+
+export const meOverlay = contract.bootstrap(
+  getMe.case("ok"),
+  async () => ({}),
+);
+`;
+    const markers = extractBootstrapMarkers(content);
+    assert.equal(markers.length, 1);
+    // Line 4 in the literal (1: blank, 2: import, 3: blank, 4: export const)
+    const lines = content.split("\n");
+    const expected = lines.findIndex((l) => l.startsWith("export const meOverlay")) + 1;
+    assert.equal(markers[0].exportLine, expected);
+  });
+});
+
+describe("findImportPath", () => {
+  it("returns path + originalName for a plain named import", () => {
+    const content = `import { getMe } from "./me.contract.ts";`;
+    const r = findImportPath(content, "getMe");
+    assert.deepEqual(r, { path: "./me.contract.ts", originalName: "getMe" });
+  });
+
+  it("returns originalName when import uses `as` alias", () => {
+    const content = `import { getMe as me } from "./me.contract.ts";`;
+    const r = findImportPath(content, "me");
+    assert.deepEqual(r, { path: "./me.contract.ts", originalName: "getMe" });
+  });
+
+  it("returns undefined when local ident is not imported", () => {
+    const content = `import { other } from "./somewhere.ts";`;
+    const r = findImportPath(content, "missing");
+    assert.equal(r, undefined);
+  });
+
+  it("handles multi-line import block", () => {
+    const content = `import {
+  a,
+  getMe,
+  c,
+} from "./me.contract.ts";`;
+    const r = findImportPath(content, "getMe");
+    assert.deepEqual(r, { path: "./me.contract.ts", originalName: "getMe" });
+  });
+
+  it("handles `import type` form", () => {
+    const content = `import type { SchemaT } from "./types.ts";`;
+    const r = findImportPath(content, "SchemaT");
+    assert.deepEqual(r, { path: "./types.ts", originalName: "SchemaT" });
+  });
+});
+
+describe("findContractIdInTarget", () => {
+  it("extracts contractId from `export const NAME = factory(\"id\", { ... })`", () => {
+    const content = `
+const api = contract.http.with("dummyjson", {});
+
+// @contract
+export const getMe = api("auth.me", {
+  endpoint: "GET /auth/me",
+  cases: { ok: { description: "ok", expect: { status: 200 } } },
+});
+`;
+    assert.equal(findContractIdInTarget(content, "getMe"), "auth.me");
+  });
+
+  it("returns undefined when target export not found", () => {
+    const content = `export const otherThing = something();`;
+    assert.equal(findContractIdInTarget(content, "getMe"), undefined);
+  });
 });
