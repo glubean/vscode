@@ -1,5 +1,7 @@
 # vscode — Glubean VSCode Extension
 
+> **Workspace-level rules: see [`../internal/CLAUDE.md`](../internal/CLAUDE.md)** (read first if you haven't this session).
+
 ## What This Repo Is
 VSCode extension for Glubean. Provides test discovery, CodeLens, run/debug, trace viewer.
 
@@ -26,3 +28,14 @@ VSCode extension for Glubean. Provides test discovery, CodeLens, run/debug, trac
 ## Tech Notes
 - TypeScript + esbuild bundling
 - Publishes to VS Code Marketplace via vsce
+
+## Commit gate (default: converge)
+
+Default — any commit, before "done":
+1. Run the changed test files — paste real output, no summary
+2. Run: `codex review --base <baseSha>`  (codex 5.5, --xhigh, no custom prompt)
+3. P1+ findings fix-iterate to 0
+4. Don't hand back with unresolved findings
+5. RFR Round ≤ 3 — beyond that, owner decides "ship or abort"
+
+Skip ONLY when owner explicitly says so (e.g. "just bump version", "only fix this typo"). Default is converge — never skip silently.
