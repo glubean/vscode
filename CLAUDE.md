@@ -29,13 +29,6 @@ VSCode extension for Glubean. Provides test discovery, CodeLens, run/debug, trac
 - TypeScript + esbuild bundling
 - Publishes to VS Code Marketplace via vsce
 
-## Commit gate (default: converge)
+## Commit gate
 
-Default — any commit, before "done":
-1. Run the changed test files — paste real output, no summary
-2. Run: `codex review --base <baseSha>`  (codex 5.5, --xhigh, no custom prompt)
-3. P1+ findings fix-iterate to 0
-4. Don't hand back with unresolved findings
-5. RFR Round ≤ 3 — beyond that, owner decides "ship or abort"
-
-Skip ONLY when owner explicitly says so (e.g. "just bump version", "only fix this typo"). Default is converge — never skip silently.
+See [`~/.claude/CLAUDE.md`](/Users/peisong/.claude/CLAUDE.md) (global) for the converge gate + propose-skip categories. This repo follows the global rule unchanged. Test runner is `npx tsx --test src/**/*.test.ts` (built-in node test).
