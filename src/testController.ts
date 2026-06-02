@@ -74,7 +74,7 @@ function showScratchModeHint(): void {
 
   vscode.window
     .showInformationMessage(
-      "Running in scratch mode — great for trying things out! Run `npx @glubean/cli@latest init` to create a full project.",
+      "Running in scratch mode — great for trying things out! Run `npx glubean@latest init` to create a full project.",
       "Open Terminal",
       "Don't show again",
     )
@@ -82,7 +82,7 @@ function showScratchModeHint(): void {
       if (choice === "Open Terminal") {
         const terminal = vscode.window.createTerminal("Glubean");
         terminal.show();
-        terminal.sendText("# Run: npx @glubean/cli@latest init", false);
+        terminal.sendText("# Run: npx glubean@latest init", false);
       }
     });
 }

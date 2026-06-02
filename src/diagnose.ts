@@ -133,7 +133,7 @@ export function detectIssues(data: DiagnosticData): Issue[] {
   if (!data.cliVersion) {
     issues.push({
       level: "warn",
-      message: "@glubean/cli not found — run: npm install --save-dev @glubean/cli",
+      message: "glubean not found — run: npm install --save-dev glubean",
     });
   }
 
@@ -206,15 +206,20 @@ function readSdkVersion(folderPath: string): string | undefined {
 }
 
 function readCliVersion(folderPath: string): { version: string; source: "local" | "global" } | undefined {
-  // Check local node_modules first
-  try {
-    const localPkgPath = path.join(folderPath, "node_modules", "@glubean", "cli", "package.json");
-    if (fs.existsSync(localPkgPath)) {
-      const pkg = JSON.parse(fs.readFileSync(localPkgPath, "utf-8"));
-      return { version: pkg.version, source: "local" };
+  // Check local node_modules first. Projects depend on the `glubean`
+  // package; `@glubean/cli` is its implementation dep (kept as a fallback
+  // for older projects / npm-hoisted installs). Both are versioned in
+  // lockstep, so either package.json yields the CLI version.
+  for (const segs of [["glubean"], ["@glubean", "cli"]]) {
+    try {
+      const localPkgPath = path.join(folderPath, "node_modules", ...segs, "package.json");
+      if (fs.existsSync(localPkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(localPkgPath, "utf-8"));
+        return { version: pkg.version, source: "local" };
+      }
+    } catch {
+      // try next candidate
     }
-  } catch {
-    // fall through
   }
 
   // Check global

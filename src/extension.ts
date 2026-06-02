@@ -600,11 +600,11 @@ export function activate(context: vscode.ExtensionContext): void {
 Run the following command in your terminal:
 
 \`\`\`bash
-npx @glubean/cli@latest init
+npx glubean@latest init
 \`\`\`
 
 This will scaffold a project with:
-- \`package.json\` with \`@glubean/sdk\` + \`@glubean/cli\` dev dependencies
+- \`package.json\` with \`@glubean/sdk\` + \`glubean\` dev dependencies
 - \`glubean.setup.ts\` — project-level plugin bootstrap (where you
   register custom protocols like gRPC / GraphQL via \`installPlugin(...)\`)
 - \`tsconfig.json\` configured for TypeScript tests
@@ -686,7 +686,7 @@ Includes patterns for:
 
 ## Next Steps
 
-1. Run \`npx @glubean/cli@latest init\` in your terminal
+1. Run \`npx glubean@latest init\` in your terminal
 2. Open the generated test or contract file
 3. Click the ▶ button to run your first test
 `,
@@ -696,7 +696,7 @@ Includes patterns for:
       // Also open terminal with the init command ready
       const terminal = vscode.window.createTerminal("Glubean Init");
       terminal.show();
-      terminal.sendText("npx @glubean/cli@latest init", false);
+      terminal.sendText("npx glubean@latest init", false);
     }),
   );
 

@@ -107,7 +107,7 @@ function detectIssues(data: DiagnosticData): Issue[] {
   if (!data.cliVersion) {
     issues.push({
       level: "warn",
-      message: "@glubean/cli not found \u2014 run: npm install --save-dev @glubean/cli",
+      message: "glubean not found \u2014 run: npm install --save-dev glubean",
     });
   }
 
@@ -277,7 +277,7 @@ describe("detectIssues", () => {
 
   it("detects missing CLI", () => {
     const issues = detectIssues(makeBaseData({ cliVersion: undefined }));
-    assert.ok(issues.some((i) => i.message.includes("@glubean/cli not found")));
+    assert.ok(issues.some((i) => i.message.includes("glubean not found")));
   });
 
   it("detects scratch mode workspace", () => {

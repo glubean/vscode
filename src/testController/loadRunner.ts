@@ -197,7 +197,7 @@ export async function loadRunnerForCwd(
         `[warning] install runner directly:  npm install -D @glubean/runner`,
       );
       log?.(
-        `[warning] Or install the CLI (which transitively pulls runner):  npm install -D @glubean/cli`,
+        `[warning] Or install the CLI (which transitively pulls runner):  npm install -D glubean`,
       );
     }
   }
