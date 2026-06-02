@@ -48,23 +48,9 @@ function isGlubeanProject(folderPath: string): boolean {
   }
 }
 
-function getInstalledCliVersion(folderPath: string): string | undefined {
-  // Check local node_modules first. Projects depend on the `glubean`
-  // package; `@glubean/cli` is its implementation dep (fallback for older
-  // projects / npm-hoisted installs). Both share the CLI version.
-  for (const segs of [["glubean"], ["@glubean", "cli"]]) {
-    try {
-      const localPkgPath = path.join(folderPath, "node_modules", ...segs, "package.json");
-      if (fs.existsSync(localPkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(localPkgPath, "utf-8"));
-        return pkg.version;
-      }
-    } catch {
-      // try next candidate / fall through to global check
-    }
-  }
-
-  // Check global — resolve from the glubean bin
+function getInstalledCliVersion(): string | undefined {
+  // The CLI is a globally-installed tool; projects depend on the @glubean/*
+  // libraries, not the CLI package. Resolve the global glubean bin's version.
   try {
     const { execSync } = require("node:child_process");
     const output = execSync("glubean --version", {
@@ -152,7 +138,7 @@ async function updateForFolder(
     return;
   }
 
-  const installed = getInstalledCliVersion(folderPath);
+  const installed = getInstalledCliVersion();
   const latest = await fetchLatestVersion(context);
   updateStatusBar(installed, latest);
 }
@@ -227,19 +213,6 @@ export function activateCliStatus(
       void updateForFolder(getActiveFolderPath(), context);
     }),
   );
-
-  // Watch for CLI package changes (install/upgrade/remove)
-  const cliWatcher = vscode.workspace.createFileSystemWatcher(
-    "**/node_modules/{glubean,@glubean/cli}/package.json",
-  );
-  const onCliChange = () => {
-    scanWorkspaceFolders();
-    void updateForFolder(getActiveFolderPath(), context);
-  };
-  cliWatcher.onDidCreate(onCliChange);
-  cliWatcher.onDidChange(onCliChange);
-  cliWatcher.onDidDelete(onCliChange);
-  context.subscriptions.push(cliWatcher);
 
   // Also watch for SDK dependency changes (project becomes/stops being glubean project)
   const pkgWatcher = vscode.workspace.createFileSystemWatcher(

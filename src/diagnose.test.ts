@@ -107,7 +107,7 @@ function detectIssues(data: DiagnosticData): Issue[] {
   if (!data.cliVersion) {
     issues.push({
       level: "warn",
-      message: "glubean not found \u2014 run: npm install --save-dev glubean",
+      message: "glubean not found \u2014 run: npm install -g glubean",
     });
   }
 

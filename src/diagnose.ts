@@ -53,7 +53,7 @@ export interface DiagnosticData {
   vscodeVersion: string;
   extensionVersion: string;
   cliVersion: string | undefined;
-  cliSource: "local" | "global" | undefined;
+  cliSource: "global" | undefined;
   workspaceFolders: WorkspaceDiag[];
   discovery: DiscoveryDiag;
   currentFile: CurrentFileDiag | undefined;
@@ -133,7 +133,7 @@ export function detectIssues(data: DiagnosticData): Issue[] {
   if (!data.cliVersion) {
     issues.push({
       level: "warn",
-      message: "glubean not found — run: npm install --save-dev glubean",
+      message: "glubean not found — run: npm install -g glubean",
     });
   }
 
@@ -205,24 +205,10 @@ function readSdkVersion(folderPath: string): string | undefined {
   }
 }
 
-function readCliVersion(folderPath: string): { version: string; source: "local" | "global" } | undefined {
-  // Check local node_modules first. Projects depend on the `glubean`
-  // package; `@glubean/cli` is its implementation dep (kept as a fallback
-  // for older projects / npm-hoisted installs). Both are versioned in
-  // lockstep, so either package.json yields the CLI version.
-  for (const segs of [["glubean"], ["@glubean", "cli"]]) {
-    try {
-      const localPkgPath = path.join(folderPath, "node_modules", ...segs, "package.json");
-      if (fs.existsSync(localPkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(localPkgPath, "utf-8"));
-        return { version: pkg.version, source: "local" };
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-
-  // Check global
+function readCliVersion(): { version: string; source: "global" } | undefined {
+  // The CLI is a globally-installed tool (`npm i -g glubean` / `npx glubean`);
+  // projects depend on the @glubean/* libraries, not the CLI package — so only
+  // the global CLI version is resolved.
   const output = tryExec("glubean --version");
   if (output) {
     const match = output.match(/(\d+\.\d+\.\d+)/);
@@ -263,10 +249,9 @@ async function collectDiagnosticData(): Promise<DiagnosticData> {
   const ext = vscode.extensions.getExtension("Glubean.glubean");
   const extensionVersion = ext?.packageJSON?.version ?? "unknown";
 
-  // CLI — try first workspace folder
+  // CLI — globally-installed tool (not a project dependency)
   const folders = vscode.workspace.workspaceFolders ?? [];
-  const firstFolder = folders[0]?.uri.fsPath;
-  const cli = firstFolder ? readCliVersion(firstFolder) : undefined;
+  const cli = readCliVersion();
 
   // Workspace folders
   const workspaceFolders: WorkspaceDiag[] = [];
